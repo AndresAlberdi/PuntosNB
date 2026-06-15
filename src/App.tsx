@@ -47,6 +47,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           <h1 className="text-xl font-black text-blue-600 tracking-tight">PuntosNB</h1>
           {userData && (
             <div className="flex items-center gap-4">
+              <span className="text-sm font-medium text-gray-700 hidden sm:inline">Hola, {userData.nombre}</span>
               {userData?.rol === 'superadmin' && (
                 <Link to="/superadmin" className="text-sm font-medium text-blue-600 hover:text-blue-800">Panel Sistema</Link>
               )}
