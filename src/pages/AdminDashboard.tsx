@@ -51,6 +51,22 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleToggleRegla = async (regla: ReglaPunto) => {
+    if (!comercio || !userData?.comercioId) return;
+    try {
+      const docRef = doc(db, 'comercios', userData.comercioId);
+      // Replace the entire array with the updated rule
+      const nuevasReglas = comercio.reglas.map(r => 
+        r.id === regla.id ? { ...r, activa: !r.activa } : r
+      );
+      await updateDoc(docRef, { reglas: nuevasReglas });
+      fetchComercio();
+    } catch (err) {
+      console.error(err);
+      alert('Error al cambiar estado de la regla');
+    }
+  };
+
   const handleEliminarPremio = async (premio: Premio) => {
     if (!comercio || !userData?.comercioId) return;
     if (window.confirm('¿Seguro que deseas eliminar este premio?')) {
@@ -180,8 +196,16 @@ const AdminDashboard: React.FC = () => {
             <ul className="space-y-3">
               {comercio.reglas.map(regla => (
                 <li key={regla.id} className="bg-white p-3 rounded shadow-sm flex flex-col border border-gray-100 relative">
-                  <button onClick={() => handleEliminarRegla(regla)} className="absolute top-2 right-2 text-red-500 hover:text-red-700 text-sm font-bold">✕</button>
-                  <span className="font-semibold text-gray-800 pr-6">
+                  <div className="absolute top-2 right-2 flex items-center gap-2">
+                    <button 
+                      onClick={() => handleToggleRegla(regla)} 
+                      className={`text-xs px-2 py-0.5 rounded font-bold ${regla.activa ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}
+                    >
+                      {regla.activa ? 'Activa' : 'Inactiva'}
+                    </button>
+                    <button onClick={() => handleEliminarRegla(regla)} className="text-red-500 hover:text-red-700 text-sm font-bold">✕</button>
+                  </div>
+                  <span className={`font-semibold pr-24 ${regla.activa ? 'text-gray-800' : 'text-gray-400'}`}>
                     {regla.tipo === 'POR_COMPRA' && 'Regla General por Compra'}
                     {regla.tipo === 'POR_MONTO' && 'Regla por Rangos de Monto'}
                     {regla.tipo === 'POR_PRODUCTO' && `Regla para Producto: ${regla.nombreProducto}`}

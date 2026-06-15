@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { useNavigate } from 'react-router-dom';
-import { seedDatabase } from '../utils/seedDatabase';
 import { useAuth } from '../contexts/AuthContext';
 
 const Login: React.FC = () => {
@@ -45,19 +44,6 @@ const Login: React.FC = () => {
     setLoading(false);
   };
 
-  const handleSeed = async () => {
-    if (window.confirm("¿Estás seguro de poblar la base de datos? Esto creará usuarios y comercios de prueba.")) {
-      setLoading(true);
-      const res = await seedDatabase();
-      if (res.success) {
-        alert(res.message + " Ahora puedes iniciar sesión con admin@puntosnb.com / 123456");
-      } else {
-        alert("Error: " + res.message);
-      }
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-60px)] p-4">
       <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-sm border border-gray-100">
@@ -96,23 +82,6 @@ const Login: React.FC = () => {
             {loading ? 'Cargando...' : 'Iniciar Sesión'}
           </button>
         </form>
-
-        <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-          <p className="text-sm text-gray-500 mb-2">¿Entorno de desarrollo?</p>
-          <button 
-            onClick={handleSeed}
-            disabled={loading}
-            className="text-xs bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300 transition"
-          >
-            Poblar Base de Datos (Seeding)
-          </button>
-          <div className="text-left mt-4 text-xs text-gray-400">
-            <p>Admin: admin@puntosnb.com</p>
-            <p>Vendedor: vendedor@puntosnb.com</p>
-            <p>Cliente: cliente@puntosnb.com</p>
-            <p>Clave genérica: 123456</p>
-          </div>
-        </div>
       </div>
     </div>
   );

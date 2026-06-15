@@ -13,8 +13,8 @@ export const seedDatabase = async () => {
 
     const reglas: ReglaPunto[] = [
       { id: "r1", tipo: "POR_COMPRA", puntosAOtorgar: 10, activa: true },
-      { id: "r2", tipo: "POR_MONTO", puntosAOtorgar: 1, montoMinimo: 10, activa: true },
-      { id: "r3", tipo: "POR_PRODUCTO", puntosAOtorgar: 50, productoId: "p1", nombreProducto: "Hamburguesa Especial", activa: true }
+      { id: "r2", tipo: "POR_MONTO", rangos: [{ min: 0, max: 100, puntos: 1 }, { min: 101, max: 500, puntos: 5 }], activa: true },
+      { id: "r3", tipo: "POR_PRODUCTO", puntosAOtorgar: 50, nombreProducto: "Cafe Especial", activa: true }
     ];
 
     const premios: Premio[] = [

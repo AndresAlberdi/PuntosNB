@@ -24,10 +24,13 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
   return <>{children}</>;
 };
 
+import { ChangePasswordModal } from './components/ChangePasswordModal';
+
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { userData } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [showPasswordModal, setShowPasswordModal] = React.useState(false);
 
   const handleLogout = () => {
     import('firebase/auth').then(({ signOut }) => {
@@ -61,6 +64,14 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                 </div>
               )}
               <span className="text-sm font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full uppercase tracking-wider">{userData?.rol}</span>
+              
+              <button 
+                onClick={() => setShowPasswordModal(true)}
+                className="text-sm font-medium text-gray-600 hover:text-gray-900"
+              >
+                Cambiar Clave
+              </button>
+
               <button 
                 onClick={handleLogout}
                 className="text-sm font-medium text-red-600 hover:text-red-700"
@@ -74,6 +85,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <main className="max-w-4xl mx-auto mt-6 px-4">
         {children}
       </main>
+
+      {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}
     </div>
   );
 };
