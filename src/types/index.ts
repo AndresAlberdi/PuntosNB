@@ -30,6 +30,12 @@ export interface ReglaPunto {
   activa: boolean;
 }
 
+export interface ProductoCatalogo {
+  id: string;
+  nombre: string;
+  activo: boolean;
+}
+
 export interface Premio {
   id: string;
   nombre: string;
@@ -46,6 +52,7 @@ export interface Comercio {
   logoUrl?: string;
   reglas: ReglaPunto[];
   premios: Premio[];
+  productos?: ProductoCatalogo[]; // Added
   createdAt: number;
 }
 

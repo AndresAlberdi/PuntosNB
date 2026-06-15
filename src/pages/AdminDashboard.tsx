@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import type { Comercio, ReglaPunto, Premio, RangoMonto } from '../types';
+import type { Comercio, ReglaPunto, Premio, RangoMonto, ProductoCatalogo } from '../types';
 
 const AdminDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -12,11 +12,13 @@ const AdminDashboard: React.FC = () => {
   // Modals state
   const [showReglaModal, setShowReglaModal] = useState(false);
   const [showPremioModal, setShowPremioModal] = useState(false);
+  const [showProductoModal, setShowProductoModal] = useState(false);
 
   // Form states
   const [nuevaRegla, setNuevaRegla] = useState<Partial<ReglaPunto>>({ tipo: 'POR_COMPRA', activa: true, puntosAOtorgar: 10 });
   const [rangosMonto, setRangosMonto] = useState<RangoMonto[]>([{ min: 0, max: 100, puntos: 1 }]);
   const [nuevoPremio, setNuevoPremio] = useState<Partial<Premio>>({ activo: true, puntosRequeridos: 100 });
+  const [nuevoProducto, setNuevoProducto] = useState<Partial<ProductoCatalogo>>({ activo: true, nombre: '' });
 
   const fetchComercio = async () => {
     if (userData?.comercioId) {
@@ -81,6 +83,35 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleToggleProducto = async (producto: ProductoCatalogo) => {
+    if (!comercio || !userData?.comercioId) return;
+    try {
+      const docRef = doc(db, 'comercios', userData.comercioId);
+      const nuevosProductos = (comercio.productos || []).map(p => 
+        p.id === producto.id ? { ...p, activo: !p.activo } : p
+      );
+      await updateDoc(docRef, { productos: nuevosProductos });
+      fetchComercio();
+    } catch (err) {
+      console.error(err);
+      alert('Error al cambiar estado del producto');
+    }
+  };
+
+  const handleEliminarProducto = async (producto: ProductoCatalogo) => {
+    if (!comercio || !userData?.comercioId) return;
+    if (window.confirm('¿Seguro que deseas eliminar este producto?')) {
+      try {
+        const docRef = doc(db, 'comercios', userData.comercioId);
+        await updateDoc(docRef, { productos: arrayRemove(producto) });
+        fetchComercio();
+      } catch (err) {
+        console.error(err);
+        alert('Error al eliminar producto');
+      }
+    }
+  };
+
   const agregarRango = () => {
     setRangosMonto([...rangosMonto, { min: 0, max: 0, puntos: 0 }]);
   };
@@ -95,9 +126,21 @@ const AdminDashboard: React.FC = () => {
     setRangosMonto(rangosMonto.filter((_, i) => i !== index));
   };
 
-  const validarSolapamientoRangos = (rangos: RangoMonto[]) => {
+  const validarSolapamientoRangos = (nuevosRangos: RangoMonto[]) => {
+    if (!comercio) return true;
+    
+    // Obtener todos los rangos existentes de otras reglas de monto ACTIVAS
+    const rangosExistentes: RangoMonto[] = [];
+    comercio.reglas.forEach(r => {
+      if (r.tipo === 'POR_MONTO' && r.activa && r.rangos) {
+        rangosExistentes.push(...r.rangos);
+      }
+    });
+
+    const todosLosRangos = [...rangosExistentes, ...nuevosRangos];
     // Ordenar por mínimo
-    const sorted = [...rangos].sort((a, b) => a.min - b.min);
+    const sorted = todosLosRangos.sort((a, b) => a.min - b.min);
+    
     for (let i = 0; i < sorted.length - 1; i++) {
       if (sorted[i].max >= sorted[i+1].min) {
         return false;
@@ -112,18 +155,25 @@ const AdminDashboard: React.FC = () => {
 
     if (nuevaRegla.tipo === 'POR_MONTO') {
       if (!validarSolapamientoRangos(rangosMonto)) {
-        alert("Los rangos de montos se solapan o son inválidos. Por favor, asegúrate de que no haya cruces (ej: 0-10 y 10-20). Usa 0-9.99 y 10-20.");
+        alert("Los rangos de montos se solapan con rangos existentes en reglas activas o dentro de la misma regla. Verifica y corrige.");
         return;
       }
     }
     
+    let nombreProd = '';
+    if (nuevaRegla.tipo === 'POR_PRODUCTO' && nuevaRegla.productoId) {
+      const prod = comercio.productos?.find(p => p.id === nuevaRegla.productoId);
+      if (prod) nombreProd = prod.nombre;
+    }
+
     const reglaFinal: ReglaPunto = {
       id: `regla_${Date.now()}`,
       tipo: nuevaRegla.tipo as any,
       activa: true,
       ...(nuevaRegla.tipo === 'POR_COMPRA' ? { puntosAOtorgar: Number(nuevaRegla.puntosAOtorgar) || 0 } : {}),
       ...(nuevaRegla.tipo === 'POR_PRODUCTO' ? { 
-          nombreProducto: nuevaRegla.nombreProducto || '', 
+          productoId: nuevaRegla.productoId || '',
+          nombreProducto: nombreProd, 
           puntosAOtorgar: Number(nuevaRegla.puntosAOtorgar) || 0 
       } : {}),
       ...(nuevaRegla.tipo === 'POR_MONTO' ? { rangos: rangosMonto } : {})
@@ -170,11 +220,35 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleCrearProducto = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!comercio || !userData?.comercioId) return;
+
+    const prodFinal: ProductoCatalogo = {
+      id: `prod_${Date.now()}`,
+      nombre: nuevoProducto.nombre || 'Nuevo Producto',
+      activo: true
+    };
+
+    try {
+      const docRef = doc(db, 'comercios', userData.comercioId);
+      await updateDoc(docRef, {
+        productos: arrayUnion(prodFinal)
+      });
+      setShowProductoModal(false);
+      setNuevoProducto({ activo: true, nombre: '' });
+      fetchComercio();
+    } catch (err) {
+      console.error(err);
+      alert('Error al crear producto');
+    }
+  };
+
   if (loading) return <div className="p-8 text-center">Cargando datos del comercio...</div>;
   if (!comercio) return <div className="p-8 text-center text-red-500">Error: No se encontró el comercio asociado.</div>;
 
   const hasReglaCompra = comercio.reglas.some(r => r.tipo === 'POR_COMPRA');
-  const hasReglaMonto = comercio.reglas.some(r => r.tipo === 'POR_MONTO');
+  const productosCatalog = comercio.productos || [];
 
   return (
     <div className="p-6 space-y-6">
@@ -183,7 +257,7 @@ const AdminDashboard: React.FC = () => {
         <p className="text-gray-500 text-sm">NIT/RUT: {comercio.nit_rut}</p>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-6">
         {/* Reglas de Puntos */}
         <div className="bg-blue-50 p-6 rounded-xl shadow-sm border border-blue-100">
           <div className="flex justify-between items-center mb-4">
@@ -251,6 +325,36 @@ const AdminDashboard: React.FC = () => {
             </ul>
           )}
         </div>
+
+        {/* Productos */}
+        <div className="bg-purple-50 p-6 rounded-xl shadow-sm border border-purple-100">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold text-purple-900">Productos Especiales</h3>
+            <button onClick={() => setShowProductoModal(true)} className="text-sm bg-purple-600 text-white px-3 py-1 rounded hover:bg-purple-700 transition">+ Nuevo Producto</button>
+          </div>
+          {productosCatalog.length === 0 ? (
+            <p className="text-gray-500 text-sm">No hay productos en el catálogo.</p>
+          ) : (
+            <ul className="space-y-3">
+              {productosCatalog.map(prod => (
+                <li key={prod.id} className="bg-white p-3 rounded shadow-sm flex items-center justify-between border border-gray-100">
+                  <div className="flex flex-col">
+                    <span className={`font-semibold ${prod.activo ? 'text-gray-800' : 'text-gray-400'}`}>{prod.nombre}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => handleToggleProducto(prod)} 
+                      className={`text-xs px-2 py-0.5 rounded font-bold ${prod.activo ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}
+                    >
+                      {prod.activo ? 'Activo' : 'Inactivo'}
+                    </button>
+                    <button onClick={() => handleEliminarProducto(prod)} className="text-red-500 hover:text-red-700 text-sm font-bold ml-1">✕</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* Regla Modal */}
@@ -267,11 +371,10 @@ const AdminDashboard: React.FC = () => {
                   onChange={(e) => setNuevaRegla({...nuevaRegla, tipo: e.target.value as any})}
                 >
                   {!hasReglaCompra && <option value="POR_COMPRA">Puntos fijos por compra general</option>}
-                  {!hasReglaMonto && <option value="POR_MONTO">Puntos según rangos de monto</option>}
+                  <option value="POR_MONTO">Puntos según rangos de monto</option>
                   <option value="POR_PRODUCTO">Puntos por producto específico</option>
                 </select>
                 {hasReglaCompra && nuevaRegla.tipo !== 'POR_COMPRA' && <p className="text-xs text-gray-500 mt-1">Ya existe una regla por compra general. Solo puedes tener una.</p>}
-                {hasReglaMonto && nuevaRegla.tipo !== 'POR_MONTO' && <p className="text-xs text-gray-500 mt-1">Ya existe una regla por rangos. Solo puedes tener una.</p>}
               </div>
 
               {(nuevaRegla.tipo === 'POR_COMPRA' || nuevaRegla.tipo === 'POR_PRODUCTO') && (
@@ -283,8 +386,22 @@ const AdminDashboard: React.FC = () => {
 
               {nuevaRegla.tipo === 'POR_PRODUCTO' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Producto</label>
-                  <input type="text" required className="w-full border border-gray-300 rounded px-3 py-2" value={nuevaRegla.nombreProducto || ''} onChange={(e) => setNuevaRegla({...nuevaRegla, nombreProducto: e.target.value})} />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Seleccionar Producto</label>
+                  {productosCatalog.length === 0 ? (
+                    <p className="text-red-500 text-sm">No hay productos en el catálogo. Por favor crea uno primero.</p>
+                  ) : (
+                    <select 
+                      className="w-full border border-gray-300 rounded px-3 py-2"
+                      value={nuevaRegla.productoId || ''}
+                      onChange={(e) => setNuevaRegla({...nuevaRegla, productoId: e.target.value})}
+                      required
+                    >
+                      <option value="">-- Elige un producto --</option>
+                      {productosCatalog.filter(p => p.activo).map(p => (
+                        <option key={p.id} value={p.id}>{p.nombre}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               )}
 
@@ -346,6 +463,25 @@ const AdminDashboard: React.FC = () => {
               <div className="flex gap-3 justify-end pt-4 border-t">
                 <button type="button" onClick={() => setShowPremioModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
                 <button type="submit" className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700">Guardar Premio</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Producto Modal */}
+      {showProductoModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold mb-4">Nuevo Producto</h3>
+            <form onSubmit={handleCrearProducto} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Producto</label>
+                <input type="text" required className="w-full border border-gray-300 rounded px-3 py-2" value={nuevoProducto.nombre || ''} onChange={(e) => setNuevoProducto({...nuevoProducto, nombre: e.target.value})} />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-4 border-t">
+                <button type="button" onClick={() => setShowProductoModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
+                <button type="submit" className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">Guardar Producto</button>
               </div>
             </form>
           </div>
