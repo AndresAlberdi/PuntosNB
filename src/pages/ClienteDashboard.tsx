@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, runTransaction, getDoc, addDoc, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, runTransaction, getDoc, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Scanner } from '@yudiel/react-qr-scanner';
