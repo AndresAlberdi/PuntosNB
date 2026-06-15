@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, doc, setDoc, getDocs } from 'firebase/firestore';
+import { collection, doc, setDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { db } from '../firebase';
 import { secondaryAuth } from '../secondaryApp';
@@ -22,6 +22,10 @@ const SuperAdminDashboard: React.FC = () => {
 
   const [mensaje, setMensaje] = useState<{texto: string, tipo: 'success'|'error'} | null>(null);
 
+  // States for listing users
+  const [selectedComercioToList, setSelectedComercioToList] = useState('');
+  const [comercioUsers, setComercioUsers] = useState<Usuario[]>([]);
+
   const cargarComercios = async () => {
     try {
       const snap = await getDocs(collection(db, 'comercios'));
@@ -37,6 +41,25 @@ const SuperAdminDashboard: React.FC = () => {
   useEffect(() => {
     cargarComercios();
   }, []);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (!selectedComercioToList) {
+        setComercioUsers([]);
+        return;
+      }
+      try {
+        const q = query(collection(db, 'users'), where('comercioId', '==', selectedComercioToList));
+        const snap = await getDocs(q);
+        const users: Usuario[] = [];
+        snap.forEach(d => users.push(d.data() as Usuario));
+        setComercioUsers(users);
+      } catch (err) {
+        console.error("Error fetching users:", err);
+      }
+    };
+    fetchUsers();
+  }, [selectedComercioToList]);
 
   const handleCrearComercio = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,9 +112,56 @@ const SuperAdminDashboard: React.FC = () => {
       setEmail('');
       setPassword('');
       setNombreUsuario('');
+      if (selectedComercioToList === comercioId) {
+        setSelectedComercioToList(''); // trigger refresh manually or just clear
+      }
     } catch (error: any) {
       console.error(error);
       setMensaje({ texto: 'Error al crear usuario: ' + error.message, tipo: 'error' });
+    }
+  };
+
+  const handleRecrearClave = async (usuario: Usuario) => {
+    const comercio = comercios.find(c => c.id === usuario.comercioId);
+    if (!comercio) return;
+
+    const nombreLimpio = comercio.nombre.replace(/\s+/g, '');
+    const nuevaClave = `${nombreLimpio}*123`;
+
+    const confirmacion = window.confirm(
+      `ATENCIÓN: Para recrear a este usuario, PRIMERO debes ir a Firebase Console -> Authentication -> Users y BORRAR manualmente el correo ${usuario.email}.\n\n` +
+      `Si ya lo borraste, presiona Aceptar.\n` +
+      `La nueva clave será exactamente: ${nuevaClave}`
+    );
+
+    if (!confirmacion) return;
+
+    setMensaje(null);
+    try {
+      // 1. Recreate the user in Firebase Auth
+      const userCred = await createUserWithEmailAndPassword(secondaryAuth, usuario.email, nuevaClave);
+      const newUid = userCred.user.uid;
+
+      // 2. Save new doc in Firestore with old data
+      const newUserData = { ...usuario, uid: newUid, updatedAt: Date.now() };
+      await setDoc(doc(db, 'users', newUid), newUserData);
+
+      // 3. Delete old doc in Firestore
+      await deleteDoc(doc(db, 'users', usuario.uid));
+
+      setMensaje({ texto: `Usuario recreado. Su nueva clave es: ${nuevaClave}`, tipo: 'success' });
+      
+      // Refresh list
+      setSelectedComercioToList('');
+      setTimeout(() => setSelectedComercioToList(usuario.comercioId!), 100);
+
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/email-already-in-use') {
+        setMensaje({ texto: 'ERROR: El usuario aún existe en Firebase Auth. Por favor bórralo manualmente primero.', tipo: 'error' });
+      } else {
+        setMensaje({ texto: 'Error al recrear usuario: ' + err.message, tipo: 'error' });
+      }
     }
   };
 
@@ -203,6 +273,62 @@ const SuperAdminDashboard: React.FC = () => {
         </div>
 
       </div>
+
+      {/* Listar Usuarios */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mt-8">
+        <h3 className="text-lg font-bold mb-4 text-green-900">3. Gestionar Usuarios por Comercio</h3>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona el Comercio para ver sus usuarios</label>
+          <select 
+            className="w-full max-w-md border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-green-500"
+            value={selectedComercioToList} onChange={e => setSelectedComercioToList(e.target.value)}
+          >
+            <option value="">-- Selecciona un Comercio --</option>
+            {comercios.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </div>
+
+        {selectedComercioToList && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-sm text-gray-600">
+                  <th className="p-3">Nombre</th>
+                  <th className="p-3">Correo</th>
+                  <th className="p-3">Rol</th>
+                  <th className="p-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comercioUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="p-4 text-center text-gray-500">No hay usuarios registrados en este comercio.</td>
+                  </tr>
+                ) : (
+                  comercioUsers.map(u => (
+                    <tr key={u.uid} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="p-3 font-medium text-gray-800">{u.nombre}</td>
+                      <td className="p-3 text-gray-600">{u.email}</td>
+                      <td className="p-3 text-xs">
+                        <span className="bg-gray-100 px-2 py-1 rounded text-gray-600 font-bold uppercase">{u.rol.replace('_', ' ')}</span>
+                      </td>
+                      <td className="p-3">
+                        <button 
+                          onClick={() => handleRecrearClave(u)}
+                          className="text-xs bg-red-100 text-red-700 font-bold px-3 py-1 rounded hover:bg-red-200 transition"
+                        >
+                          Recrear Contraseña
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 };
