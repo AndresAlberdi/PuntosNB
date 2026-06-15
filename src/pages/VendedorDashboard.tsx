@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { Scanner } from '@yudiel/react-qr-scanner';
 import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -18,6 +19,7 @@ const VendedorDashboard: React.FC = () => {
   const [qrData, setQrData] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'GENERAR' | 'ESCANEAR'>('GENERAR');
   const [mensaje, setMensaje] = useState<{ texto: string, tipo: 'success' | 'error' | 'info' } | null>(null);
+  const [escaneando, setEscaneando] = useState(false);
 
   useEffect(() => {
     const fetchComercio = async () => {
@@ -44,6 +46,7 @@ const VendedorDashboard: React.FC = () => {
 
   const procesarQRCanje = async (sesionId: string) => {
     if (!userData || !comercio) return;
+    setEscaneando(false);
     setMensaje({ texto: "Procesando canje...", tipo: 'info' });
 
     try {
@@ -363,8 +366,36 @@ const VendedorDashboard: React.FC = () => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center">
           <h3 className="font-bold text-lg mb-4 text-purple-900">Escanear QR de Canje</h3>
           
-          <div className="w-full max-w-sm mt-2">
-            <p className="text-sm text-gray-600 mb-4 text-center">Para pruebas en local sin cámara web, pide al cliente el ID de su QR de canje e ingrésalo aquí:</p>
+          {!escaneando ? (
+            <button 
+              onClick={() => setEscaneando(true)}
+              className="w-full max-w-sm bg-purple-600 text-white font-medium py-4 rounded-xl shadow-md hover:bg-purple-700 transition flex items-center justify-center gap-2 mb-8"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+              Abrir Cámara
+            </button>
+          ) : (
+            <>
+              <div className="w-full max-w-sm overflow-hidden rounded-lg border-2 border-dashed border-purple-300 relative bg-gray-50 flex items-center justify-center min-h-[250px]">
+                <Scanner 
+                  onScan={(result) => {
+                    if (result && result.length > 0) {
+                      procesarQRCanje(result[0].rawValue);
+                    }
+                  }}
+                />
+              </div>
+              <button 
+                onClick={() => setEscaneando(false)}
+                className="mt-4 text-red-600 font-medium hover:underline"
+              >
+                Cerrar Cámara
+              </button>
+            </>
+          )}
+
+          <div className="w-full max-w-sm mt-6 pt-6 border-t border-gray-100">
+            <p className="text-sm text-gray-600 mb-4 text-center">O ingresa el ID del QR manualmente:</p>
             <div className="flex gap-2">
               <input 
                 id="manual-qr-canje-input"
@@ -379,7 +410,7 @@ const VendedorDashboard: React.FC = () => {
                 }}
                 className="bg-purple-600 text-white px-4 py-2 rounded font-medium text-sm hover:bg-purple-700"
               >
-                Procesar Canje
+                Procesar
               </button>
             </div>
           </div>

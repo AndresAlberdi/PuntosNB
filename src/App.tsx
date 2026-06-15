@@ -1,12 +1,14 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import type { RolUsuario } from './types';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import VendedorDashboard from './pages/VendedorDashboard';
 import ClienteDashboard from './pages/ClienteDashboard';
+import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import Reportes from './pages/Reportes';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: RolUsuario[] }) => {
   const { currentUser, userData, loading } = useAuth();
@@ -23,8 +25,6 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
 
   return <>{children}</>;
 };
-
-import { ChangePasswordModal } from './components/ChangePasswordModal';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { userData } = useAuth();
@@ -47,7 +47,10 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           <h1 className="text-xl font-black text-blue-600 tracking-tight">PuntosNB</h1>
           {userData && (
             <div className="flex items-center gap-4">
-              {(userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor' || userData?.rol === 'superadmin') && (
+              {userData?.rol === 'superadmin' && (
+                <Link to="/superadmin" className="text-sm font-medium text-blue-600 hover:text-blue-800">Panel Sistema</Link>
+              )}
+              {(userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') && (
                 <div className="flex gap-2">
                   <button 
                     onClick={() => navigate(`/${userData.rol === 'cliente' ? 'cliente' : userData.rol === 'vendedor' ? 'vendedor' : 'admin'}`)}
@@ -116,6 +119,12 @@ const AppRoutes = () => {
         </ProtectedRoute>
       } />
 
+      <Route path="/superadmin/*" element={
+        <ProtectedRoute allowedRoles={['superadmin']}>
+          <SuperAdminDashboard />
+        </ProtectedRoute>
+      } />
+
       <Route path="/reportes" element={
         <ProtectedRoute allowedRoles={['admin_comercio', 'superadmin', 'vendedor']}>
           <Reportes />
@@ -126,6 +135,7 @@ const AppRoutes = () => {
         !userData ? <Navigate to="/login" replace /> :
         userData.rol === 'cliente' ? <Navigate to="/cliente" replace /> :
         userData.rol === 'vendedor' ? <Navigate to="/vendedor" replace /> :
+        userData.rol === 'superadmin' ? <Navigate to="/superadmin" replace /> :
         <Navigate to="/admin" replace />
       } />
     </Routes>
