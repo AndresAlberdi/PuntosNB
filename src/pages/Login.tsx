@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
@@ -8,10 +8,12 @@ import { useAuth } from '../contexts/AuthContext';
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [mensaje, setMensaje] = useState<{texto: string, tipo: 'success'|'error'} | null>(null);
   const [loading, setLoading] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
-  const [nombre, setNombre] = useState('');
   const navigate = useNavigate();
   const { currentUser, userData, loading: authLoading } = useAuth();
 
@@ -44,9 +46,10 @@ const Login: React.FC = () => {
     );
   }
 
-  const handleAuth = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError('');
+    setMensaje(null);
     setLoading(true);
     try {
       if (isRegistering) {
@@ -71,6 +74,25 @@ const Login: React.FC = () => {
     setLoading(false);
   };
 
+  const handleRecuperarClave = async () => {
+    if (!email) {
+      setError('Por favor, ingresa tu correo electrónico arriba para poder enviarte el enlace de recuperación.');
+      return;
+    }
+    setError('');
+    setMensaje(null);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setMensaje({ texto: 'Se ha enviado un enlace de recuperación a tu correo electrónico.', tipo: 'success' });
+    } catch (err: any) {
+      if (err.code === 'auth/user-not-found') {
+        setError('No existe ninguna cuenta registrada con este correo.');
+      } else {
+        setError('Error al intentar enviar el correo: ' + err.message);
+      }
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setError('');
     setLoading(true);
@@ -90,7 +112,7 @@ const Login: React.FC = () => {
         });
       }
     } catch (err: any) {
-      setError('Error al iniciar sesión con Google.');
+      setError('Error al iniciar sesión con Google: ' + err.message);
       console.error(err);
     }
     setLoading(false);
@@ -101,7 +123,12 @@ const Login: React.FC = () => {
       <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-sm border border-gray-100">
         <h2 className="text-2xl font-bold text-center text-blue-600 mb-6">PuntosNB</h2>
         
-        {error && <div className="bg-red-50 text-red-600 p-3 rounded mb-4 text-sm">{error}</div>}
+        {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm font-medium">{error}</div>}
+        {mensaje && (
+          <div className={`px-4 py-3 rounded mb-4 text-sm font-medium ${mensaje.tipo === 'success' ? 'bg-green-100 border-green-400 text-green-700' : 'bg-red-100 border-red-400 text-red-700'}`}>
+            {mensaje.texto}
+          </div>
+        )}
 
         <form onSubmit={handleAuth} className="space-y-4">
           {isRegistering && (
@@ -130,14 +157,34 @@ const Login: React.FC = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
-            <input 
-              type="password" 
-              required
-              className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••"
-            />
+            <div className="relative">
+              <input 
+                type={showPassword ? "text" : "password"} 
+                className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="••••••"
+              />
+              <button 
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none text-xs font-medium"
+              >
+                {showPassword ? 'Ocultar' : 'Ver'}
+              </button>
+            </div>
+            {!isRegistering && (
+              <div className="text-right mt-1">
+                <button 
+                  type="button" 
+                  onClick={handleRecuperarClave}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+            )}
           </div>
           <button 
             type="submit" 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, runTransaction, getDoc, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, runTransaction, getDoc, addDoc, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Scanner } from '@yudiel/react-qr-scanner';
@@ -11,6 +11,9 @@ const ClienteDashboard: React.FC = () => {
   const [saldos, setSaldos] = useState<(SaldoPunto & { comercioNombre?: string, premios?: Premio[] })[]>([]);
   const [escaneando, setEscaneando] = useState(false);
   const [mensaje, setMensaje] = useState<{ texto: string, tipo: 'success' | 'error' | 'info' } | null>(null);
+  
+  // Para historial de transacciones
+  const [transacciones, setTransacciones] = useState<(Transaccion & { comercioNombre?: string })[]>([]);
   
   // Para el canje
   const [qrCanje, setQrCanje] = useState<{ id: string, premio: string, puntos: number } | null>(null);
@@ -34,8 +37,30 @@ const ClienteDashboard: React.FC = () => {
     setSaldos(saldosCargados);
   };
 
+  const cargarHistorial = async () => {
+    if (!userData) return;
+    const q = query(collection(db, 'transacciones'), where('clienteId', '==', userData.uid));
+    const querySnapshot = await getDocs(q);
+    
+    const txCargadas: (Transaccion & { comercioNombre?: string })[] = [];
+    for (const docSnap of querySnapshot.docs) {
+      const tx = docSnap.data() as Transaccion;
+      // Tratar de obtener el nombre del comercio (podría estar en un caché local pero por simplicidad lo traemos o no)
+      const comercioDoc = await getDoc(doc(db, 'comercios', tx.comercioId));
+      if (comercioDoc.exists()) {
+        txCargadas.push({ ...tx, comercioNombre: (comercioDoc.data() as Comercio).nombre });
+      } else {
+        txCargadas.push({ ...tx, comercioNombre: 'Comercio Desconocido' });
+      }
+    }
+    // Sort descending manually since we didn't add composite index yet for (clienteId, fechaHora DESC)
+    txCargadas.sort((a, b) => b.fechaHora - a.fechaHora);
+    setTransacciones(txCargadas);
+  };
+
   useEffect(() => {
     cargarSaldos();
+    cargarHistorial();
   }, [userData]);
 
   const procesarQR = async (sesionId: string) => {
@@ -285,6 +310,40 @@ const ClienteDashboard: React.FC = () => {
           </div>
         )}
       </div>
+
+      <div className="mt-12 mb-8">
+        <h3 className="text-xl font-bold text-gray-800 mb-4">Historial de Movimientos</h3>
+        {transacciones.length === 0 ? (
+          <div className="bg-gray-50 border border-gray-200 p-8 rounded-xl text-center text-gray-500">
+            Aún no tienes movimientos registrados.
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <ul className="divide-y divide-gray-100 max-h-[500px] overflow-y-auto">
+              {transacciones.map(tx => (
+                <li key={tx.id} className="p-4 hover:bg-gray-50 transition">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-gray-800">{tx.comercioNombre}</p>
+                      <p className="text-xs text-gray-500">{new Date(tx.fechaHora).toLocaleString()}</p>
+                      {tx.tipo === 'ACUMULACION' && tx.montoFactura > 0 && (
+                        <p className="text-xs text-gray-400 mt-1">Factura: {tx.nroFactura} - ${tx.montoFactura}</p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className={`font-black text-lg ${tx.tipo === 'ACUMULACION' ? 'text-green-600' : 'text-red-600'}`}>
+                        {tx.tipo === 'ACUMULACION' ? '+' : '-'}{tx.puntos}
+                      </span>
+                      <p className="text-xs font-medium text-gray-500">{tx.tipo}</p>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 };
