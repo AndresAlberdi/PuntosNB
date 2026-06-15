@@ -27,8 +27,19 @@ const Login: React.FC = () => {
 
   if (currentUser && !userData) {
     return (
-      <div className="flex flex-col justify-center items-center min-h-[calc(100vh-60px)] space-y-4">
-        <div className="text-xl text-blue-600 font-medium">Cargando...</div>
+      <div className="flex flex-col justify-center items-center min-h-[calc(100vh-60px)] space-y-4 p-4 text-center">
+        <div className="text-xl text-blue-600 font-medium mb-2">Cargando perfil o perfil no encontrado...</div>
+        <p className="text-gray-500 max-w-sm text-sm mb-4">Si esta pantalla no desaparece, es probable que tu cuenta no tenga un perfil asignado en la base de datos.</p>
+        <button 
+          onClick={() => {
+            import('firebase/auth').then(({ signOut }) => {
+              signOut(auth);
+            });
+          }}
+          className="text-red-600 font-medium hover:underline"
+        >
+          Cerrar Sesión para reintentar
+        </button>
       </div>
     );
   }
