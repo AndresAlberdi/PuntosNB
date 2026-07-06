@@ -210,7 +210,14 @@ const VendedorDashboard: React.FC = () => {
   if (!comercio) return <div className="p-8 text-center text-red-500">Error: Comercio no encontrado.</div>;
 
   const puntosTotales = calcularPuntos();
-  const reglasActivas = comercio.reglas.filter(r => r.activa);
+  const reglasActivas = comercio.reglas.filter(r => {
+    if (!r.activa) return false;
+    if (r.tipo === 'POR_RANGO') {
+      const monto = Number(montoFactura) || 0;
+      return monto >= (r.rangoDesde || 0) && monto <= (r.rangoHasta || Infinity);
+    }
+    return true;
+  });
   const reglasProducto = reglasActivas.filter(r => r.tipo === 'POR_PRODUCTO');
 
   return (
