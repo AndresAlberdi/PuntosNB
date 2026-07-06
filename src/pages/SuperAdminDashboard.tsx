@@ -4,6 +4,7 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { db } from '../firebase';
 import { secondaryAuth } from '../secondaryApp';
 import type { Comercio, Usuario } from '../types';
+import { COLOR_PALETTES, getPaletteStyle } from '../utils/theme';
 
 const SuperAdminDashboard: React.FC = () => {
   const [comercios, setComercios] = useState<Comercio[]>([]);
@@ -12,6 +13,8 @@ const SuperAdminDashboard: React.FC = () => {
   // States for new Comercio
   const [nombreComercio, setNombreComercio] = useState('');
   const [nitRut, setNitRut] = useState('');
+  const [logoBase64, setLogoBase64] = useState('');
+  const [paletteId, setPaletteId] = useState('ocean');
   
   // States for new User
   const [email, setEmail] = useState('');
@@ -74,12 +77,18 @@ const SuperAdminDashboard: React.FC = () => {
         reglas: [],
         premios: [],
         productos: [],
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        logoUrl: logoBase64 || '',
+        paletteId: paletteId
       };
       await setDoc(comercioRef, nuevoComercio);
       setMensaje({ texto: 'Comercio creado exitosamente', tipo: 'success' });
       setNombreComercio('');
       setNitRut('');
+      setLogoBase64('');
+      setPaletteId('ocean');
+      const fileInput = document.getElementById('comercio-logo-file') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
       cargarComercios();
     } catch (error: any) {
       console.error(error);
@@ -166,10 +175,73 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  const handleBorrarComercio = async (comercio: Comercio) => {
+    const confirmacion = window.confirm(
+      `ATENCIÓN: ¿Estás seguro de que deseas borrar el comercio "${comercio.nombre}"? \n\n` +
+      `Esta acción NO TIENE MARCHA ATRÁS y eliminará permanentemente:\n` +
+      `- El comercio de la base de datos\n` +
+      `- Todas las reglas, productos y premios configurados\n` +
+      `- Todos los perfiles de usuarios (administradores y vendedores) asociados.\n\n` +
+      `¿Deseas continuar?`
+    );
+    if (!confirmacion) return;
+
+    setMensaje(null);
+    try {
+      const { writeBatch } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+
+      // 1. Delete associated users from Firestore
+      const q = query(collection(db, 'users'), where('comercioId', '==', comercio.id));
+      const usersSnap = await getDocs(q);
+      usersSnap.forEach(userDoc => {
+        batch.delete(userDoc.ref);
+      });
+
+      // 2. Delete commerce document
+      batch.delete(doc(db, 'comercios', comercio.id));
+
+      await batch.commit();
+
+      setMensaje({ texto: `Comercio "${comercio.nombre}" y sus usuarios asociados fueron eliminados exitosamente de la base de datos.`, tipo: 'success' });
+      cargarComercios();
+      if (selectedComercioToList === comercio.id) {
+        setSelectedComercioToList('');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setMensaje({ texto: 'Error al borrar comercio: ' + err.message, tipo: 'error' });
+    }
+  };
+
+  const handleBorrarUsuario = async (usuario: Usuario) => {
+    const confirmacion = window.confirm(
+      `¿Seguro que deseas borrar al usuario "${usuario.nombre}" (${usuario.email}) de la base de datos?\n\n` +
+      `Esta acción no se puede deshacer y el usuario perderá su perfil.`
+    );
+    if (!confirmacion) return;
+
+    setMensaje(null);
+    try {
+      await deleteDoc(doc(db, 'users', usuario.uid));
+      setMensaje({ texto: `Usuario "${usuario.nombre}" eliminado exitosamente de la base de datos.`, tipo: 'success' });
+      
+      // Refresh list
+      const q = query(collection(db, 'users'), where('comercioId', '==', usuario.comercioId));
+      const snap = await getDocs(q);
+      const users: Usuario[] = [];
+      snap.forEach(d => users.push(d.data() as Usuario));
+      setComercioUsers(users);
+    } catch (err: any) {
+      console.error(err);
+      setMensaje({ texto: 'Error al borrar usuario: ' + err.message, tipo: 'error' });
+    }
+  };
+
   if (loading) return <div className="p-8 text-center">Cargando panel de superadmin...</div>;
 
   return (
-    <div className="p-6 space-y-8">
+    <div style={getPaletteStyle('charcoal')} className="p-6 space-y-8">
       <h2 className="text-2xl font-bold text-gray-800">Panel de Administración del Sistema</h2>
 
       {mensaje && (
@@ -183,13 +255,13 @@ const SuperAdminDashboard: React.FC = () => {
         
         {/* Crear Comercio */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold mb-4 text-blue-900">1. Crear Nuevo Comercio</h3>
+          <h3 className="text-lg font-bold mb-4 text-brand-text-dark">1. Crear Nuevo Comercio</h3>
           <form onSubmit={handleCrearComercio} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Comercial</label>
               <input 
                 type="text" required 
-                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-brand-primary"
                 value={nombreComercio} onChange={e => setNombreComercio(e.target.value)} 
               />
             </div>
@@ -197,11 +269,49 @@ const SuperAdminDashboard: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">NIT / RUT</label>
               <input 
                 type="text" required 
-                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-brand-primary"
                 value={nitRut} onChange={e => setNitRut(e.target.value)} 
               />
             </div>
-            <button type="submit" className="w-full bg-blue-600 text-white font-medium py-2 rounded hover:bg-blue-700">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Paleta de Colores</label>
+              <select 
+                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-brand-primary"
+                value={paletteId} onChange={e => setPaletteId(e.target.value)}
+              >
+                {COLOR_PALETTES.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Logo del Comercio (Máx 1MB)</label>
+              <input 
+                id="comercio-logo-file"
+                type="file" accept="image/*"
+                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-brand-bg-light file:text-brand-primary hover:file:bg-brand-bg-light"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 1024 * 1024) {
+                      alert("El archivo supera el límite de 1MB. Por favor selecciona una imagen más pequeña.");
+                      e.target.value = '';
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setLogoBase64(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+              {logoBase64 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Vista previa:</span>
+                  <img src={logoBase64} alt="Preview" className="h-8 w-8 object-contain border rounded" />
+                </div>
+              )}
+            </div>
+            <button type="submit" className="w-full bg-brand-primary text-white font-medium py-2 rounded hover:bg-brand-primary-hover">
               Registrar Comercio
             </button>
           </form>
@@ -209,8 +319,24 @@ const SuperAdminDashboard: React.FC = () => {
           <h4 className="mt-6 mb-2 font-bold text-gray-700 text-sm uppercase">Comercios Existentes ({comercios.length})</h4>
           <ul className="space-y-2 max-h-48 overflow-y-auto">
             {comercios.map(c => (
-              <li key={c.id} className="text-sm bg-gray-50 p-2 rounded border border-gray-100">
-                <strong>{c.nombre}</strong> (NIT: {c.nit_rut})
+              <li key={c.id} className="text-sm bg-gray-50 p-2 rounded border border-gray-100 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  {c.logoUrl ? (
+                    <img src={c.logoUrl} alt="Logo" className="w-8 h-8 object-contain rounded border bg-white flex-shrink-0" />
+                  ) : (
+                    <div className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center font-bold text-gray-400 text-xs flex-shrink-0">NB</div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <strong className="block text-gray-800 truncate">{c.nombre}</strong>
+                    <span className="text-xs text-gray-500 block truncate">NIT: {c.nit_rut} | Paleta: {COLOR_PALETTES.find(p => p.id === c.paletteId)?.name || 'Default'}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleBorrarComercio(c)}
+                  className="text-xs bg-red-100 text-red-700 font-bold px-2.5 py-1 rounded hover:bg-red-200 transition flex-shrink-0"
+                >
+                  Borrar
+                </button>
               </li>
             ))}
           </ul>
@@ -218,13 +344,13 @@ const SuperAdminDashboard: React.FC = () => {
 
         {/* Crear Usuarios */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold mb-4 text-purple-900">2. Crear Usuarios (Admins/Vendedores)</h3>
+          <h3 className="text-lg font-bold mb-4 text-brand-text-dark">2. Crear Usuarios (Admins/Vendedores)</h3>
           <form onSubmit={handleCrearUsuario} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Asignar al Comercio</label>
               <select 
                 required 
-                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-purple-500"
+                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-brand-secondary"
                 value={comercioId} onChange={e => setComercioId(e.target.value)}
               >
                 <option value="">-- Selecciona un Comercio --</option>
@@ -235,7 +361,7 @@ const SuperAdminDashboard: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
                 <select 
-                  className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-purple-500"
+                  className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-brand-secondary"
                   value={rol} onChange={e => setRol(e.target.value as any)}
                 >
                   <option value="vendedor">Vendedor (Cajero)</option>
@@ -246,7 +372,7 @@ const SuperAdminDashboard: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
                 <input 
                   type="text" required 
-                  className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-purple-500"
+                  className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-brand-secondary"
                   value={nombreUsuario} onChange={e => setNombreUsuario(e.target.value)} 
                 />
               </div>
@@ -255,7 +381,7 @@ const SuperAdminDashboard: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Correo Electrónico</label>
               <input 
                 type="email" required 
-                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-purple-500"
+                className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-brand-secondary"
                 value={email} onChange={e => setEmail(e.target.value)} 
               />
             </div>
@@ -264,7 +390,7 @@ const SuperAdminDashboard: React.FC = () => {
               <div className="relative">
                 <input 
                   type={showPassword ? "text" : "password"} required minLength={6}
-                  className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-purple-500"
+                  className="w-full border border-gray-300 px-3 py-2 rounded focus:ring-2 focus:ring-brand-secondary"
                   value={password} onChange={e => setPassword(e.target.value)} 
                 />
                 <button 
@@ -276,7 +402,7 @@ const SuperAdminDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
-            <button type="submit" className="w-full bg-purple-600 text-white font-medium py-2 rounded hover:bg-purple-700">
+            <button type="submit" className="w-full bg-brand-secondary text-white font-medium py-2 rounded hover:opacity-90">
               Crear Usuario
             </button>
           </form>
@@ -322,12 +448,18 @@ const SuperAdminDashboard: React.FC = () => {
                       <td className="p-3 text-xs">
                         <span className="bg-gray-100 px-2 py-1 rounded text-gray-600 font-bold uppercase">{u.rol.replace('_', ' ')}</span>
                       </td>
-                      <td className="p-3">
+                      <td className="p-3 flex gap-2">
                         <button 
                           onClick={() => handleRecrearClave(u)}
-                          className="text-xs bg-red-100 text-red-700 font-bold px-3 py-1 rounded hover:bg-red-200 transition"
+                          className="text-xs bg-yellow-100 text-yellow-700 font-bold px-3 py-1 rounded hover:bg-yellow-200 transition"
                         >
                           Recrear Contraseña
+                        </button>
+                        <button 
+                          onClick={() => handleBorrarUsuario(u)}
+                          className="text-xs bg-red-100 text-red-700 font-bold px-3 py-1 rounded hover:bg-red-200 transition"
+                        >
+                          Borrar Usuario
                         </button>
                       </td>
                     </tr>

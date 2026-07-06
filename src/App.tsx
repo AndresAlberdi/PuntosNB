@@ -9,6 +9,9 @@ import ClienteDashboard from './pages/ClienteDashboard';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import Reportes from './pages/Reportes';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from './firebase';
+import { COLOR_PALETTES, CLIENT_AVATARS, getPaletteStyle } from './utils/theme';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: RolUsuario[] }) => {
   const { currentUser, userData, loading } = useAuth();
@@ -26,11 +29,85 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
   return <>{children}</>;
 };
 
+const NotificationBell = () => {
+  const { userData } = useAuth();
+  const [count, setCount] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!userData || userData.rol !== 'cliente') return;
+    const fetchPremios = async () => {
+      try {
+        const saldosQ = query(collection(db, 'puntos_saldos'), where('clienteId', '==', userData.uid));
+        const saldosSnap = await getDocs(saldosQ);
+        const sMap: Record<string, number> = {};
+        saldosSnap.forEach(d => {
+          const s = d.data();
+          sMap[s.comercioId] = s.saldoTotal;
+        });
+
+        const comerciosSnap = await getDocs(collection(db, 'comercios'));
+        let totalPrizes = 0;
+        comerciosSnap.forEach(d => {
+          const c = d.data();
+          const saldo = sMap[c.id] || 0;
+          if (saldo > 0) {
+             const canAfford = (c.premios || []).filter((p: any) => p.activo && p.puntosRequeridos <= saldo).length;
+             totalPrizes += canAfford;
+          }
+        });
+        setCount(totalPrizes);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchPremios();
+  }, [userData]);
+
+  if (!userData || userData.rol !== 'cliente') return null;
+
+  return (
+    <Link to="/cliente/premios" className="relative p-2 text-gray-500 hover:text-brand-primary transition">
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+      {count > 0 && (
+        <span className="absolute top-1 right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center justify-center transform translate-x-1/2 -translate-y-1/2">
+          {count}
+        </span>
+      )}
+    </Link>
+  );
+};
+
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { userData } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [showPasswordModal, setShowPasswordModal] = React.useState(false);
+  const [showProfileModal, setShowProfileModal] = React.useState(false);
+  const [commercePaletteId, setCommercePaletteId] = React.useState<string | undefined>(undefined);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+
+  // States for Profile Modal form
+  const [selectedPalette, setSelectedPalette] = React.useState('ocean');
+  const [selectedAvatar, setSelectedAvatar] = React.useState('');
+  const [telefono, setTelefono] = React.useState('');
+
+  React.useEffect(() => {
+    if (userData?.comercioId) {
+      getDoc(doc(db, 'comercios', userData.comercioId)).then(snap => {
+        if (snap.exists()) {
+          setCommercePaletteId(snap.data().paletteId);
+        }
+      });
+    } else {
+      setCommercePaletteId(undefined);
+    }
+
+    if (userData?.rol === 'cliente') {
+      setSelectedPalette(userData.paletteId || 'ocean');
+      setSelectedAvatar(userData.avatarUrl || CLIENT_AVATARS[0]);
+      setTelefono(userData.telefono || '');
+    }
+  }, [userData]);
 
   const handleLogout = () => {
     import('firebase/auth').then(({ signOut }) => {
@@ -40,57 +117,278 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     });
   };
 
+  const handleSaveProfile = async () => {
+    if (userData?.uid) {
+      try {
+        await updateDoc(doc(db, 'users', userData.uid), {
+          paletteId: selectedPalette,
+          avatarUrl: selectedAvatar,
+          telefono: telefono
+        });
+        setShowProfileModal(false);
+      } catch (err) {
+        console.error("Error saving profile", err);
+        alert("Error al guardar cambios de perfil.");
+      }
+    }
+  };
+
+  let activePaletteId: string | undefined = undefined;
+  if (userData?.rol === 'cliente') {
+    activePaletteId = userData.paletteId;
+  } else if (userData?.rol === 'superadmin') {
+    activePaletteId = 'charcoal';
+  } else if (userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') {
+    activePaletteId = commercePaletteId;
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      <header className="bg-white shadow-sm border-b border-gray-100">
+    <div style={getPaletteStyle(activePaletteId)} className="min-h-screen bg-gray-50 font-sans text-brand-text-dark transition-colors duration-300">
+      <header className="bg-white shadow-sm border-b border-brand-border">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <h1 className="text-xl font-black text-blue-600 tracking-tight">PuntosNB</h1>
+          <Link to="/" className="flex items-center gap-1.5 text-xl font-black text-brand-primary tracking-tight hover:opacity-80 transition z-10">
+            <svg className="w-6 h-6 text-brand-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>PuntosNB</span>
+          </Link>
+          
           {userData && (
-            <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end">
-              <span className="text-sm font-medium text-gray-700 truncate max-w-[120px] sm:max-w-xs">Hola, {userData.nombre}</span>
-              {userData?.rol === 'superadmin' && (
-                <Link to="/superadmin" className="text-sm font-medium text-blue-600 hover:text-blue-800">Panel Sistema</Link>
-              )}
-              {(userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') && (
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => navigate(`/${userData.rol === 'cliente' ? 'cliente' : userData.rol === 'vendedor' ? 'vendedor' : 'admin'}`)}
-                    className={`text-sm font-medium px-3 py-1 rounded ${location.pathname.startsWith('/admin') || location.pathname.startsWith('/vendedor') ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    Operación
-                  </button>
-                  <button 
-                    onClick={() => navigate('/reportes')}
-                    className={`text-sm font-medium px-3 py-1 rounded ${location.pathname === '/reportes' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    Reportes
-                  </button>
-                </div>
-              )}
-              <span className="text-sm font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full uppercase tracking-wider">{userData?.rol}</span>
+            <div className="flex items-center gap-2">
+              <NotificationBell />
               
+              {/* Botón menú móvil */}
               <button 
-                onClick={() => setShowPasswordModal(true)}
-                className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="p-2 -mr-2 text-gray-600 sm:hidden hover:text-gray-900 focus:outline-none"
               >
-                Cambiar Clave
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={isMobileMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} />
+                </svg>
               </button>
 
-              <button 
-                onClick={handleLogout}
-                className="text-sm font-medium text-red-600 hover:text-red-700"
-              >
-                Salir
-              </button>
+              {/* Menú Desktop */}
+              <div className="hidden sm:flex items-center gap-4">
+                {userData?.rol === 'cliente' ? (
+                  <button 
+                    onClick={() => setShowProfileModal(true)}
+                    className="flex items-center gap-2 hover:bg-brand-bg-light p-1.5 rounded-lg transition border border-transparent hover:border-brand-border"
+                  >
+                    <img 
+                      src={userData.avatarUrl || CLIENT_AVATARS[0]} 
+                      alt="Avatar" 
+                      className="w-8 h-8 rounded-full border bg-white object-contain" 
+                    />
+                    <span className="text-sm font-medium text-gray-700 truncate max-w-[120px]">
+                      Hola, {userData.nombre}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="text-sm font-medium text-gray-700 truncate max-w-[150px]">
+                    Hola, {userData.nombre}
+                  </span>
+                )}
+                
+                {userData?.rol === 'superadmin' && (
+                  <Link to="/superadmin" className="text-sm font-medium text-brand-primary hover:text-brand-primary-hover">Panel Sistema</Link>
+                )}
+                
+                {(userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') && (
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => navigate(`/${userData.rol === 'vendedor' ? 'vendedor' : 'admin'}`)}
+                      className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname.startsWith('/admin') || location.pathname.startsWith('/vendedor') ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}
+                    >
+                      Operación
+                    </button>
+                    <button 
+                      onClick={() => navigate('/reportes')}
+                      className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname === '/reportes' ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}
+                    >
+                      Reportes
+                    </button>
+                  </div>
+                )}
+                
+                <span className="text-xs font-bold text-brand-primary bg-brand-bg-light border border-brand-border px-2.5 py-1 rounded-full uppercase tracking-wider">
+                  {userData?.rol}
+                </span>
+                
+                {userData.rol !== 'cliente' && (
+                  <button 
+                    onClick={() => setShowPasswordModal(true)}
+                    className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                  >
+                    Clave
+                  </button>
+                )}
+
+                <button 
+                  onClick={handleLogout}
+                  className="text-sm font-medium text-red-600 hover:text-red-700 font-semibold"
+                >
+                  Salir
+                </button>
+              </div>
             </div>
           )}
         </div>
+
+        {/* Menú Móvil Desplegable */}
+        {userData && isMobileMenuOpen && (
+          <div className="sm:hidden border-t border-gray-100 bg-white px-4 pt-2 pb-4 space-y-3 shadow-inner">
+            <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+              {userData.rol === 'cliente' && (
+                <img 
+                  src={userData.avatarUrl || CLIENT_AVATARS[0]} 
+                  alt="Avatar" 
+                  className="w-10 h-10 rounded-full border bg-white object-contain" 
+                />
+              )}
+              <div className="flex-1">
+                <p className="text-sm font-bold text-gray-800">Hola, {userData.nombre}</p>
+                <p className="text-xs font-bold text-brand-primary uppercase mt-0.5">{userData.rol}</p>
+              </div>
+            </div>
+
+            {userData.rol === 'cliente' && (
+              <button 
+                onClick={() => { setShowProfileModal(true); setIsMobileMenuOpen(false); }}
+                className="block w-full text-left text-sm font-medium text-gray-700 py-2"
+              >
+                Mi Perfil y Configuraciones
+              </button>
+            )}
+
+            {userData?.rol === 'superadmin' && (
+              <Link to="/superadmin" onClick={() => setIsMobileMenuOpen(false)} className="block w-full text-left text-sm font-medium text-brand-primary py-2">Panel Sistema</Link>
+            )}
+
+            {(userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') && (
+              <>
+                <button 
+                  onClick={() => { navigate(`/${userData.rol === 'vendedor' ? 'vendedor' : 'admin'}`); setIsMobileMenuOpen(false); }}
+                  className="block w-full text-left text-sm font-medium text-gray-700 py-2"
+                >
+                  Operación
+                </button>
+                <button 
+                  onClick={() => { navigate('/reportes'); setIsMobileMenuOpen(false); }}
+                  className="block w-full text-left text-sm font-medium text-gray-700 py-2"
+                >
+                  Reportes
+                </button>
+              </>
+            )}
+
+            {userData.rol !== 'cliente' && (
+              <button 
+                onClick={() => { setShowPasswordModal(true); setIsMobileMenuOpen(false); }}
+                className="block w-full text-left text-sm font-medium text-gray-700 py-2"
+              >
+                Cambiar Clave
+              </button>
+            )}
+
+            <button 
+              onClick={handleLogout}
+              className="block w-full text-left text-sm font-bold text-red-600 py-2"
+            >
+              Cerrar Sesión
+            </button>
+          </div>
+        )}
       </header>
       <main className="max-w-4xl mx-auto mt-6 px-4">
         {children}
       </main>
 
       {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}
+
+      {/* Modal de Edición de Perfil de Cliente */}
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Configuración de Perfil</h3>
+            
+            <div className="space-y-6">
+              {/* Selector de Avatar */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Elige tu Avatar</label>
+                <div className="grid grid-cols-5 gap-3">
+                  {CLIENT_AVATARS.map((avatar, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setSelectedAvatar(avatar)}
+                      className={`p-1 rounded-full border-2 transition hover:scale-105 ${selectedAvatar === avatar ? 'border-brand-primary bg-brand-bg-light shadow-md' : 'border-gray-200 hover:border-gray-400 bg-white'}`}
+                    >
+                      <img src={avatar} alt={`Avatar ${idx+1}`} className="w-12 h-12 rounded-full object-contain" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Selector de Paleta */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Elige tu Paleta de Colores</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {COLOR_PALETTES.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setSelectedPalette(p.id)}
+                      className={`p-2.5 rounded-lg border text-left text-sm font-medium transition flex items-center gap-2 ${selectedPalette === p.id ? 'border-brand-primary bg-brand-bg-light font-bold text-brand-primary' : 'border-gray-200 hover:bg-gray-50 text-gray-700'}`}
+                    >
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: p.primary }}></span>
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Teléfono */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Número de WhatsApp (Opcional)</label>
+                <input 
+                  type="tel"
+                  value={telefono}
+                  onChange={(e) => setTelefono(e.target.value)}
+                  placeholder="+591 70000000"
+                  className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                />
+                <p className="text-xs text-gray-500 mt-1">Regístralo para poder acceder a futuras funciones integradas con WhatsApp.</p>
+              </div>
+
+              {/* Botón Cambiar Clave Integrado */}
+              <div className="pt-4 border-t">
+                <button 
+                  type="button"
+                  onClick={() => { setShowProfileModal(false); setShowPasswordModal(true); }}
+                  className="w-full py-2 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition text-sm flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                  Cambiar Contraseña
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3 border-t pt-4">
+              <button 
+                onClick={() => setShowProfileModal(false)} 
+                className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50 text-sm font-medium"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleSaveProfile} 
+                className="px-4 py-2 bg-brand-primary hover:bg-brand-primary-hover text-white rounded-lg text-sm font-semibold transition"
+              >
+                Guardar Cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

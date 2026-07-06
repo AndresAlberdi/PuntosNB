@@ -7,26 +7,27 @@ export interface Usuario {
   rol: RolUsuario;
   comercioId?: string; // Solo para vendedores o admin_comercio
   createdAt: number;
+  paletteId?: string; // Paleta de colores elegida por el cliente
+  avatarUrl?: string; // Logo/avatar elegido por el cliente
+  telefono?: string; // Para WhatsApp
+  termsAccepted?: boolean;
+  termsAcceptedAt?: number;
 }
 
 export type TipoRegla = 
   | 'POR_COMPRA' // Cualquier compra activa una cantidad fija
-  | 'POR_MONTO'  // Depende del monto (ej. 1 punto por cada $10)
-  | 'POR_PRODUCTO'; // Productos específicos dan puntos específicos
-
-export interface RangoMonto {
-  min: number;
-  max: number;
-  puntos: number;
-}
+  | 'POR_PRODUCTO' // Productos específicos dan puntos específicos
+  | 'POR_RANGO'    // Puntos fijos si el monto está en un rango
+  | 'POR_REGISTRO'; // Puntos regalados la primera vez que se registra/escanea
 
 export interface ReglaPunto {
   id: string;
   tipo: TipoRegla;
-  puntosAOtorgar?: number; // Opcional, ya no se usa en POR_MONTO
-  rangos?: RangoMonto[]; // Para POR_MONTO
+  puntosAOtorgar?: number; // Opcional
   productoId?: string; // Para POR_PRODUCTO
   nombreProducto?: string;
+  rangoDesde?: number; // Para POR_RANGO
+  rangoHasta?: number; // Para POR_RANGO
   activa: boolean;
 }
 
@@ -54,6 +55,7 @@ export interface Comercio {
   premios: Premio[];
   productos?: ProductoCatalogo[]; // Added
   createdAt: number;
+  paletteId?: string; // Paleta de colores para todos los usuarios del comercio
 }
 
 export interface SaldoPunto {

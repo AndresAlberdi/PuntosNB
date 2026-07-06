@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, fetchSignInMethodsForEmail } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +14,8 @@ const Login: React.FC = () => {
   const [mensaje, setMensaje] = useState<{texto: string, tipo: 'success'|'error'} | null>(null);
   const [loading, setLoading] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [aceptoTerminos, setAceptoTerminos] = useState(false);
+  const [showTerminosModal, setShowTerminosModal] = useState(false);
   const navigate = useNavigate();
   const { currentUser, userData, loading: authLoading } = useAuth();
 
@@ -51,8 +53,23 @@ const Login: React.FC = () => {
     setError('');
     setMensaje(null);
     setLoading(true);
+
+    if (isRegistering && !aceptoTerminos) {
+      setError('Debes aceptar los Términos y Condiciones para registrarte.');
+      setLoading(false);
+      return;
+    }
+
     try {
       if (isRegistering) {
+        // Validar fuerza de contraseña
+        const isStrong = password.length >= 8 && /[A-Z]/.test(password) && /[0-9]/.test(password);
+        if (!isStrong) {
+          setError('La contraseña debe tener al menos 8 caracteres, una letra mayúscula y un número.');
+          setLoading(false);
+          return;
+        }
+
         const userCred = await createUserWithEmailAndPassword(auth, email, password);
         const isAdmin = userCred.user.email === 'andresalberdi@gmail.com';
         await setDoc(doc(db, 'users', userCred.user.uid), {
@@ -60,9 +77,21 @@ const Login: React.FC = () => {
           email: userCred.user.email,
           nombre: nombre || userCred.user.email?.split('@')[0],
           rol: isAdmin ? 'superadmin' : 'cliente',
+          termsAccepted: true,
+          termsAcceptedAt: Date.now(),
           createdAt: Date.now()
         });
       } else {
+        try {
+          const methods = await fetchSignInMethodsForEmail(auth, email);
+          if (methods.includes('google.com') && !methods.includes('password')) {
+            setError('Parece que te registraste usando Google. Por favor, haz clic en "Continuar con Google" abajo.');
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // Si falla fetchSignInMethodsForEmail (ej. por protección de enumeración), continuamos
+        }
         await signInWithEmailAndPassword(auth, email, password);
       }
     } catch (err: any) {
@@ -100,19 +129,34 @@ const Login: React.FC = () => {
       const provider = new GoogleAuthProvider();
       const userCred = await signInWithPopup(auth, provider);
       
-      const userDoc = await getDoc(doc(db, 'users', userCred.user.uid));
+      const userDocRef = doc(db, 'users', userCred.user.uid);
+      const userDoc = await getDoc(userDocRef);
       if (!userDoc.exists()) {
+        if (!aceptoTerminos) {
+          import('firebase/auth').then(async ({ signOut }) => {
+            await signOut(auth);
+          });
+          setError('Para registrarte con Google por primera vez, marca la casilla de aceptación de Términos y Condiciones (active la opción "Regístrate aquí" abajo para marcarla).');
+          setLoading(false);
+          return;
+        }
         const isAdmin = userCred.user.email === 'andresalberdi@gmail.com';
-        await setDoc(doc(db, 'users', userCred.user.uid), {
+        await setDoc(userDocRef, {
           uid: userCred.user.uid,
           email: userCred.user.email,
           nombre: userCred.user.displayName || userCred.user.email?.split('@')[0],
           rol: isAdmin ? 'superadmin' : 'cliente',
+          termsAccepted: true,
+          termsAcceptedAt: Date.now(),
           createdAt: Date.now()
         });
       }
     } catch (err: any) {
-      setError('Error al iniciar sesión con Google: ' + err.message);
+      if (err.code === 'auth/account-exists-with-different-credential') {
+        setError('Ya te has registrado previamente con correo y contraseña. Por favor inicia sesión con tu correo (puedes recuperar tu clave si la olvidaste).');
+      } else {
+        setError('Error al iniciar sesión con Google: ' + err.message);
+      }
       console.error(err);
     }
     setLoading(false);
@@ -121,7 +165,12 @@ const Login: React.FC = () => {
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-60px)] p-4">
       <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-sm border border-gray-100">
-        <h2 className="text-2xl font-bold text-center text-blue-600 mb-6">PuntosNB</h2>
+        <div className="flex items-center justify-center gap-2 mb-6 text-blue-600">
+          <svg className="w-8 h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <h2 className="text-2xl font-bold tracking-tight">PuntosNB</h2>
+        </div>
         
         {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm font-medium">{error}</div>}
         {mensaje && (
@@ -186,6 +235,30 @@ const Login: React.FC = () => {
               </div>
             )}
           </div>
+
+          {isRegistering && (
+            <div className="flex items-start gap-2 text-sm text-gray-600 mb-2">
+              <input 
+                type="checkbox" 
+                id="terminos" 
+                checked={aceptoTerminos} 
+                onChange={(e) => setAceptoTerminos(e.target.checked)}
+                className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" 
+              />
+              <label htmlFor="terminos" className="leading-tight">
+                Acepto los{' '}
+                <button 
+                  type="button" 
+                  onClick={() => setShowTerminosModal(true)} 
+                  className="text-blue-600 font-semibold hover:underline"
+                >
+                  Términos y Condiciones
+                </button>{' '}
+                de PuntosNB.
+              </label>
+            </div>
+          )}
+
           <button 
             type="submit" 
             disabled={loading}
@@ -211,13 +284,59 @@ const Login: React.FC = () => {
           {isRegistering ? '¿Ya tienes una cuenta?' : '¿Eres nuevo (cliente)?'}
           <button 
             type="button" 
-            onClick={() => setIsRegistering(!isRegistering)} 
+            onClick={() => {
+              setIsRegistering(!isRegistering);
+              setError('');
+            }} 
             className="ml-1 text-blue-600 font-medium hover:underline"
           >
             {isRegistering ? 'Inicia sesión' : 'Regístrate aquí'}
           </button>
         </div>
       </div>
+
+      {/* Modal de Términos y Condiciones */}
+      {showTerminosModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[9999]">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto">
+            <h3 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Términos y Condiciones Generales de PuntosNB</h3>
+            <div className="space-y-3 text-sm text-gray-600 leading-relaxed">
+              <p>
+                <strong>1. Descripción del Servicio:</strong> PuntosNB es una plataforma digital de fidelización multi-marca que permite a los usuarios clientes acumular puntos por sus compras realizadas en los comercios adheridos y canjearlos por premios vigentes dentro del catálogo específico de cada comercio.
+              </p>
+              <p>
+                <strong>2. Acumulación y Exclusividad de Puntos:</strong> Los puntos se acumulan y registran de forma independiente para cada comercio. Los puntos acumulados en un comercio <em>no son transferibles</em> ni utilizables en otros comercios, ni se pueden consolidar, vender, cambiar por dinero en efectivo o traspasar a otras cuentas de usuario.
+              </p>
+              <p>
+                <strong>3. Responsabilidad sobre Reglas y Premios:</strong> Las reglas de asignación de puntos, montos requeridos, vigencia de los puntos y catálogo de premios son definidas de manera autónoma y exclusiva por cada comercio. PuntosNB actúa únicamente como proveedor de la plataforma tecnológica y no asume responsabilidad alguna por modificaciones en las reglas de acumulación, cancelaciones de premios o el cese de participación de un comercio en la red.
+              </p>
+              <p>
+                <strong>4. Uso de la Cuenta y Seguridad:</strong> El usuario es responsable de mantener la confidencialidad de sus credenciales de acceso y del uso exclusivo de su cuenta. Cualquier actividad realizada desde su cuenta se considerará autorizada por el usuario.
+              </p>
+              <p>
+                <strong>5. Modificaciones y Suspensión:</strong> PuntosNB se reserva el derecho de actualizar los presentes términos, así como de suspender o dar de baja de forma temporal o definitiva aquellas cuentas en las que se detecten actividades sospechosas de fraude, suplantación o manipulación de códigos QR.
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button 
+                onClick={() => {
+                  setAceptoTerminos(true);
+                  setShowTerminosModal(false);
+                }} 
+                className="bg-blue-600 text-white font-medium px-4 py-2 rounded hover:bg-blue-700 transition mr-2"
+              >
+                Aceptar y Cerrar
+              </button>
+              <button 
+                onClick={() => setShowTerminosModal(false)} 
+                className="bg-gray-100 text-gray-700 font-medium px-4 py-2 rounded hover:bg-gray-200 transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

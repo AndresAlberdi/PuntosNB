@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import type { Comercio, ReglaPunto, Premio, RangoMonto, ProductoCatalogo } from '../types';
+import type { Comercio, ReglaPunto, Premio, ProductoCatalogo } from '../types';
 
 const AdminDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -16,7 +16,6 @@ const AdminDashboard: React.FC = () => {
 
   // Form states
   const [nuevaRegla, setNuevaRegla] = useState<Partial<ReglaPunto>>({ tipo: 'POR_COMPRA', activa: true, puntosAOtorgar: 10 });
-  const [rangosMonto, setRangosMonto] = useState<RangoMonto[]>([{ min: 0, max: 100, puntos: 1 }]);
   const [nuevoPremio, setNuevoPremio] = useState<Partial<Premio>>({ activo: true, puntosRequeridos: 100 });
   const [nuevoProducto, setNuevoProducto] = useState<Partial<ProductoCatalogo>>({ activo: true, nombre: '' });
 
@@ -112,54 +111,12 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const agregarRango = () => {
-    setRangosMonto([...rangosMonto, { min: 0, max: 0, puntos: 0 }]);
-  };
-
-  const updateRango = (index: number, field: keyof RangoMonto, value: number) => {
-    const newRangos = [...rangosMonto];
-    newRangos[index][field] = value;
-    setRangosMonto(newRangos);
-  };
-
-  const eliminarRango = (index: number) => {
-    setRangosMonto(rangosMonto.filter((_, i) => i !== index));
-  };
-
-  const validarSolapamientoRangos = (nuevosRangos: RangoMonto[]) => {
-    if (!comercio) return true;
-    
-    // Obtener todos los rangos existentes de otras reglas de monto ACTIVAS
-    const rangosExistentes: RangoMonto[] = [];
-    comercio.reglas.forEach(r => {
-      if (r.tipo === 'POR_MONTO' && r.activa && r.rangos) {
-        rangosExistentes.push(...r.rangos);
-      }
-    });
-
-    const todosLosRangos = [...rangosExistentes, ...nuevosRangos];
-    // Ordenar por mínimo
-    const sorted = todosLosRangos.sort((a, b) => a.min - b.min);
-    
-    for (let i = 0; i < sorted.length - 1; i++) {
-      if (sorted[i].max >= sorted[i+1].min) {
-        return false;
-      }
-    }
-    return true;
-  };
+  // Rangos de montos removidos
 
   const handleCrearRegla = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!comercio || !userData?.comercioId) return;
 
-    if (nuevaRegla.tipo === 'POR_MONTO') {
-      if (!validarSolapamientoRangos(rangosMonto)) {
-        alert("Los rangos de montos se solapan con rangos existentes en reglas activas o dentro de la misma regla. Verifica y corrige.");
-        return;
-      }
-    }
-    
     let nombreProd = '';
     if (nuevaRegla.tipo === 'POR_PRODUCTO' && nuevaRegla.productoId) {
       const prod = comercio.productos?.find(p => p.id === nuevaRegla.productoId);
@@ -176,7 +133,12 @@ const AdminDashboard: React.FC = () => {
           nombreProducto: nombreProd, 
           puntosAOtorgar: Number(nuevaRegla.puntosAOtorgar) || 0 
       } : {}),
-      ...(nuevaRegla.tipo === 'POR_MONTO' ? { rangos: rangosMonto } : {})
+      ...(nuevaRegla.tipo === 'POR_RANGO' ? {
+          rangoDesde: Number(nuevaRegla.rangoDesde) || 0,
+          rangoHasta: Number(nuevaRegla.rangoHasta) || 0,
+          puntosAOtorgar: Number(nuevaRegla.puntosAOtorgar) || 0
+      } : {}),
+      ...(nuevaRegla.tipo === 'POR_REGISTRO' ? { puntosAOtorgar: Number(nuevaRegla.puntosAOtorgar) || 0 } : {})
     };
 
     try {
@@ -186,7 +148,6 @@ const AdminDashboard: React.FC = () => {
       });
       setShowReglaModal(false);
       setNuevaRegla({ tipo: 'POR_COMPRA', activa: true, puntosAOtorgar: 10 });
-      setRangosMonto([{ min: 0, max: 100, puntos: 1 }]);
       fetchComercio();
     } catch (err) {
       console.error(err);
@@ -247,7 +208,6 @@ const AdminDashboard: React.FC = () => {
   if (loading) return <div className="p-8 text-center">Cargando datos del comercio...</div>;
   if (!comercio) return <div className="p-8 text-center text-red-500">Error: No se encontró el comercio asociado.</div>;
 
-  const hasReglaCompra = comercio.reglas.some(r => r.tipo === 'POR_COMPRA');
   const productosCatalog = comercio.productos || [];
 
   return (
@@ -281,22 +241,13 @@ const AdminDashboard: React.FC = () => {
                   </div>
                   <span className={`font-semibold pr-24 ${regla.activa ? 'text-gray-800' : 'text-gray-400'}`}>
                     {regla.tipo === 'POR_COMPRA' && 'Regla General por Compra'}
-                    {regla.tipo === 'POR_MONTO' && 'Regla por Rangos de Monto'}
                     {regla.tipo === 'POR_PRODUCTO' && `Regla para Producto: ${regla.nombreProducto}`}
+                    {regla.tipo === 'POR_RANGO' && `Regla por Rango: $${regla.rangoDesde} a $${regla.rangoHasta}`}
+                    {regla.tipo === 'POR_REGISTRO' && 'Regalo por Primer Registro'}
                   </span>
                   
                   <div className="text-sm text-gray-600 mt-1">
-                    {regla.tipo !== 'POR_MONTO' && (
-                      <>Otorga: <strong className="text-blue-600">{regla.puntosAOtorgar} pts</strong></>
-                    )}
-                    
-                    {regla.tipo === 'POR_MONTO' && regla.rangos && (
-                      <ul className="mt-2 text-xs border-l-2 border-blue-200 pl-2 space-y-1">
-                        {regla.rangos.map((r, i) => (
-                          <li key={i}>De {r.min} Bs. a {r.max} Bs. ➔ <strong className="text-blue-600">{r.puntos} pts</strong></li>
-                        ))}
-                      </ul>
-                    )}
+                    <>Otorga: <strong className="text-blue-600">{regla.puntosAOtorgar} pts</strong></>
                   </div>
                 </li>
               ))}
@@ -370,17 +321,30 @@ const AdminDashboard: React.FC = () => {
                   value={nuevaRegla.tipo}
                   onChange={(e) => setNuevaRegla({...nuevaRegla, tipo: e.target.value as any})}
                 >
-                  {!hasReglaCompra && <option value="POR_COMPRA">Puntos fijos por compra general</option>}
-                  <option value="POR_MONTO">Puntos según rangos de monto</option>
+                  <option value="POR_COMPRA">Puntos fijos por compra general</option>
                   <option value="POR_PRODUCTO">Puntos por producto específico</option>
+                  <option value="POR_RANGO">Puntos por rango de monto</option>
+                  <option value="POR_REGISTRO">Puntos regalados por registro</option>
                 </select>
-                {hasReglaCompra && nuevaRegla.tipo !== 'POR_COMPRA' && <p className="text-xs text-gray-500 mt-1">Ya existe una regla por compra general. Solo puedes tener una.</p>}
               </div>
 
-              {(nuevaRegla.tipo === 'POR_COMPRA' || nuevaRegla.tipo === 'POR_PRODUCTO') && (
+              {(nuevaRegla.tipo === 'POR_COMPRA' || nuevaRegla.tipo === 'POR_PRODUCTO' || nuevaRegla.tipo === 'POR_RANGO' || nuevaRegla.tipo === 'POR_REGISTRO') && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Puntos a Otorgar</label>
                   <input type="number" required min="1" className="w-full border border-gray-300 rounded px-3 py-2" value={nuevaRegla.puntosAOtorgar || ''} onChange={(e) => setNuevaRegla({...nuevaRegla, puntosAOtorgar: Number(e.target.value)})} />
+                </div>
+              )}
+
+              {nuevaRegla.tipo === 'POR_RANGO' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Monto Desde</label>
+                    <input type="number" required min="0" className="w-full border border-gray-300 rounded px-3 py-2" value={nuevaRegla.rangoDesde ?? ''} onChange={(e) => setNuevaRegla({...nuevaRegla, rangoDesde: Number(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Monto Hasta</label>
+                    <input type="number" required min="0" className="w-full border border-gray-300 rounded px-3 py-2" value={nuevaRegla.rangoHasta ?? ''} onChange={(e) => setNuevaRegla({...nuevaRegla, rangoHasta: Number(e.target.value)})} />
+                  </div>
                 </div>
               )}
 
@@ -405,32 +369,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
               )}
 
-              {nuevaRegla.tipo === 'POR_MONTO' && (
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm font-bold text-gray-700">Rangos de Montos (Bs.)</label>
-                    <button type="button" onClick={agregarRango} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">+ Rango</button>
-                  </div>
-                  <div className="space-y-3">
-                    {rangosMonto.map((r, idx) => (
-                      <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded border border-gray-200">
-                        <div className="flex-1">
-                          <input type="number" step="0.1" required placeholder="Min" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" value={r.min} onChange={(e) => updateRango(idx, 'min', Number(e.target.value))} />
-                        </div>
-                        <span className="text-gray-400">-</span>
-                        <div className="flex-1">
-                          <input type="number" step="0.1" required placeholder="Max" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" value={r.max} onChange={(e) => updateRango(idx, 'max', Number(e.target.value))} />
-                        </div>
-                        <span className="text-gray-600 font-bold">➔</span>
-                        <div className="flex-1">
-                          <input type="number" required placeholder="Pts" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" value={r.puntos} onChange={(e) => updateRango(idx, 'puntos', Number(e.target.value))} />
-                        </div>
-                        <button type="button" onClick={() => eliminarRango(idx)} className="text-red-500 hover:bg-red-50 rounded px-2 py-1 font-bold">✕</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Rangos de monto eliminados */}
 
               <div className="flex gap-3 justify-end pt-4 border-t">
                 <button type="button" onClick={() => setShowReglaModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
