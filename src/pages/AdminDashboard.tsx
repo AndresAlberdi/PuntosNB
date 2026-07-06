@@ -123,6 +123,30 @@ const AdminDashboard: React.FC = () => {
       if (prod) nombreProd = prod.nombre;
     }
 
+    if (nuevaRegla.tipo === 'POR_RANGO') {
+      const desde = Number(nuevaRegla.rangoDesde) || 0;
+      const hasta = Number(nuevaRegla.rangoHasta) || 0;
+      
+      if (desde >= hasta) {
+        alert("El monto 'Desde' debe ser menor al monto 'Hasta'.");
+        return;
+      }
+      
+      const overlap = comercio.reglas.some(r => {
+        if (r.tipo === 'POR_RANGO') {
+          const rDesde = r.rangoDesde || 0;
+          const rHasta = r.rangoHasta || 0;
+          return (desde <= rHasta && hasta >= rDesde);
+        }
+        return false;
+      });
+      
+      if (overlap) {
+        alert("El rango de montos se superpone con otra regla de rango existente.");
+        return;
+      }
+    }
+
     const reglaFinal: ReglaPunto = {
       id: `regla_${Date.now()}`,
       tipo: nuevaRegla.tipo as any,
@@ -210,6 +234,23 @@ const AdminDashboard: React.FC = () => {
 
   const productosCatalog = comercio.productos || [];
 
+  const reglasOrdenadas = [...comercio.reglas].sort((a, b) => {
+    const order = { 'POR_COMPRA': 1, 'POR_PRODUCTO': 2, 'POR_RANGO': 3, 'POR_REGISTRO': 4 };
+    const aOrder = order[a.tipo] || 99;
+    const bOrder = order[b.tipo] || 99;
+    
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder;
+    }
+    if (a.tipo === 'POR_PRODUCTO' && b.tipo === 'POR_PRODUCTO') {
+      return (a.nombreProducto || '').localeCompare(b.nombreProducto || '');
+    }
+    if (a.tipo === 'POR_RANGO' && b.tipo === 'POR_RANGO') {
+      return (a.rangoDesde || 0) - (b.rangoDesde || 0);
+    }
+    return 0;
+  });
+
   return (
     <div className="p-6 space-y-6">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -224,11 +265,11 @@ const AdminDashboard: React.FC = () => {
             <h3 className="text-xl font-bold text-blue-900">Reglas de Asignación</h3>
             <button onClick={() => setShowReglaModal(true)} className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition">+ Nueva Regla</button>
           </div>
-          {comercio.reglas.length === 0 ? (
+          {reglasOrdenadas.length === 0 ? (
             <p className="text-gray-500 text-sm">No hay reglas configuradas.</p>
           ) : (
             <ul className="space-y-3">
-              {comercio.reglas.map(regla => (
+              {reglasOrdenadas.map(regla => (
                 <li key={regla.id} className="bg-white p-3 rounded shadow-sm flex flex-col border border-gray-100 relative">
                   <div className="absolute top-2 right-2 flex items-center gap-2">
                     <button 
