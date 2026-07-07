@@ -12,11 +12,12 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { COLOR_PALETTES, CLIENT_AVATARS, getPaletteStyle } from './utils/theme';
+import { LoadingScreen } from './components/LoadingScreen';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: RolUsuario[] }) => {
   const { currentUser, userData, loading } = useAuth();
 
-  if (loading) return <div className="flex justify-center items-center h-screen">Cargando...</div>;
+  if (loading) return <LoadingScreen />;
   
   if (!currentUser || !userData) {
     return <Navigate to="/login" replace />;
@@ -149,9 +150,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <header className="bg-white shadow-sm border-b border-brand-border">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-1.5 text-xl font-black text-brand-primary tracking-tight hover:opacity-80 transition z-10">
-            <svg className="w-6 h-6 text-brand-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-8 h-8 object-contain" />
             <span>Hipatia</span>
           </Link>
           
@@ -446,6 +445,19 @@ const AppRoutes = () => {
 };
 
 function App() {
+  const [showSplash, setShowSplash] = React.useState(true);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (showSplash) {
+    return <LoadingScreen isSplash={true} />;
+  }
+
   return (
     <AuthProvider>
       <Router>
