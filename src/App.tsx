@@ -78,7 +78,7 @@ const NotificationBell = () => {
 };
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
-  const { userData } = useAuth();
+  const { currentUser, userData } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [showPasswordModal, setShowPasswordModal] = React.useState(false);
@@ -141,6 +141,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   } else if (userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') {
     activePaletteId = commercePaletteId;
   }
+
+  const isGoogleUser = currentUser?.providerData?.some(p => p.providerId === 'google.com');
 
   return (
     <div style={getPaletteStyle(activePaletteId)} className="min-h-screen bg-gray-50 font-sans text-brand-text-dark transition-colors duration-300">
@@ -214,7 +216,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                   {userData?.rol}
                 </span>
                 
-                {userData.rol !== 'cliente' && (
+                {userData.rol !== 'cliente' && !isGoogleUser && (
                   <button 
                     onClick={() => setShowPasswordModal(true)}
                     className="text-sm font-medium text-gray-600 hover:text-gray-900"
@@ -281,7 +283,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               </>
             )}
 
-            {userData.rol !== 'cliente' && (
+            {userData.rol !== 'cliente' && !isGoogleUser && (
               <button 
                 onClick={() => { setShowPasswordModal(true); setIsMobileMenuOpen(false); }}
                 className="block w-full text-left text-sm font-medium text-gray-700 py-2"
@@ -360,16 +362,18 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               </div>
 
               {/* Botón Cambiar Clave Integrado */}
-              <div className="pt-4 border-t">
-                <button 
-                  type="button"
-                  onClick={() => { setShowProfileModal(false); setShowPasswordModal(true); }}
-                  className="w-full py-2 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition text-sm flex items-center justify-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                  Cambiar Contraseña
-                </button>
-              </div>
+              {!isGoogleUser && (
+                <div className="pt-4 border-t">
+                  <button 
+                    type="button"
+                    onClick={() => { setShowProfileModal(false); setShowPasswordModal(true); }}
+                    className="w-full py-2 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition text-sm flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    Cambiar Contraseña
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="mt-6 flex justify-end gap-3 border-t pt-4">
