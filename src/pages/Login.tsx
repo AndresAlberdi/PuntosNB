@@ -17,6 +17,7 @@ const Login: React.FC = () => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [aceptoTerminos, setAceptoTerminos] = useState(false);
   const [showTerminosModal, setShowTerminosModal] = useState(false);
+  const [pendingGoogleUser, setPendingGoogleUser] = useState<any>(null);
   const navigate = useNavigate();
   const { currentUser, userData, loading: authLoading } = useAuth();
 
@@ -30,7 +31,7 @@ const Login: React.FC = () => {
     return <LoadingScreen />;
   }
 
-  if (currentUser && !userData) {
+  if (currentUser && !userData && !pendingGoogleUser) {
     return (
       <div className="flex flex-col justify-center items-center min-h-[calc(100vh-60px)] space-y-4 p-4 text-center">
         <div className="text-xl text-blue-600 font-medium mb-2">Cargando perfil o perfil no encontrado...</div>
@@ -72,7 +73,7 @@ const Login: React.FC = () => {
         }
 
         const userCred = await createUserWithEmailAndPassword(auth, email, password);
-        const isAdmin = userCred.user.email === 'andresalberdi@gmail.com';
+        const isAdmin = userCred.user.email === 'alberdi.andres@gmail.com';
         await setDoc(doc(db, 'users', userCred.user.uid), {
           uid: userCred.user.uid,
           email: userCred.user.email,
@@ -134,14 +135,11 @@ const Login: React.FC = () => {
       const userDoc = await getDoc(userDocRef);
       if (!userDoc.exists()) {
         if (!aceptoTerminos) {
-          import('firebase/auth').then(async ({ signOut }) => {
-            await signOut(auth);
-          });
-          setError('Para registrarte con Google por primera vez, marca la casilla de aceptación de Términos y Condiciones (active la opción "Regístrate aquí" abajo para marcarla).');
+          setPendingGoogleUser(userCred.user);
           setLoading(false);
           return;
         }
-        const isAdmin = userCred.user.email === 'andresalberdi@gmail.com';
+        const isAdmin = userCred.user.email === 'alberdi.andres@gmail.com';
         await setDoc(userDocRef, {
           uid: userCred.user.uid,
           email: userCred.user.email,
@@ -165,6 +163,77 @@ const Login: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-60px)] p-4">
+      {pendingGoogleUser ? (
+        <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-md border border-gray-100">
+           <div className="flex items-center justify-center gap-2 mb-4 text-brand-primary">
+              <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-12 h-12 object-contain" />
+           </div>
+           <h2 className="text-2xl font-bold tracking-tight text-gray-800 mb-2">¡Bienvenido a Hipatia!</h2>
+           <p className="text-gray-600 mb-6 text-sm">
+             Como es tu primer ingreso con Google, necesitamos que aceptes nuestros Términos y Condiciones para crear tu perfil.
+           </p>
+           <div className="flex items-start gap-2 text-sm text-gray-600 mb-6 text-left bg-gray-50 p-4 rounded-lg border">
+              <input 
+                type="checkbox" 
+                id="terminos-google" 
+                checked={aceptoTerminos} 
+                onChange={(e) => setAceptoTerminos(e.target.checked)}
+                className="mt-1 h-4 w-4 text-brand-primary border-gray-300 rounded focus:ring-brand-primary" 
+              />
+              <label htmlFor="terminos-google" className="leading-tight">
+                He leído y acepto los{' '}
+                <button 
+                  type="button" 
+                  onClick={() => setShowTerminosModal(true)} 
+                  className="text-brand-primary font-semibold hover:underline"
+                >
+                  Términos y Condiciones
+                </button>{' '}
+                de Hipatia.
+              </label>
+           </div>
+           {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm font-medium">{error}</div>}
+           <div className="flex gap-3">
+             <button 
+               onClick={() => {
+                 import('firebase/auth').then(({ signOut }) => signOut(auth));
+                 setPendingGoogleUser(null);
+               }}
+               className="flex-1 bg-gray-100 text-gray-700 font-medium py-2 rounded hover:bg-gray-200 transition"
+             >
+               Cancelar
+             </button>
+             <button 
+               onClick={async () => {
+                 if (!aceptoTerminos) return;
+                 setLoading(true);
+                 setError('');
+                 try {
+                   const userDocRef = doc(db, 'users', pendingGoogleUser.uid);
+                   const isAdmin = pendingGoogleUser.email === 'alberdi.andres@gmail.com';
+                   await setDoc(userDocRef, {
+                     uid: pendingGoogleUser.uid,
+                     email: pendingGoogleUser.email,
+                     nombre: pendingGoogleUser.displayName || pendingGoogleUser.email?.split('@')[0],
+                     rol: isAdmin ? 'superadmin' : 'cliente',
+                     termsAccepted: true,
+                     termsAcceptedAt: Date.now(),
+                     createdAt: Date.now()
+                   });
+                 } catch (e: any) {
+                   console.error(e);
+                   setError('Error al crear el perfil: ' + e.message);
+                 }
+                 setLoading(false);
+               }}
+               disabled={!aceptoTerminos || loading}
+               className="flex-1 bg-brand-primary text-white font-medium py-2 rounded hover:bg-brand-primary-hover transition disabled:opacity-50"
+             >
+               {loading ? 'Guardando...' : 'Aceptar y Finalizar'}
+             </button>
+           </div>
+        </div>
+      ) : (
       <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-sm border border-gray-100">
         <div className="flex items-center justify-center gap-2 mb-6 text-brand-primary">
           <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-10 h-10 object-contain" />
@@ -293,6 +362,7 @@ const Login: React.FC = () => {
           </button>
         </div>
       </div>
+      )}
 
       {/* Modal de Términos y Condiciones */}
       {showTerminosModal && (
