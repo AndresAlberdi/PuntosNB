@@ -1,0 +1,15 @@
+# Codificación de colores
+
+## Colores principales
+
+Lila — #C69BFF
+Verde — #E3F972
+
+## Colores secundarios
+
+Turquesa — #08F6D9
+Celeste — #9ACEFF
+Marengo — #464646
+Negro — #000000
+Blanco — #FFFFFF
+Crema — #F6F3F0

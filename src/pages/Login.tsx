@@ -169,7 +169,7 @@ const Login: React.FC = () => {
           <svg className="w-8 h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <h2 className="text-2xl font-bold tracking-tight">PuntosNB</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Hipatia</h2>
         </div>
         
         {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm font-medium">{error}</div>}
@@ -254,7 +254,7 @@ const Login: React.FC = () => {
                 >
                   Términos y Condiciones
                 </button>{' '}
-                de PuntosNB.
+                de Hipatia.
               </label>
             </div>
           )}
@@ -299,22 +299,22 @@ const Login: React.FC = () => {
       {showTerminosModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[9999]">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto">
-            <h3 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Términos y Condiciones Generales de PuntosNB</h3>
+            <h3 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Términos y Condiciones Generales de Hipatia</h3>
             <div className="space-y-3 text-sm text-gray-600 leading-relaxed">
               <p>
-                <strong>1. Descripción del Servicio:</strong> PuntosNB es una plataforma digital de fidelización multi-marca que permite a los usuarios clientes acumular puntos por sus compras realizadas en los comercios adheridos y canjearlos por premios vigentes dentro del catálogo específico de cada comercio.
+                <strong>1. Descripción del Servicio:</strong> Hipatia es una plataforma digital de fidelización multi-marca que permite a los usuarios clientes acumular puntos por sus compras realizadas en los comercios adheridos y canjearlos por premios vigentes dentro del catálogo específico de cada comercio.
               </p>
               <p>
                 <strong>2. Acumulación y Exclusividad de Puntos:</strong> Los puntos se acumulan y registran de forma independiente para cada comercio. Los puntos acumulados en un comercio <em>no son transferibles</em> ni utilizables en otros comercios, ni se pueden consolidar, vender, cambiar por dinero en efectivo o traspasar a otras cuentas de usuario.
               </p>
               <p>
-                <strong>3. Responsabilidad sobre Reglas y Premios:</strong> Las reglas de asignación de puntos, montos requeridos, vigencia de los puntos y catálogo de premios son definidas de manera autónoma y exclusiva por cada comercio. PuntosNB actúa únicamente como proveedor de la plataforma tecnológica y no asume responsabilidad alguna por modificaciones en las reglas de acumulación, cancelaciones de premios o el cese de participación de un comercio en la red.
+                <strong>3. Responsabilidad sobre Reglas y Premios:</strong> Las reglas de asignación de puntos, montos requeridos, vigencia de los puntos y catálogo de premios son definidas de manera autónoma y exclusiva por cada comercio. Hipatia actúa únicamente como proveedor de la plataforma tecnológica y no asume responsabilidad alguna por modificaciones en las reglas de acumulación, cancelaciones de premios o el cese de participación de un comercio en la red.
               </p>
               <p>
                 <strong>4. Uso de la Cuenta y Seguridad:</strong> El usuario es responsable de mantener la confidencialidad de sus credenciales de acceso y del uso exclusivo de su cuenta. Cualquier actividad realizada desde su cuenta se considerará autorizada por el usuario.
               </p>
               <p>
-                <strong>5. Modificaciones y Suspensión:</strong> PuntosNB se reserva el derecho de actualizar los presentes términos, así como de suspender o dar de baja de forma temporal o definitiva aquellas cuentas en las que se detecten actividades sospechosas de fraude, suplantación o manipulación de códigos QR.
+                <strong>5. Modificaciones y Suspensión:</strong> Hipatia se reserva el derecho de actualizar los presentes términos, así como de suspender o dar de baja de forma temporal o definitiva aquellas cuentas en las que se detecten actividades sospechosas de fraude, suplantación o manipulación de códigos QR.
               </p>
             </div>
             <div className="mt-6 flex justify-end">
