@@ -165,7 +165,7 @@ const Login: React.FC = () => {
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-60px)] p-4">
       <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-sm border border-gray-100">
-        <div className="flex items-center justify-center gap-2 mb-6 text-blue-600">
+        <div className="flex items-center justify-center gap-2 mb-6 text-brand-primary">
           <svg className="w-8 h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -186,7 +186,7 @@ const Login: React.FC = () => {
               <input 
                 type="text" 
                 required={isRegistering}
-                className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
                 placeholder="Juan Pérez"
@@ -198,7 +198,7 @@ const Login: React.FC = () => {
             <input 
               type="email" 
               required
-              className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="correo@ejemplo.com"
@@ -209,7 +209,7 @@ const Login: React.FC = () => {
             <div className="relative">
               <input 
                 type={showPassword ? "text" : "password"} 
-                className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -228,7 +228,7 @@ const Login: React.FC = () => {
                 <button 
                   type="button" 
                   onClick={handleRecuperarClave}
-                  className="text-sm text-blue-600 hover:underline"
+                  className="text-sm text-brand-primary hover:underline"
                 >
                   ¿Olvidaste tu contraseña?
                 </button>
@@ -243,14 +243,14 @@ const Login: React.FC = () => {
                 id="terminos" 
                 checked={aceptoTerminos} 
                 onChange={(e) => setAceptoTerminos(e.target.checked)}
-                className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" 
+                className="mt-1 h-4 w-4 text-brand-primary border-gray-300 rounded focus:ring-brand-primary" 
               />
               <label htmlFor="terminos" className="leading-tight">
                 Acepto los{' '}
                 <button 
                   type="button" 
                   onClick={() => setShowTerminosModal(true)} 
-                  className="text-blue-600 font-semibold hover:underline"
+                  className="text-brand-primary font-semibold hover:underline"
                 >
                   Términos y Condiciones
                 </button>{' '}
@@ -262,7 +262,7 @@ const Login: React.FC = () => {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full bg-blue-600 text-white font-medium py-2 rounded hover:bg-blue-700 transition disabled:opacity-50"
+            className="w-full bg-brand-primary text-white font-medium py-2 rounded hover:bg-brand-primary-hover transition disabled:opacity-50"
           >
             {loading ? 'Cargando...' : (isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión')}
           </button>
@@ -288,7 +288,7 @@ const Login: React.FC = () => {
               setIsRegistering(!isRegistering);
               setError('');
             }} 
-            className="ml-1 text-blue-600 font-medium hover:underline"
+            className="ml-1 text-brand-primary font-medium hover:underline"
           >
             {isRegistering ? 'Inicia sesión' : 'Regístrate aquí'}
           </button>
@@ -323,7 +323,7 @@ const Login: React.FC = () => {
                   setAceptoTerminos(true);
                   setShowTerminosModal(false);
                 }} 
-                className="bg-blue-600 text-white font-medium px-4 py-2 rounded hover:bg-blue-700 transition mr-2"
+                className="bg-brand-primary text-white font-medium px-4 py-2 rounded hover:bg-brand-primary-hover transition mr-2"
               >
                 Aceptar y Cerrar
               </button>
