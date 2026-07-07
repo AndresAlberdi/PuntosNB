@@ -78,7 +78,9 @@ export const CLIENT_AVATARS: string[] = [
 ];
 
 export const getPaletteStyle = (paletteId: string | undefined): React.CSSProperties => {
-  const palette = COLOR_PALETTES.find(p => p.id === paletteId) || COLOR_PALETTES[0]; // default ocean
+  const palette = COLOR_PALETTES.find(p => p.id === paletteId);
+  if (!palette) return {} as React.CSSProperties;
+  
   return {
     '--color-brand-primary': palette.primary,
     '--color-brand-primary-hover': palette.primaryHover,
