@@ -133,6 +133,15 @@ const Login: React.FC = () => {
       
       const userDocRef = doc(db, 'users', userCred.user.uid);
       const userDoc = await getDoc(userDocRef);
+      
+      if (userDoc.exists()) {
+        if (userCred.user.email === 'alberdi.andres@gmail.com' && userDoc.data().rol !== 'superadmin') {
+          import('firebase/firestore').then(({ updateDoc }) => {
+            updateDoc(userDocRef, { rol: 'superadmin' });
+          });
+        }
+      }
+
       if (!userDoc.exists()) {
         if (!aceptoTerminos) {
           setPendingGoogleUser(userCred.user);

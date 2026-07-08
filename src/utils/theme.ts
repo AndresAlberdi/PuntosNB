@@ -61,6 +61,16 @@ export const COLOR_PALETTES: ColorPalette[] = [
     bgLight: '#f8fafc',
     textDark: '#0f172a',
     border: '#e2e8f0',
+  },
+  {
+    id: 'hipatia',
+    name: 'Hipatia Corporativo',
+    primary: '#C69BFF',
+    primaryHover: '#9ACEFF',
+    secondary: '#08F6D9',
+    bgLight: '#F6F3F0',
+    textDark: '#464646',
+    border: '#E3F972',
   }
 ];
 

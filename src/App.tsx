@@ -87,6 +87,20 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const [commercePaletteId, setCommercePaletteId] = React.useState<string | undefined>(undefined);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
+  const [isDarkMode, setIsDarkMode] = React.useState(() => {
+    return localStorage.getItem('theme') === 'dark';
+  });
+
+  React.useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
+
   // States for Profile Modal form
   const [selectedPalette, setSelectedPalette] = React.useState('ocean');
   const [selectedAvatar, setSelectedAvatar] = React.useState('');
@@ -146,8 +160,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const isGoogleUser = currentUser?.providerData?.some(p => p.providerId === 'google.com');
 
   return (
-    <div style={getPaletteStyle(activePaletteId)} className="min-h-screen bg-gray-50 font-sans text-brand-text-dark transition-colors duration-300">
-      <header className="bg-white shadow-sm border-b border-brand-border">
+    <div style={getPaletteStyle(activePaletteId)} className="min-h-screen bg-[var(--bg-main)] font-sans text-[var(--text-main)] transition-colors duration-300">
+      <header className="bg-[var(--bg-surface)] shadow-sm border-b border-[var(--border-color)]">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-1.5 text-xl font-black text-brand-primary tracking-tight hover:opacity-80 transition z-10">
             <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-8 h-8 object-contain" />
@@ -156,6 +170,13 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           
           {userData && (
             <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                className="p-2 text-gray-500 hover:text-[var(--accent-primary)] transition rounded-full hover:bg-[var(--bg-main)]"
+                title={isDarkMode ? "Cambiar a Modo Día" : "Cambiar a Modo Noche"}
+              >
+                {isDarkMode ? '☀️' : '🌙'}
+              </button>
               <NotificationBell />
               
               {/* Botón menú móvil */}
