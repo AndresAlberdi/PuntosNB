@@ -1,0 +1,77 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Funciones de utilidad para verificar roles
+    function isAuth() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isAuth() && getUserData().rol == 'superadmin';
+    }
+
+    function isAdminComercio() {
+      return isAuth() && getUserData().rol == 'admin_comercio';
+    }
+
+    function isVendedor() {
+      return isAuth() && getUserData().rol == 'vendedor';
+    }
+    
+    function isCliente() {
+      return isAuth() && getUserData().rol == 'cliente';
+    }
+
+    // Reglas por colección
+
+    match /users/{userId} {
+      // Los usuarios pueden leer y escribir su propio documento. Superadmins y admins de comercio también.
+      allow read: if isAuth();
+      allow write: if isAuth() && (request.auth.uid == userId || isSuperAdmin() || isAdminComercio());
+    }
+
+    match /comercios/{comercioId} {
+      // Todos los usuarios autenticados pueden leer los comercios
+      allow read: if isAuth();
+      // Solo superadmins y admins de su propio comercio pueden modificar
+      allow write: if isSuperAdmin() || (isAdminComercio() && getUserData().comercioId == comercioId);
+    }
+
+    match /transacciones/{txId} {
+      // Clientes ven sus transacciones, vendedores/admins ven las de su comercio, superadmin ve todas
+      allow read: if isAuth() && (
+        isSuperAdmin() || 
+        (isCliente() && resource.data.clienteId == request.auth.uid) ||
+        ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
+      );
+      // Vendedores, admins y superadmins pueden registrar transacciones
+      allow write: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
+    }
+
+    match /puntos_saldos/{saldoId} {
+      // Misma lógica de lectura que transacciones
+      allow read: if isAuth() && (
+        isSuperAdmin() ||
+        (isCliente() && resource.data.clienteId == request.auth.uid) ||
+        ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
+      );
+      allow write: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
+    }
+
+    match /sesiones_qr/{sesionId} {
+      // Las sesiones QR requieren acceso ágil de lectura y escritura por parte del cliente y del vendedor
+      allow read, write: if isAuth();
+    }
+
+    // Regla por defecto de seguridad para cualquier otra colección no definida
+    match /{document=**} {
+      allow read, write: if isSuperAdmin();
+    }
+  }
+}
