@@ -6,10 +6,12 @@ ENV=${1:-prod}
 if [ "$ENV" = "staging" ] || [ "$ENV" = "puntosnb" ]; then
   PROJECT_ID="puntosnb"
   BUILD_CMD="npm run build:staging"
+  COMMIT_TAG="(en pruebas)"
   echo "=== MODO DE DESPLIEGUE: PRUEBAS / STAGING (puntosnb) ==="
 else
   PROJECT_ID="hipatia-puntos"
   BUILD_CMD="npm run build:prod"
+  COMMIT_TAG="(en producción)"
   echo "=== MODO DE DESPLIEGUE: PRODUCCIÓN (hipatia-puntos) ==="
 fi
 
@@ -32,7 +34,7 @@ git add .
 if git diff-index --quiet HEAD --; then
   echo "No hay cambios pendientes por commitear."
 else
-  git commit -m "chore: despliegue ($PROJECT_ID) y actualizaciones de entorno"
+  git commit -m "chore: despliegue $COMMIT_TAG ($PROJECT_ID) y actualizaciones de entorno"
 fi
 
 echo "Intentando realizar push a GitHub..."
