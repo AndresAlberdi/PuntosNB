@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isStaging, APP_TITLE } from '../../utils/env';
+import { isStaging, APP_TITLE, isSuperAdminEmail, SUPER_ADMIN_EMAILS } from '../../utils/env';
 
 describe('Environment Config Utility', () => {
   it('should evaluate isStaging based on project ID or mode', () => {
@@ -13,5 +13,20 @@ describe('Environment Config Utility', () => {
     } else {
       expect(APP_TITLE).toBe('Hipatia');
     }
+  });
+
+  it('should identify all 3 authorized superadmin emails', () => {
+    expect(SUPER_ADMIN_EMAILS).toEqual([
+      'alberdi.andres@gmail.com',
+      'nbruzonic@gmail.com',
+      'hipatia-admin@gmail.com'
+    ]);
+
+    expect(isSuperAdminEmail('alberdi.andres@gmail.com')).toBe(true);
+    expect(isSuperAdminEmail('nbruzonic@gmail.com')).toBe(true);
+    expect(isSuperAdminEmail('hipatia-admin@gmail.com')).toBe(true);
+    expect(isSuperAdminEmail('HIPATIA-ADMIN@GMAIL.COM')).toBe(true);
+    expect(isSuperAdminEmail('otro.usuario@gmail.com')).toBe(false);
+    expect(isSuperAdminEmail(null)).toBe(false);
   });
 });
