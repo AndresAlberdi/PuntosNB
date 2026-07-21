@@ -15,19 +15,18 @@ describe('Environment Config Utility', () => {
     }
   });
 
-  it('should identify authorized superadmin emails (including dot and hyphen variants)', () => {
+  it('should identify exactly the 3 authorized superadmin emails', () => {
     expect(SUPER_ADMIN_EMAILS).toEqual([
       'alberdi.andres@gmail.com',
       'nbruzonic@gmail.com',
-      'hipatia-admin@gmail.com',
       'hipatia.admin@gmail.com'
     ]);
 
     expect(isSuperAdminEmail('alberdi.andres@gmail.com')).toBe(true);
     expect(isSuperAdminEmail('nbruzonic@gmail.com')).toBe(true);
-    expect(isSuperAdminEmail('hipatia-admin@gmail.com')).toBe(true);
     expect(isSuperAdminEmail('hipatia.admin@gmail.com')).toBe(true);
     expect(isSuperAdminEmail('HIPATIA.ADMIN@GMAIL.COM')).toBe(true);
+    expect(isSuperAdminEmail('hipatia-admin@gmail.com')).toBe(false);
     expect(isSuperAdminEmail('otro.usuario@gmail.com')).toBe(false);
     expect(isSuperAdminEmail(null)).toBe(false);
   });

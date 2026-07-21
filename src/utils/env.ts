@@ -4,7 +4,6 @@ export const APP_TITLE = isStaging ? 'Hipatia (pruebas)' : 'Hipatia';
 export const SUPER_ADMIN_EMAILS = [
   'alberdi.andres@gmail.com',
   'nbruzonic@gmail.com',
-  'hipatia-admin@gmail.com',
   'hipatia.admin@gmail.com'
 ];
 

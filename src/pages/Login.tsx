@@ -386,13 +386,16 @@ const Login: React.FC = () => {
                 <strong>2. Acumulación y Exclusividad de Puntos:</strong> Los puntos se acumulan y registran de forma independiente para cada comercio. Los puntos acumulados en un comercio <em>no son transferibles</em> ni utilizables en otros comercios, ni se pueden consolidar, vender, cambiar por dinero en efectivo o traspasar a otras cuentas de usuario.
               </p>
               <p>
-                <strong>3. Responsabilidad sobre Reglas y Premios:</strong> Las reglas de asignación de puntos, montos requeridos, vigencia de los puntos y catálogo de premios son definidas de manera autónoma y exclusiva por cada comercio. Hipatia actúa únicamente como proveedor de la plataforma tecnológica y no asume responsabilidad alguna por modificaciones en las reglas de acumulación, cancelaciones de premios o el cese de participación de un comercio en la red.
+                <strong>3. Auditoría y Registro Fiscal Obligatorio:</strong> Para evitar colusiones o acumulaciones sin consumo real, el flujo operativo exige el registro obligatorio del número y monto de la factura fiscal en la plataforma. Cada transacción registra de forma inmutable la fecha, hora, identificador del vendedor y detalle del cliente.
               </p>
               <p>
-                <strong>4. Uso de la Cuenta y Seguridad:</strong> El usuario es responsable de mantener la confidencialidad de sus credenciales de acceso y del uso exclusivo de su cuenta. Cualquier actividad realizada desde su cuenta se considerará autorizada por el usuario.
+                <strong>4. Tolerancia Cero al Fraude y Clonación de Códigos QR:</strong> Queda estrictamente prohibida la clonación, uso de capturas de pantalla o reutilización maliciosa de códigos QR. La plataforma implementa validación dinámica de caducidad por tiempo (TOTP). Hipatia se reserva el derecho de cancelar puntos e inhabilitar permanentemente cualquier cuenta sospechosa de fraude.
               </p>
               <p>
-                <strong>5. Modificaciones y Suspensión:</strong> Hipatia se reserva el derecho de actualizar los presentes términos, así como de suspender o dar de baja de forma temporal o definitiva aquellas cuentas en las que se detecten actividades sospechosas de fraude, suplantación o manipulación de códigos QR.
+                <strong>5. Privacidad, Perfilamiento e Inteligencia Artificial:</strong> El usuario autoriza el procesamiento de datos de comportamiento de compra para perfilamiento, modelos predictivos de Inteligencia Artificial para la personalización de la experiencia y publicidad in-app. Toda monetización o entrega de analíticas a terceros se realizará estrictamente con información agregada y anonimizada.
+              </p>
+              <p>
+                <strong>6. Nivel de Servicio (SLA) e Integraciones:</strong> Hipatia garantiza estándares de disponibilidad tecnológica para sus conectores y APIs RESTful de integración con sistemas ERP/CRM/POS del comercio, promoviendo la automatización operativa sin fricción en puntos de venta.
               </p>
             </div>
             <div className="mt-6 flex justify-end">
