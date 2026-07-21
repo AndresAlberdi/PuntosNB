@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "puntosnb"
+    "default": "hipatia-puntos",
+    "production": "hipatia-puntos",
+    "staging": "puntosnb"
   }
 }
