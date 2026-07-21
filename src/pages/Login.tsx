@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, fetchSignInMethodsForEmail } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -138,9 +138,7 @@ const Login: React.FC = () => {
       
       if (userDoc.exists()) {
         if (isSuperAdminEmail(userCred.user.email) && userDoc.data().rol !== 'superadmin') {
-          import('firebase/firestore').then(({ updateDoc }) => {
-            updateDoc(userDocRef, { rol: 'superadmin' });
-          });
+          await updateDoc(userDocRef, { rol: 'superadmin' });
         }
       }
 
