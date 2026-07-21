@@ -13,6 +13,8 @@ import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'fireb
 import { db } from './firebase';
 import { COLOR_PALETTES, CLIENT_AVATARS, getPaletteStyle } from './utils/theme';
 import { LoadingScreen } from './components/LoadingScreen';
+import { isStaging, APP_TITLE } from './utils/env';
+
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: RolUsuario[] }) => {
   const { currentUser, userData, loading } = useAuth();
@@ -165,7 +167,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-1.5 text-xl font-black text-brand-primary tracking-tight hover:opacity-80 transition z-10">
             <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-8 h-8 object-contain" />
-            <span>Hipatia</span>
+            <span>Hipatia{isStaging ? ' (pruebas)' : ''}</span>
           </Link>
           
           {userData && (
@@ -485,6 +487,7 @@ function App() {
   const [showSplash, setShowSplash] = React.useState(true);
 
   React.useEffect(() => {
+    document.title = APP_TITLE;
     const timer = setTimeout(() => {
       setShowSplash(false);
     }, 3000);

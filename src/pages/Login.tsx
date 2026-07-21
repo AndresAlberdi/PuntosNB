@@ -5,6 +5,8 @@ import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { isStaging } from '../utils/env';
+
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -246,7 +248,7 @@ const Login: React.FC = () => {
       <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-sm border border-gray-100">
         <div className="flex items-center justify-center gap-2 mb-6 text-brand-primary">
           <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-10 h-10 object-contain" />
-          <h2 className="text-2xl font-bold tracking-tight">Hipatia</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Hipatia{isStaging ? ' (pruebas)' : ''}</h2>
         </div>
         
         {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm font-medium">{error}</div>}
