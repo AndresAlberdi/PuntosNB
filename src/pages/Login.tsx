@@ -73,7 +73,7 @@ const Login: React.FC = () => {
         }
 
         const userCred = await createUserWithEmailAndPassword(auth, email, password);
-        const isAdmin = userCred.user.email === 'alberdi.andres@gmail.com';
+        const isAdmin = userCred.user.email === 'alberdi.andres@gmail.com' || userCred.user.email === 'nbruzonic@gmail.com';
         await setDoc(doc(db, 'users', userCred.user.uid), {
           uid: userCred.user.uid,
           email: userCred.user.email,
@@ -135,7 +135,7 @@ const Login: React.FC = () => {
       const userDoc = await getDoc(userDocRef);
       
       if (userDoc.exists()) {
-        if (userCred.user.email === 'alberdi.andres@gmail.com' && userDoc.data().rol !== 'superadmin') {
+        if ((userCred.user.email === 'alberdi.andres@gmail.com' || userCred.user.email === 'nbruzonic@gmail.com') && userDoc.data().rol !== 'superadmin') {
           import('firebase/firestore').then(({ updateDoc }) => {
             updateDoc(userDocRef, { rol: 'superadmin' });
           });
@@ -148,7 +148,7 @@ const Login: React.FC = () => {
           setLoading(false);
           return;
         }
-        const isAdmin = userCred.user.email === 'alberdi.andres@gmail.com';
+        const isAdmin = userCred.user.email === 'alberdi.andres@gmail.com' || userCred.user.email === 'nbruzonic@gmail.com';
         await setDoc(userDocRef, {
           uid: userCred.user.uid,
           email: userCred.user.email,
@@ -219,7 +219,7 @@ const Login: React.FC = () => {
                  setError('');
                  try {
                    const userDocRef = doc(db, 'users', pendingGoogleUser.uid);
-                   const isAdmin = pendingGoogleUser.email === 'alberdi.andres@gmail.com';
+                   const isAdmin = pendingGoogleUser.email === 'alberdi.andres@gmail.com' || pendingGoogleUser.email === 'nbruzonic@gmail.com';
                    await setDoc(userDocRef, {
                      uid: pendingGoogleUser.uid,
                      email: pendingGoogleUser.email,

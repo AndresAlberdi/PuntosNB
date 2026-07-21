@@ -212,7 +212,15 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                 )}
                 
                 {userData?.rol === 'superadmin' && (
-                  <Link to="/superadmin" className="text-sm font-medium text-brand-primary hover:text-brand-primary-hover">Panel Sistema</Link>
+                  <div className="flex gap-2">
+                    <Link to="/superadmin" className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname.startsWith('/superadmin') ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}>Panel Sistema</Link>
+                    <button 
+                      onClick={() => navigate('/reportes')}
+                      className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname === '/reportes' ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}
+                    >
+                      Reportes
+                    </button>
+                  </div>
                 )}
                 
                 {(userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') && (
@@ -283,7 +291,15 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             )}
 
             {userData?.rol === 'superadmin' && (
-              <Link to="/superadmin" onClick={() => setIsMobileMenuOpen(false)} className="block w-full text-left text-sm font-medium text-brand-primary py-2">Panel Sistema</Link>
+              <>
+                <Link to="/superadmin" onClick={() => setIsMobileMenuOpen(false)} className="block w-full text-left text-sm font-medium text-brand-primary py-2">Panel Sistema</Link>
+                <button 
+                  onClick={() => { navigate('/reportes'); setIsMobileMenuOpen(false); }}
+                  className="block w-full text-left text-sm font-medium text-gray-700 py-2"
+                >
+                  Reportes
+                </button>
+              </>
             )}
 
             {(userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') && (

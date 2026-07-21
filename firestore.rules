@@ -32,7 +32,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       // Los usuarios pueden leer y escribir su propio documento. Superadmins y admins de comercio también.
-      allow read: if isAuth();
+      allow read: if isAuth() && (request.auth.uid == userId || isSuperAdmin());
       allow write: if isAuth() && (request.auth.uid == userId || isSuperAdmin() || isAdminComercio());
     }
 
