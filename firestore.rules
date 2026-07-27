@@ -47,6 +47,7 @@ service cloud.firestore {
       // Clientes ven sus transacciones, vendedores/admins ven las de su comercio, superadmin ve todas
       allow read: if isAuth() && (
         isSuperAdmin() || 
+        resource == null ||
         (isCliente() && resource.data.clienteId == request.auth.uid) ||
         ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
       );
@@ -64,6 +65,7 @@ service cloud.firestore {
       // Misma lógica de lectura que transacciones
       allow read: if isAuth() && (
         isSuperAdmin() ||
+        resource == null ||
         (isCliente() && resource.data.clienteId == request.auth.uid) ||
         ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
       );

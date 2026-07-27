@@ -178,4 +178,20 @@ describe('Reglas de Seguridad Firestore', () => {
       })
     ).rejects.toThrow();
   });
+
+  it('Un cliente debería poder leer un saldo de puntos inexistente', async (ctx) => {
+    if (!testEnv) {
+      ctx.skip();
+      return;
+    }
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
+    });
+
+    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
+    await expect(
+      authedDb.collection('puntos_saldos').doc('cliente1_comercioA').get()
+    ).resolves.not.toThrow();
+  });
 });
