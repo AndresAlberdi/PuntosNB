@@ -83,4 +83,99 @@ describe('Reglas de Seguridad Firestore', () => {
       authedDb.collection('users').doc('cliente2').get()
     ).rejects.toThrow();
   });
+
+  it('Un cliente debería poder registrar una transacción propia de acumulación', async (ctx) => {
+    if (!testEnv) {
+      ctx.skip();
+      return;
+    }
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
+    });
+
+    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
+    await expect(
+      authedDb.collection('transacciones').add({
+        clienteId: 'cliente1',
+        tipo: 'ACUMULACION',
+        puntos: 10
+      })
+    ).resolves.not.toThrow();
+  });
+
+  it('Un cliente NO debería poder registrar una transacción ajena', async (ctx) => {
+    if (!testEnv) {
+      ctx.skip();
+      return;
+    }
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
+    });
+
+    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
+    await expect(
+      authedDb.collection('transacciones').add({
+        clienteId: 'cliente2',
+        tipo: 'ACUMULACION',
+        puntos: 10
+      })
+    ).rejects.toThrow();
+  });
+
+  it('Un cliente debería poder crear y actualizar su propio saldo de puntos', async (ctx) => {
+    if (!testEnv) {
+      ctx.skip();
+      return;
+    }
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
+    });
+
+    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
+    const docRef = authedDb.collection('puntos_saldos').doc('cliente1_comercioA');
+    
+    // Crear propio saldo
+    await expect(
+      docRef.set({
+        clienteId: 'cliente1',
+        comercioId: 'comercioA',
+        saldoTotal: 10
+      })
+    ).resolves.not.toThrow();
+
+    // Actualizar propio saldo
+    await expect(
+      docRef.update({
+        saldoTotal: 20
+      })
+    ).resolves.not.toThrow();
+  });
+
+  it('Un cliente NO debería poder modificar el saldo de puntos de otro usuario', async (ctx) => {
+    if (!testEnv) {
+      ctx.skip();
+      return;
+    }
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
+      await db.collection('puntos_saldos').doc('cliente2_comercioA').set({
+        clienteId: 'cliente2',
+        comercioId: 'comercioA',
+        saldoTotal: 50
+      });
+    });
+
+    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
+    const docRef = authedDb.collection('puntos_saldos').doc('cliente2_comercioA');
+
+    await expect(
+      docRef.update({
+        saldoTotal: 100
+      })
+    ).rejects.toThrow();
+  });
 });

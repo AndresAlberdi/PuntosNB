@@ -50,8 +50,14 @@ service cloud.firestore {
         (isCliente() && resource.data.clienteId == request.auth.uid) ||
         ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
       );
-      // Vendedores, admins y superadmins pueden registrar transacciones
-      allow write: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
+      // Vendedores, admins y superadmins pueden registrar cualquier transacción; clientes pueden registrar transacciones propias
+      allow create: if isAuth() && (
+        isSuperAdmin() || 
+        isVendedor() || 
+        isAdminComercio() || 
+        (isCliente() && request.resource.data.clienteId == request.auth.uid)
+      );
+      allow update, delete: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
     }
 
     match /puntos_saldos/{saldoId} {
@@ -61,7 +67,20 @@ service cloud.firestore {
         (isCliente() && resource.data.clienteId == request.auth.uid) ||
         ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
       );
-      allow write: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
+      // Clientes pueden crear o actualizar su propio saldo de puntos
+      allow create: if isAuth() && (
+        isSuperAdmin() || 
+        isVendedor() || 
+        isAdminComercio() || 
+        (isCliente() && request.resource.data.clienteId == request.auth.uid)
+      );
+      allow update: if isAuth() && (
+        isSuperAdmin() || 
+        isVendedor() || 
+        isAdminComercio() || 
+        (isCliente() && resource.data.clienteId == request.auth.uid && request.resource.data.clienteId == request.auth.uid)
+      );
+      allow delete: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
     }
 
     match /sesiones_qr/{sesionId} {
