@@ -12,6 +12,7 @@ export interface Usuario {
   telefono?: string; // Para WhatsApp
   termsAccepted?: boolean;
   termsAcceptedAt?: number;
+  estado?: 'activo' | 'bloqueado';
 }
 
 export type TipoRegla = 
@@ -57,6 +58,7 @@ export interface Comercio {
   createdAt: number;
   paletteId?: string; // Paleta de colores para todos los usuarios del comercio
   plan?: 'regular' | 'premium';
+  estado?: 'activo' | 'bloqueado';
 }
 
 export interface SaldoPunto {

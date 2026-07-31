@@ -84,7 +84,7 @@ const Login: React.FC = () => {
           </div>
           <h2 className="text-xl font-bold text-center mb-2 text-gray-800">¡Bienvenido a Hipatia!</h2>
           <p className="text-sm text-gray-600 text-center mb-6">
-            Ingresa tu número de Whatsapp. Usaremos tu número telefónico solamente para temas relacionados con Hipatia Puntos y otros productos de Hipatia. No compartiremos tus datos con terceros. Esto también nos permitirá ayudarte a recuperar tu cuenta si la pierdes.
+            Ingresa tu número de Whatsapp. Lo usaremos solamente para temas relacionados con Hipatia Puntos y otros productos de Hipatia, no compartiremos tus datos con nadie, ni siquiera con terceros. La ventaja es que podrás recuperar tu cuenta por teléfono si lo pierdes o te lo roban.
           </p>
 
           {welcomeError && (
@@ -491,7 +491,7 @@ const Login: React.FC = () => {
                 <strong>6. Nivel de Servicio (SLA) e Integraciones:</strong> Hipatia garantiza estándares de disponibilidad tecnológica para sus conectores y APIs RESTful de integración con sistemas ERP/CRM/POS del comercio, promoviendo la automatización operativa sin fricción en puntos de venta.
               </p>
               <p>
-                <strong>7. Uso del Número Telefónico:</strong> Usaremos tu número telefónico solamente para temas relacionados con Hipatia Puntos y otros productos de Hipatia. No compartiremos tus datos con nadie, ni siquiera con terceros. Además, tu número nos permitirá ayudarte a recuperar tu cuenta si la pierdes o te la roban.
+                <strong>7. Uso del Número Telefónico:</strong> Lo usaremos solamente para temas relacionados con Hipatia Puntos y otros productos de Hipatia, no compartiremos sus datos con nadie, ni siquiera con terceros. La ventaja es que podría recuperar su cuenta por teléfono si lo pierde y se lo roban.
               </p>
             </div>
             <div className="mt-6 flex justify-end">

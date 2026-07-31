@@ -18,8 +18,23 @@ import { isStaging, APP_TITLE } from './utils/env';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: RolUsuario[] }) => {
   const { currentUser, userData, loading } = useAuth();
+  const [commerceBlocked, setCommerceBlocked] = React.useState(false);
+  const [checkingCommerce, setCheckingCommerce] = React.useState(true);
 
-  if (loading) return <LoadingScreen />;
+  React.useEffect(() => {
+    if (userData?.comercioId && (userData.rol === 'admin_comercio' || userData.rol === 'vendedor')) {
+      getDoc(doc(db, 'comercios', userData.comercioId)).then(snap => {
+        if (snap.exists() && snap.data().estado === 'bloqueado') {
+          setCommerceBlocked(true);
+        }
+        setCheckingCommerce(false);
+      });
+    } else {
+      setCheckingCommerce(false);
+    }
+  }, [userData]);
+
+  if (loading || checkingCommerce) return <LoadingScreen />;
   
   if (!currentUser || !userData) {
     return <Navigate to="/login" replace />;
@@ -27,6 +42,32 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
 
   if (allowedRoles && !allowedRoles.includes(userData.rol)) {
     return <Navigate to="/" replace />; // Or unauthorized page
+  }
+
+  if (userData.estado === 'bloqueado' || commerceBlocked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+        <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center border-t-4 border-red-500">
+          <div className="w-16 h-16 mx-auto bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Acceso Bloqueado</h2>
+          <p className="text-gray-600 mb-6">Tu cuenta o el comercio al que perteneces ha sido bloqueado temporalmente. Por favor, contacta a soporte.</p>
+          <button 
+            onClick={() => {
+              import('firebase/auth').then(({ signOut }) => {
+                import('./firebase').then(({ auth }) => {
+                  signOut(auth);
+                });
+              });
+            }}
+            className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition"
+          >
+            Cerrar Sesión
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return <>{children}</>;
