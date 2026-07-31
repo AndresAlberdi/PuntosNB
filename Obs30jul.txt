@@ -7,3 +7,18 @@ Para el proyecto puntosnb-app:
 3) Elabora un mensaje para enviar al nuevo usuario por Whatsapp una vez verificado el número, dándole la bienvenida a Hipatia Puntos y explicándole brevemente cómo funciona y qué puede hacer en la plataforma.
 
 4) Deseo crear un mini CRM para el admin del comercio, que tenga sus top 3 vendedores, top 5 clientes, total puntos emitidos, total premios entregados, un gráfico con la actividad de sus canjes.
+
+
+SEGUNDA PARTE
+
+1) Para el superadmin, crea un simulador de generación y lectura de QR para probar que todo funcione bien.
+
+2) Crea el buscador para que el superadmin pueda buscar por teléfono, nombre, etc. en el listado de usuarios.
+
+3) En el módulo de "Listado de usuarios" para el superadmin, agrega una columna que muestre el número de Whatsapp del usuario (con el código de país).
+
+4) Al momento de la creación de un comercio, además del correo y la contraseña, solicita que ingrese el número de Whatsapp del encargado del comercio, con su código de país, número que debe ser verificado.
+
+5) Al momento de la creación de un comercio, debe elegirse si es regular o premium, el premium permite que los admin y vendedores tengan acceso a reportes y mini CRM, el regular solo acceso a mini CRM. Esta opción también se puede cambiar luego. Los comercios actuales en prueba EPICO y PIZZA NB son premium.
+
+6) En la misma pantalla de Bienvenido a Hipatia para nuevos usuarios, debajo de la aceptación de términos y condiciones debe ir "Ingresa tu número de Whatsapp", con el mismo texto de "Usaremos..." sin embargo que solo verifique que es un celular válido, no enviar código SMS, al digitar Aceptar y Finalizar (si no coloca el número pedirle que lo haga). Este número podrá ser editado por el usuario en su pantalla de configuración, igualmente solo con verificación de celular correcto.

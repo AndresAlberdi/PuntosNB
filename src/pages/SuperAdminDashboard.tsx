@@ -20,15 +20,25 @@ const SuperAdminDashboard: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nombreUsuario, setNombreUsuario] = useState('');
+  const [telefonoUsuario, setTelefonoUsuario] = useState('');
+  const [countryCode, setCountryCode] = useState('+591');
   const [rol, setRol] = useState<'admin_comercio' | 'vendedor'>('vendedor');
   const [comercioId, setComercioId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [planComercio, setPlanComercio] = useState<'regular' | 'premium'>('regular');
 
   const [mensaje, setMensaje] = useState<{texto: string, tipo: 'success'|'error'} | null>(null);
 
   // States for listing users
   const [selectedComercioToList, setSelectedComercioToList] = useState('');
   const [comercioUsers, setComercioUsers] = useState<Usuario[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // States for QR Simulator
+  const [qrSimTipo, setQrSimTipo] = useState<'ACUMULACION'|'CANJE'>('ACUMULACION');
+  const [qrSimMonto, setQrSimMonto] = useState('');
+  const [qrSimCodeResult, setQrSimCodeResult] = useState('');
+  const [qrSimReadInput, setQrSimReadInput] = useState('');
 
   const cargarComercios = async () => {
     try {
@@ -79,7 +89,8 @@ const SuperAdminDashboard: React.FC = () => {
         productos: [],
         createdAt: Date.now(),
         logoUrl: logoBase64 || '',
-        paletteId: paletteId
+        paletteId: paletteId,
+        plan: planComercio
       };
       await setDoc(comercioRef, nuevoComercio);
       setMensaje({ texto: 'Comercio creado exitosamente', tipo: 'success' });
@@ -87,6 +98,7 @@ const SuperAdminDashboard: React.FC = () => {
       setNitRut('');
       setLogoBase64('');
       setPaletteId('ocean');
+      setPlanComercio('regular');
       const fileInput = document.getElementById('comercio-logo-file') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
       cargarComercios();
@@ -114,6 +126,7 @@ const SuperAdminDashboard: React.FC = () => {
         nombre: nombreUsuario,
         rol,
         comercioId,
+        telefono: telefonoUsuario ? `${countryCode}${telefonoUsuario}` : undefined,
         createdAt: Date.now()
       };
       await setDoc(userDocRef, userData);
@@ -122,6 +135,7 @@ const SuperAdminDashboard: React.FC = () => {
       setEmail('');
       setPassword('');
       setNombreUsuario('');
+      setTelefonoUsuario('');
       if (selectedComercioToList === comercioId) {
         setSelectedComercioToList(''); // trigger refresh manually or just clear
       }
@@ -214,6 +228,21 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  const handleTogglePlan = async (comercio: Comercio) => {
+    const nuevoPlan = comercio.plan === 'premium' ? 'regular' : 'premium';
+    const confirmacion = window.confirm(`¿Cambiar el plan de "${comercio.nombre}" a ${nuevoPlan.toUpperCase()}?`);
+    if (!confirmacion) return;
+
+    try {
+      const { updateDoc } = await import('firebase/firestore');
+      await updateDoc(doc(db, 'comercios', comercio.id), { plan: nuevoPlan });
+      setMensaje({ texto: `Plan de "${comercio.nombre}" cambiado a ${nuevoPlan.toUpperCase()}`, tipo: 'success' });
+      cargarComercios();
+    } catch (e: any) {
+      setMensaje({ texto: 'Error al cambiar plan: ' + e.message, tipo: 'error' });
+    }
+  };
+
   const handleBorrarUsuario = async (usuario: Usuario) => {
     const confirmacion = window.confirm(
       `¿Seguro que deseas borrar al usuario "${usuario.nombre}" (${usuario.email}) de la base de datos?\n\n` +
@@ -238,7 +267,64 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  const handleSimularQrGenerar = async () => {
+    if (!comercios.length) {
+      setMensaje({ texto: 'Debe existir al menos un comercio', tipo: 'error' });
+      return;
+    }
+    const comercioIdSim = comercios[0].id;
+    const { generarCodigoUnicoQR } = await import('../utils/qr');
+    const codigo = await generarCodigoUnicoQR(db);
+    
+    const sesionData: any = {
+      id: codigo,
+      tipo: qrSimTipo,
+      creadorId: 'superadmin_sim',
+      creadorAlias: 'Simulador',
+      comercioId: comercioIdSim,
+      estado: 'PENDIENTE',
+      createdAt: Date.now()
+    };
+    
+    if (qrSimTipo === 'ACUMULACION') {
+      sesionData.montoFactura = parseFloat(qrSimMonto) || 100;
+      sesionData.puntosCalculados = 10;
+    } else {
+      sesionData.premioId = 'sim_premio';
+    }
+
+    try {
+      await setDoc(doc(db, 'sesiones_qr', codigo), sesionData);
+      setQrSimCodeResult(codigo);
+      setMensaje({ texto: 'Código QR de prueba generado', tipo: 'success' });
+    } catch (e: any) {
+      setMensaje({ texto: 'Error al generar: ' + e.message, tipo: 'error' });
+    }
+  };
+
+  const handleSimularQrLeer = async () => {
+    if (!qrSimReadInput) return;
+    try {
+      const { getDoc } = await import('firebase/firestore');
+      const docSnap = await getDoc(doc(db, 'sesiones_qr', qrSimReadInput));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setMensaje({ texto: `Leído exitosamente! Tipo: ${data.tipo}, Estado: ${data.estado}`, tipo: 'success' });
+      } else {
+        setMensaje({ texto: 'El QR no existe o es inválido', tipo: 'error' });
+      }
+    } catch (e: any) {
+      setMensaje({ texto: 'Error al leer: ' + e.message, tipo: 'error' });
+    }
+  };
+
   if (loading) return <div className="p-8 text-center" style={{color: 'var(--text-main)', backgroundColor: 'var(--bg-main)'}}>Cargando panel de superadmin...</div>;
+
+  const filteredUsers = comercioUsers.filter(u => 
+    u.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    u.email.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (u.telefono && u.telefono.includes(searchTerm))
+  );
 
   return (
     <div className="sa-container p-6 space-y-8 transition-colors duration-300">
@@ -293,6 +379,13 @@ const SuperAdminDashboard: React.FC = () => {
               </select>
             </div>
             <div>
+              <label className="sa-label">Plan del Comercio</label>
+              <select className="sa-input" value={planComercio} onChange={e => setPlanComercio(e.target.value as 'regular'|'premium')}>
+                <option value="regular">Regular (Solo mini CRM)</option>
+                <option value="premium">Premium (Reportes y mini CRM)</option>
+              </select>
+            </div>
+            <div>
               <label className="sa-label">Logo del Comercio (Máx 1MB)</label>
               <input id="comercio-logo-file" type="file" accept="image/*" className="sa-input"
                 onChange={e => {
@@ -325,10 +418,15 @@ const SuperAdminDashboard: React.FC = () => {
                   )}
                   <div className="min-w-0 flex-1">
                     <strong className="block truncate text-[var(--text-main)]">{c.nombre}</strong>
-                    <span className="text-xs text-[var(--text-muted)] block truncate">NIT: {c.nit_rut} | Paleta: {COLOR_PALETTES.find(p => p.id === c.paletteId)?.name || 'Default'}</span>
+                    <span className="text-xs text-[var(--text-muted)] block truncate">NIT: {c.nit_rut} | Paleta: {COLOR_PALETTES.find(p => p.id === c.paletteId)?.name || 'Default'} | Plan: <span className="font-bold text-brand-primary uppercase">{c.plan || 'regular'}</span></span>
                   </div>
                 </div>
-                <button onClick={() => handleBorrarComercio(c)} className="text-xs bg-red-500 text-white font-bold px-2.5 py-1 rounded hover:bg-red-600 transition flex-shrink-0 cursor-pointer border border-red-700">Borrar</button>
+                <div className="flex gap-2">
+                  <button onClick={() => handleTogglePlan(c)} className="text-xs bg-blue-500 text-white font-bold px-2.5 py-1 rounded hover:bg-blue-600 transition flex-shrink-0 cursor-pointer border border-blue-700">
+                    Cambiar Plan
+                  </button>
+                  <button onClick={() => handleBorrarComercio(c)} className="text-xs bg-red-500 text-white font-bold px-2.5 py-1 rounded hover:bg-red-600 transition flex-shrink-0 cursor-pointer border border-red-700">Borrar</button>
+                </div>
               </li>
             ))}
           </ul>
@@ -363,6 +461,25 @@ const SuperAdminDashboard: React.FC = () => {
               <input type="email" required className="sa-input" value={email} onChange={e => setEmail(e.target.value)} />
             </div>
             <div>
+              <label className="sa-label">Teléfono (WhatsApp)</label>
+              <div className="flex gap-2">
+                <select className="sa-input w-24" value={countryCode} onChange={e => setCountryCode(e.target.value)}>
+                  <option value="+591">+591</option>
+                  <option value="+54">+54</option>
+                  <option value="+55">+55</option>
+                  <option value="+56">+56</option>
+                  <option value="+57">+57</option>
+                  <option value="+593">+593</option>
+                  <option value="+34">+34</option>
+                  <option value="+52">+52</option>
+                  <option value="+51">+51</option>
+                  <option value="+598">+598</option>
+                  <option value="+1">+1</option>
+                </select>
+                <input type="tel" className="sa-input flex-1" value={telefonoUsuario} onChange={e => setTelefonoUsuario(e.target.value.replace(/\D/g, ''))} placeholder="Ej: 71234567" required />
+              </div>
+            </div>
+            <div>
               <label className="sa-label">Contraseña (Temporal)</label>
               <div className="relative">
                 <input type={showPassword ? "text" : "password"} required minLength={6} className="sa-input" value={password} onChange={e => setPassword(e.target.value)} />
@@ -389,38 +506,74 @@ const SuperAdminDashboard: React.FC = () => {
         </div>
 
         {selectedComercioToList && (
-          <div className="overflow-x-auto">
-            <table className="sa-table">
-              <thead>
-                <tr>
-                  <th>Nombre</th>
-                  <th>Correo</th>
-                  <th>Rol</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comercioUsers.length === 0 ? (
+          <>
+            <div className="mb-4">
+              <input type="text" className="sa-input max-w-md" placeholder="Buscar por nombre, correo o teléfono..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            </div>
+            <div className="overflow-x-auto">
+              <table className="sa-table">
+                <thead>
                   <tr>
-                    <td colSpan={4} className="p-4 text-center text-[var(--text-muted)]">No hay usuarios registrados en este comercio.</td>
+                    <th>Nombre</th>
+                    <th>Correo</th>
+                    <th>WhatsApp</th>
+                    <th>Rol</th>
+                    <th>Acciones</th>
                   </tr>
-                ) : (
-                  comercioUsers.map(u => (
-                    <tr key={u.uid}>
-                      <td className="font-medium">{u.nombre}</td>
-                      <td>{u.email}</td>
-                      <td><span className="sa-badge">{u.rol.replace('_', ' ')}</span></td>
-                      <td className="flex gap-2">
-                        <button onClick={() => handleRecrearClave(u)} className="text-xs bg-[var(--accent-primary)] text-black font-bold px-3 py-1 rounded hover:opacity-80 transition cursor-pointer border border-black">Recrear Contraseña</button>
-                        <button onClick={() => handleBorrarUsuario(u)} className="text-xs bg-red-500 text-white font-bold px-3 py-1 rounded hover:bg-red-600 transition cursor-pointer border border-red-700">Borrar Usuario</button>
-                      </td>
+                </thead>
+                <tbody>
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-4 text-center text-[var(--text-muted)]">No hay usuarios que coincidan.</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ) : (
+                    filteredUsers.map(u => (
+                      <tr key={u.uid}>
+                        <td className="font-medium">{u.nombre}</td>
+                        <td>{u.email}</td>
+                        <td>{u.telefono || '-'}</td>
+                        <td><span className="sa-badge">{u.rol.replace('_', ' ')}</span></td>
+                        <td className="flex gap-2">
+                          <button onClick={() => handleRecrearClave(u)} className="text-xs bg-[var(--accent-primary)] text-black font-bold px-3 py-1 rounded hover:opacity-80 transition cursor-pointer border border-black">Recrear Contraseña</button>
+                          <button onClick={() => handleBorrarUsuario(u)} className="text-xs bg-red-500 text-white font-bold px-3 py-1 rounded hover:bg-red-600 transition cursor-pointer border border-red-700">Borrar Usuario</button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
+      </div>
+
+      {/* Simulador QR */}
+      <div className="sa-card">
+        <h3 className="sa-subtitle">4. Simulador QR</h3>
+        <div className="grid md:grid-cols-2 gap-8">
+          <div className="space-y-4">
+            <h4 className="font-bold text-sm text-[var(--text-muted)]">Generar QR de Prueba</h4>
+            <select className="sa-input" value={qrSimTipo} onChange={e => setQrSimTipo(e.target.value as any)}>
+              <option value="ACUMULACION">Acumulación (Vendedor)</option>
+              <option value="CANJE">Canje (Cliente)</option>
+            </select>
+            {qrSimTipo === 'ACUMULACION' && (
+              <input type="number" placeholder="Monto simulado (ej: 100)" className="sa-input" value={qrSimMonto} onChange={e => setQrSimMonto(e.target.value)} />
+            )}
+            <button onClick={handleSimularQrGenerar} className="sa-btn-primary">Generar Sesión en Firebase</button>
+            {qrSimCodeResult && (
+              <div className="mt-2 p-3 bg-gray-100 rounded text-center">
+                <p className="text-sm font-bold text-gray-500">ID Sesión QR:</p>
+                <div className="text-xl font-mono select-all tracking-widest text-black">{qrSimCodeResult}</div>
+              </div>
+            )}
+          </div>
+          <div className="space-y-4">
+            <h4 className="font-bold text-sm text-[var(--text-muted)]">Leer QR de Prueba</h4>
+            <input type="text" placeholder="Pega el ID de Sesión QR..." className="sa-input" value={qrSimReadInput} onChange={e => setQrSimReadInput(e.target.value)} />
+            <button onClick={handleSimularQrLeer} className="sa-btn-secondary">Consultar Estado de Sesión</button>
+          </div>
+        </div>
       </div>
 
     </div>

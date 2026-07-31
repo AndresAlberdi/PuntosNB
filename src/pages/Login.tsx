@@ -6,7 +6,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { isStaging, isSuperAdminEmail } from '../utils/env';
-import { PhoneVerification } from '../components/PhoneVerification';
 
 
 const Login: React.FC = () => {
@@ -23,6 +22,10 @@ const Login: React.FC = () => {
   const [pendingGoogleUser, setPendingGoogleUser] = useState<any>(null);
   const navigate = useNavigate();
   const { currentUser, userData, loading: authLoading } = useAuth();
+
+  const [welcomePhone, setWelcomePhone] = useState('');
+  const [welcomeCountryCode, setWelcomeCountryCode] = useState('+591');
+  const [welcomeError, setWelcomeError] = useState('');
 
   React.useEffect(() => {
     if (currentUser && userData && userData.telefono) {
@@ -54,23 +57,90 @@ const Login: React.FC = () => {
   }
 
   if (currentUser && userData && !userData.telefono) {
+    const handleSaveWelcomePhone = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!welcomePhone) {
+        setWelcomeError('Por favor ingresa un número de teléfono válido.');
+        return;
+      }
+      setWelcomeError('');
+      setLoading(true);
+      try {
+        const fullPhoneNumber = `${welcomeCountryCode}${welcomePhone}`;
+        await updateDoc(doc(db, 'users', currentUser.uid), { telefono: fullPhoneNumber });
+        navigate('/');
+      } catch (err) {
+        console.error("Error saving phone to user profile", err);
+        setWelcomeError("Error guardando el número. Intenta de nuevo.");
+      }
+      setLoading(false);
+    };
+
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-60px)] p-4">
-         <PhoneVerification 
-           onVerified={async (telefono) => {
-             try {
-               await updateDoc(doc(db, 'users', currentUser.uid), { telefono });
-               // The AuthContext will pick up the change or we just force navigate
-               navigate('/');
-             } catch (err) {
-               console.error("Error saving phone to user profile", err);
-               setError("Error guardando el número. Intenta de nuevo.");
-             }
-           }} 
-           onCancel={() => {
-             import('firebase/auth').then(({ signOut }) => signOut(auth));
-           }}
-         />
+        <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full border border-gray-100">
+          <div className="flex justify-center mb-4">
+            <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-12 h-12 object-contain" />
+          </div>
+          <h2 className="text-xl font-bold text-center mb-2 text-gray-800">¡Bienvenido a Hipatia!</h2>
+          <p className="text-sm text-gray-600 text-center mb-6">
+            Ingresa tu número de Whatsapp. Usaremos tu número telefónico solamente para temas relacionados con Hipatia Puntos y otros productos de Hipatia. No compartiremos tus datos con terceros. Esto también nos permitirá ayudarte a recuperar tu cuenta si la pierdes.
+          </p>
+
+          {welcomeError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded text-sm mb-4">
+              {welcomeError}
+            </div>
+          )}
+
+          <form onSubmit={handleSaveWelcomePhone} className="space-y-4">
+            <div className="flex gap-2">
+              <select
+                value={welcomeCountryCode}
+                onChange={(e) => setWelcomeCountryCode(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary w-28 bg-white"
+              >
+                <option value="+591">🇧🇴 +591</option>
+                <option value="+54">🇦🇷 +54</option>
+                <option value="+55">🇧🇷 +55</option>
+                <option value="+56">🇨🇱 +56</option>
+                <option value="+57">🇨🇴 +57</option>
+                <option value="+593">🇪🇨 +593</option>
+                <option value="+34">🇪🇸 +34</option>
+                <option value="+52">🇲🇽 +52</option>
+                <option value="+51">🇵🇪 +51</option>
+                <option value="+598">🇺🇾 +598</option>
+                <option value="+1">🇺🇸 +1</option>
+              </select>
+              <input
+                type="tel"
+                value={welcomePhone}
+                onChange={(e) => setWelcomePhone(e.target.value.replace(/\D/g, ''))}
+                placeholder="Ej: 71234567"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                required
+              />
+            </div>
+            
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-brand-primary hover:bg-brand-primary-hover text-white font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-70"
+            >
+              {loading ? 'Guardando...' : 'Aceptar y Finalizar'}
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => {
+                import('firebase/auth').then(({ signOut }) => signOut(auth));
+              }}
+              className="w-full mt-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded-md transition-colors"
+            >
+              Cancelar y Cerrar Sesión
+            </button>
+          </form>
+        </div>
       </div>
     );
   }

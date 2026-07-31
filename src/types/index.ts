@@ -56,6 +56,7 @@ export interface Comercio {
   productos?: ProductoCatalogo[]; // Added
   createdAt: number;
   paletteId?: string; // Paleta de colores para todos los usuarios del comercio
+  plan?: 'regular' | 'premium';
 }
 
 export interface SaldoPunto {

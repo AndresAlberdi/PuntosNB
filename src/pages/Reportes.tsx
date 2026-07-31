@@ -22,6 +22,7 @@ const Reportes: React.FC = () => {
   const [transaccionesRaw, setTransaccionesRaw] = useState<Transaccion[]>([]);
   const [comercios, setComercios] = useState<Comercio[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accesoDenegado, setAccesoDenegado] = useState(false);
 
   // Tipo de Filtro: 'MENSUAL' | 'RANGO'
   const [tipoFiltro, setTipoFiltro] = useState<'MENSUAL' | 'RANGO'>('MENSUAL');
@@ -74,6 +75,16 @@ const Reportes: React.FC = () => {
           }
         } else if (userData.comercioId) {
           // Admin Comercio o Vendedor
+          const comSnap = await getDocs(query(collection(db, 'comercios'), where('id', '==', userData.comercioId)));
+          if (!comSnap.empty) {
+            const comData = comSnap.docs[0].data() as Comercio;
+            if (comData.plan !== 'premium') {
+              setAccesoDenegado(true);
+              setLoading(false);
+              return;
+            }
+          }
+
           const q = query(
             collection(db, 'transacciones'),
             where('comercioId', '==', userData.comercioId)
@@ -146,6 +157,16 @@ const Reportes: React.FC = () => {
     return (
       <div className="p-12 text-center text-gray-500 font-medium animate-pulse">
         Cargando reportes y procesando información...
+      </div>
+    );
+  }
+
+  if (accesoDenegado) {
+    return (
+      <div className="p-12 text-center max-w-lg mx-auto">
+        <h2 className="text-2xl font-bold text-gray-800 mb-4">Acceso Restringido</h2>
+        <p className="text-gray-600 mb-6">El acceso a los reportes avanzados está disponible únicamente para comercios con plan Premium.</p>
+        <p className="text-sm text-gray-500">Contacta a soporte para mejorar tu plan.</p>
       </div>
     );
   }

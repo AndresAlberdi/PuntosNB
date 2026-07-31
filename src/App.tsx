@@ -87,6 +87,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const [showPasswordModal, setShowPasswordModal] = React.useState(false);
   const [showProfileModal, setShowProfileModal] = React.useState(false);
   const [commercePaletteId, setCommercePaletteId] = React.useState<string | undefined>(undefined);
+  const [commercePlan, setCommercePlan] = React.useState<'regular' | 'premium'>('premium');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
   const [isDarkMode, setIsDarkMode] = React.useState(() => {
@@ -106,23 +107,38 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   // States for Profile Modal form
   const [selectedPalette, setSelectedPalette] = React.useState('ocean');
   const [selectedAvatar, setSelectedAvatar] = React.useState('');
-  const [telefono, setTelefono] = React.useState('');
+  const [telefonoCountry, setTelefonoCountry] = React.useState('+591');
+  const [telefonoNumber, setTelefonoNumber] = React.useState('');
 
   React.useEffect(() => {
     if (userData?.comercioId) {
       getDoc(doc(db, 'comercios', userData.comercioId)).then(snap => {
         if (snap.exists()) {
-          setCommercePaletteId(snap.data().paletteId);
+          const data = snap.data();
+          setCommercePaletteId(data.paletteId);
+          setCommercePlan(data.plan || 'regular');
         }
       });
     } else {
       setCommercePaletteId(undefined);
+      setCommercePlan('premium');
     }
 
     if (userData?.rol === 'cliente') {
       setSelectedPalette(userData.paletteId || 'ocean');
       setSelectedAvatar(userData.avatarUrl || CLIENT_AVATARS[0]);
-      setTelefono(userData.telefono || '');
+      if (userData.telefono) {
+        // Attempt to parse country code and number. Assuming typical format +XXX NNNNN
+        const match = userData.telefono.match(/^(\+\d{1,3})\s?(.*)$/);
+        if (match) {
+          setTelefonoCountry(match[1]);
+          setTelefonoNumber(match[2].replace(/\D/g, ''));
+        } else {
+          setTelefonoNumber(userData.telefono.replace(/\D/g, ''));
+        }
+      } else {
+        setTelefonoNumber('');
+      }
     }
   }, [userData]);
 
@@ -137,10 +153,11 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const handleSaveProfile = async () => {
     if (userData?.uid) {
       try {
+        const fullPhone = telefonoNumber ? `${telefonoCountry}${telefonoNumber}` : '';
         await updateDoc(doc(db, 'users', userData.uid), {
           paletteId: selectedPalette,
           avatarUrl: selectedAvatar,
-          telefono: telefono
+          telefono: fullPhone
         });
         setShowProfileModal(false);
       } catch (err) {
@@ -233,12 +250,14 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                     >
                       Operación
                     </button>
-                    <button 
-                      onClick={() => navigate('/reportes')}
-                      className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname === '/reportes' ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}
-                    >
-                      Reportes
-                    </button>
+                    {commercePlan === 'premium' && (
+                      <button 
+                        onClick={() => navigate('/reportes')}
+                        className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname === '/reportes' ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}
+                      >
+                        Reportes
+                      </button>
+                    )}
                   </div>
                 )}
                 
@@ -312,12 +331,14 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                 >
                   Operación
                 </button>
-                <button 
-                  onClick={() => { navigate('/reportes'); setIsMobileMenuOpen(false); }}
-                  className="block w-full text-left text-sm font-medium text-gray-700 py-2"
-                >
-                  Reportes
-                </button>
+                {commercePlan === 'premium' && (
+                  <button 
+                    onClick={() => { navigate('/reportes'); setIsMobileMenuOpen(false); }}
+                    className="block w-full text-left text-sm font-medium text-gray-700 py-2"
+                  >
+                    Reportes
+                  </button>
+                )}
               </>
             )}
 
@@ -389,13 +410,32 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               {/* Teléfono */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Número de WhatsApp (Opcional)</label>
-                <input 
-                  type="tel"
-                  value={telefono}
-                  onChange={(e) => setTelefono(e.target.value)}
-                  placeholder="+591 70000000"
-                  className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                />
+                <div className="flex gap-2">
+                  <select
+                    value={telefonoCountry}
+                    onChange={(e) => setTelefonoCountry(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary w-28 bg-white"
+                  >
+                    <option value="+591">🇧🇴 +591</option>
+                    <option value="+54">🇦🇷 +54</option>
+                    <option value="+55">🇧🇷 +55</option>
+                    <option value="+56">🇨🇱 +56</option>
+                    <option value="+57">🇨🇴 +57</option>
+                    <option value="+593">🇪🇨 +593</option>
+                    <option value="+34">🇪🇸 +34</option>
+                    <option value="+52">🇲🇽 +52</option>
+                    <option value="+51">🇵🇪 +51</option>
+                    <option value="+598">🇺🇾 +598</option>
+                    <option value="+1">🇺🇸 +1</option>
+                  </select>
+                  <input 
+                    type="tel"
+                    value={telefonoNumber}
+                    onChange={(e) => setTelefonoNumber(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Ej: 71234567"
+                    className="flex-1 border border-gray-300 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                  />
+                </div>
                 <p className="text-xs text-gray-500 mt-1">Regístralo para poder acceder a futuras funciones integradas con WhatsApp.</p>
               </div>
 
