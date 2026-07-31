@@ -3,6 +3,7 @@ import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firest
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Comercio, ReglaPunto, Premio, ProductoCatalogo } from '../types';
+import { CRMSection } from '../components/CRMSection';
 
 const AdminDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -257,6 +258,9 @@ const AdminDashboard: React.FC = () => {
         <h2 className="text-2xl font-bold text-gray-800 mb-2">Comercio: {comercio.nombre}</h2>
         <p className="text-gray-500 text-sm">NIT/RUT: {comercio.nit_rut}</p>
       </div>
+
+      {/* Mini CRM Section */}
+      <CRMSection comercioId={comercio.id} />
 
       <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-6">
         {/* Reglas de Puntos */}

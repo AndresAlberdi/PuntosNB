@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { isStaging, isSuperAdminEmail } from '../utils/env';
+import { PhoneVerification } from '../components/PhoneVerification';
 
 
 const Login: React.FC = () => {
@@ -24,7 +25,7 @@ const Login: React.FC = () => {
   const { currentUser, userData, loading: authLoading } = useAuth();
 
   React.useEffect(() => {
-    if (currentUser && userData) {
+    if (currentUser && userData && userData.telefono) {
       navigate('/');
     }
   }, [currentUser, userData, navigate]);
@@ -48,6 +49,28 @@ const Login: React.FC = () => {
         >
           Cerrar Sesión para reintentar
         </button>
+      </div>
+    );
+  }
+
+  if (currentUser && userData && !userData.telefono) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-60px)] p-4">
+         <PhoneVerification 
+           onVerified={async (telefono) => {
+             try {
+               await updateDoc(doc(db, 'users', currentUser.uid), { telefono });
+               // The AuthContext will pick up the change or we just force navigate
+               navigate('/');
+             } catch (err) {
+               console.error("Error saving phone to user profile", err);
+               setError("Error guardando el número. Intenta de nuevo.");
+             }
+           }} 
+           onCancel={() => {
+             import('firebase/auth').then(({ signOut }) => signOut(auth));
+           }}
+         />
       </div>
     );
   }
@@ -396,6 +419,9 @@ const Login: React.FC = () => {
               </p>
               <p>
                 <strong>6. Nivel de Servicio (SLA) e Integraciones:</strong> Hipatia garantiza estándares de disponibilidad tecnológica para sus conectores y APIs RESTful de integración con sistemas ERP/CRM/POS del comercio, promoviendo la automatización operativa sin fricción en puntos de venta.
+              </p>
+              <p>
+                <strong>7. Uso del Número Telefónico:</strong> Usaremos tu número telefónico solamente para temas relacionados con Hipatia Puntos y otros productos de Hipatia. No compartiremos tus datos con nadie, ni siquiera con terceros. Además, tu número nos permitirá ayudarte a recuperar tu cuenta si la pierdes o te la roban.
               </p>
             </div>
             <div className="mt-6 flex justify-end">

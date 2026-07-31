@@ -1,0 +1,9 @@
+Para el proyecto puntosnb-app:
+
+1) Luego del sign in de un nuevo usuario ya sea con correo o con Gmail, cuando acepte los términos y condiciones, solicita su teléfono Whatsapp, eligiendo el país en dropdown con banderita, colocando su número, que debe ser verificado. Dame recomendaciones para la verificación del número de teléfono por WhatsApp.
+ 
+ 2) Coloca en los términos y condiciones, además de en un mensaje al momento de ingresar el teléfono que lo usaremos solamente para temas relacionados con Hipatia Puntos y otros productos de Hipatia, que no compartiremos sus datos con nadie, ni siquiera con terceros. La ventaja es que podría recuperar su cuenta por teléfono si lo pierde y se lo roban.
+
+3) Elabora un mensaje para enviar al nuevo usuario por Whatsapp una vez verificado el número, dándole la bienvenida a Hipatia Puntos y explicándole brevemente cómo funciona y qué puede hacer en la plataforma.
+
+4) Deseo crear un mini CRM para el admin del comercio, que tenga sus top 3 vendedores, top 5 clientes, total puntos emitidos, total premios entregados, un gráfico con la actividad de sus canjes.
