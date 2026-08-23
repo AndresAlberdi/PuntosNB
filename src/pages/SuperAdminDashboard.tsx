@@ -532,15 +532,17 @@ const SuperAdminDashboard: React.FC = () => {
 
         {/* Crear Usuarios */}
         <div className="sa-card">
-          <h3 className="sa-subtitle">2. Crear Usuarios (Admins/Vendedores)</h3>
+          <h3 className="sa-subtitle">2. Crear Usuarios</h3>
           <form onSubmit={handleCrearUsuario} className="space-y-4">
-            <div>
-              <label className="sa-label">Asignar al Comercio {rol === 'influencer' && '(Opcional)'}</label>
-              <select required={rol !== 'influencer'} className="sa-input" value={comercioId} onChange={e => setComercioId(e.target.value)}>
-                <option value="">-- Selecciona un Comercio --</option>
-                {comercios.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-            </div>
+            {rol !== 'influencer' && (
+              <div>
+                <label className="sa-label">Asignar al Comercio</label>
+                <select required className="sa-input" value={comercioId} onChange={e => setComercioId(e.target.value)}>
+                  <option value="">-- Selecciona un Comercio --</option>
+                  {comercios.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="sa-label">Rol</label>
