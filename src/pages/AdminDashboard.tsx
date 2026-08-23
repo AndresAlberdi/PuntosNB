@@ -4,11 +4,13 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Comercio, ReglaPunto, Premio, ProductoCatalogo } from '../types';
 import { CRMSection } from '../components/CRMSection';
+import { AdminInfluencers } from '../components/AdminInfluencers';
 
 const AdminDashboard: React.FC = () => {
   const { userData } = useAuth();
   const [comercio, setComercio] = useState<Comercio | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'config' | 'influencers'>('config');
 
   // Modals state
   const [showReglaModal, setShowReglaModal] = useState(false);
@@ -254,13 +256,33 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">Comercio: {comercio.nombre}</h2>
-        <p className="text-gray-500 text-sm">NIT/RUT: {comercio.nit_rut}</p>
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Comercio: {comercio.nombre}</h2>
+          <p className="text-gray-500 text-sm">NIT/RUT: {comercio.nit_rut}</p>
+        </div>
+        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+          <button 
+            onClick={() => setActiveTab('config')} 
+            className={`px-4 py-2 rounded-md font-medium text-sm transition-colors ${activeTab === 'config' ? 'bg-white shadow text-brand-primary' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Configuración y CRM
+          </button>
+          <button 
+            onClick={() => setActiveTab('influencers')} 
+            className={`px-4 py-2 rounded-md font-medium text-sm transition-colors ${activeTab === 'influencers' ? 'bg-white shadow text-brand-primary' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Influencers
+          </button>
+        </div>
       </div>
 
-      {/* Mini CRM Section */}
-      <CRMSection comercioId={comercio.id} />
+      {activeTab === 'influencers' ? (
+        <AdminInfluencers comercio={comercio} />
+      ) : (
+        <>
+          {/* Mini CRM Section */}
+          <CRMSection comercioId={comercio.id} />
 
       <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-6">
         {/* Reglas de Puntos */}
@@ -470,6 +492,8 @@ const AdminDashboard: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

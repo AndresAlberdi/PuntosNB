@@ -1,4 +1,4 @@
-export type RolUsuario = 'cliente' | 'vendedor' | 'admin_comercio' | 'superadmin';
+export type RolUsuario = 'cliente' | 'vendedor' | 'admin_comercio' | 'superadmin' | 'influencer';
 
 export interface Usuario {
   uid: string;
@@ -13,6 +13,12 @@ export interface Usuario {
   termsAccepted?: boolean;
   termsAcceptedAt?: number;
   estado?: 'activo' | 'bloqueado';
+  
+  // Datos específicos para influencers
+  redesSociales?: string[]; // ej: ["https://instagram.com/user", ...]
+  seguidores?: number;
+  descripcion?: string;
+  prefijoCodigo?: string; // Ej: NAT (max 3 chars por convención general)
 }
 
 export type TipoRegla = 
@@ -69,7 +75,7 @@ export interface SaldoPunto {
   updatedAt: number;
 }
 
-export type TipoTransaccion = 'ACUMULACION' | 'CANJE';
+export type TipoTransaccion = 'ACUMULACION' | 'CANJE' | 'CODIGO_INFLUENCER';
 
 export interface Transaccion {
   id: string;
@@ -77,14 +83,16 @@ export interface Transaccion {
   clienteId: string;
   clienteAlias?: string; // Nombre antes del @
   comercioId: string;
-  vendedorId: string;
+  vendedorId?: string; // Optional for CODIGO_INFLUENCER
   vendedorAlias?: string; // Nombre antes del @
-  montoFactura: number;
-  nroFactura: string;
+  montoFactura?: number; // Optional for CODIGO_INFLUENCER
+  nroFactura?: string; // Optional for CODIGO_INFLUENCER
   puntos: number;
   tipo: TipoTransaccion;
   premioId?: string; // Solo en caso de CANJE
   reglaAplicadaId?: string;
+  influencerId?: string; // Para CODIGO_INFLUENCER
+  codigoId?: string; // Para CODIGO_INFLUENCER
 }
 
 export interface SesionQR {
@@ -105,3 +113,39 @@ export interface SesionQR {
   // Datos para Canje (generado por cliente)
   premioId?: string;
 }
+
+// --- INFLUENCERS ---
+
+export interface AsignacionInfluencer {
+  id: string; // comercioId_influencerId
+  comercioId: string;
+  influencerId: string;
+  puntosParaClientes: number; // Bolsa de puntos disponibles para los usuarios
+  ratio: {
+    cliente: number;
+    influencer: number;
+  };
+  estado: 'PENDIENTE' | 'ACEPTADO' | 'RECHAZADO';
+  iniciadoPor: 'COMERCIO' | 'INFLUENCER';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CodigoInfluencer {
+  id: string; // ej: NATGOLD
+  influencerId: string;
+  comercioId: string;
+  puntosPorCanje: number;
+  estado: 'ACTIVO' | 'INACTIVO';
+  createdAt: number;
+  fechaUltimaRenovacion: number;
+}
+
+export interface CanjeCodigo {
+  id: string; // clienteId_codigoId_fecha (si se requiere histórico, o solo clienteId_codigoId si se sobrescribe/borra cada 30 días, aunque por requerimiento es bloquear por 30 días, veremos la implementación)
+  clienteId: string;
+  codigoId: string;
+  comercioId: string;
+  fechaCanje: number;
+}
+
