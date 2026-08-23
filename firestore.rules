@@ -28,6 +28,10 @@ service cloud.firestore {
       return isAuth() && getUserData().rol == 'cliente';
     }
 
+    function isInfluencer() {
+      return isAuth() && getUserData().rol == 'influencer';
+    }
+
     // Reglas por colección
 
     match /users/{userId} {
@@ -49,6 +53,7 @@ service cloud.firestore {
         isSuperAdmin() || 
         resource == null ||
         (isCliente() && resource.data.clienteId == request.auth.uid) ||
+        (isInfluencer() && (resource.data.clienteId == request.auth.uid || resource.data.influencerId == request.auth.uid)) ||
         ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
       );
       // Vendedores, admins y superadmins pueden registrar cualquier transacción; clientes pueden registrar transacciones propias
@@ -56,7 +61,7 @@ service cloud.firestore {
         isSuperAdmin() || 
         isVendedor() || 
         isAdminComercio() || 
-        (isCliente() && request.resource.data.clienteId == request.auth.uid)
+        ((isCliente() || isInfluencer()) && request.resource.data.clienteId == request.auth.uid)
       );
       allow update, delete: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
     }
@@ -66,7 +71,7 @@ service cloud.firestore {
       allow read: if isAuth() && (
         isSuperAdmin() ||
         resource == null ||
-        (isCliente() && resource.data.clienteId == request.auth.uid) ||
+        ((isCliente() || isInfluencer()) && resource.data.clienteId == request.auth.uid) ||
         ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
       );
       // Clientes pueden crear o actualizar su propio saldo de puntos
@@ -74,13 +79,13 @@ service cloud.firestore {
         isSuperAdmin() || 
         isVendedor() || 
         isAdminComercio() || 
-        (isCliente() && request.resource.data.clienteId == request.auth.uid)
+        ((isCliente() || isInfluencer()) && request.resource.data.clienteId == request.auth.uid)
       );
       allow update: if isAuth() && (
         isSuperAdmin() || 
         isVendedor() || 
         isAdminComercio() || 
-        (isCliente() && resource.data.clienteId == request.auth.uid && request.resource.data.clienteId == request.auth.uid)
+        ((isCliente() || isInfluencer()) && resource.data.clienteId == request.auth.uid && request.resource.data.clienteId == request.auth.uid)
       );
       allow delete: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
     }
@@ -88,6 +93,35 @@ service cloud.firestore {
     match /sesiones_qr/{sesionId} {
       // Las sesiones QR requieren acceso ágil de lectura y escritura por parte del cliente y del vendedor
       allow read, write: if isAuth();
+    }
+
+    match /asignaciones_influencer/{asignacionId} {
+      // Influencers y Admin Comercio pueden leer/modificar sus propias asignaciones
+      allow read, update: if isAuth() && (
+        isSuperAdmin() || 
+        (isAdminComercio() && getUserData().comercioId == resource.data.comercioId) || 
+        (isInfluencer() && request.auth.uid == resource.data.influencerId)
+      );
+      allow create: if isAuth() && (
+        isSuperAdmin() || 
+        (isAdminComercio() && getUserData().comercioId == request.resource.data.comercioId) || 
+        (isInfluencer() && request.auth.uid == request.resource.data.influencerId)
+      );
+    }
+
+    match /codigos_influencer/{codigoId} {
+      allow read: if isAuth();
+      // Influencers crean y editan sus códigos
+      allow create: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == request.resource.data.influencerId));
+      allow update: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == resource.data.influencerId));
+      allow delete: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == resource.data.influencerId));
+    }
+
+    match /canjes_codigos/{canjeId} {
+      allow read: if isAuth();
+      // Clientes pueden registrar el canje
+      allow create: if isAuth() && (isSuperAdmin() || (isCliente() && request.resource.data.clienteId == request.auth.uid));
+      allow update, delete: if isSuperAdmin();
     }
 
     // Regla por defecto de seguridad para cualquier otra colección no definida

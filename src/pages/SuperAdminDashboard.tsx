@@ -23,10 +23,16 @@ const SuperAdminDashboard: React.FC = () => {
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [telefonoUsuario, setTelefonoUsuario] = useState('');
   const [countryCode, setCountryCode] = useState('+591');
-  const [rol, setRol] = useState<'admin_comercio' | 'vendedor'>('vendedor');
+  const [rol, setRol] = useState<'admin_comercio' | 'vendedor' | 'influencer'>('vendedor');
   const [comercioId, setComercioId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [prefijoCodigo, setPrefijoCodigo] = useState('');
   const [planComercio, setPlanComercio] = useState<'regular' | 'premium'>('regular');
+
+
+  
+  // States for influencer campaigns forced renewal
+  const [influencerCodes, setInfluencerCodes] = useState<any[]>([]);
 
   const [mensaje, setMensaje] = useState<{texto: string, tipo: 'success'|'error'} | null>(null);
 
@@ -69,8 +75,17 @@ const SuperAdminDashboard: React.FC = () => {
         setGlobalUsers(users);
       } catch (err) {}
     };
-    fetchGlobalUsers();
-  }, []);
+      fetchGlobalUsers();
+      const fetchCodes = async () => {
+        try {
+          const snap = await getDocs(collection(db, 'codigos_influencer'));
+          const codes: any[] = [];
+          snap.forEach(d => codes.push(d.data()));
+          setInfluencerCodes(codes);
+        } catch (err) {}
+      };
+      fetchCodes();
+    }, []);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -127,8 +142,12 @@ const SuperAdminDashboard: React.FC = () => {
   const handleCrearUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
     setMensaje(null);
-    if (!comercioId) {
+    if (!comercioId && rol !== 'influencer') {
       setMensaje({ texto: 'Debes seleccionar un comercio.', tipo: 'error' });
+      return;
+    }
+    if (rol === 'influencer' && (!prefijoCodigo || prefijoCodigo.length > 10)) {
+      setMensaje({ texto: 'El influencer debe tener un prefijo de código válido (máx 10 chars).', tipo: 'error' });
       return;
     }
     try {
@@ -141,8 +160,9 @@ const SuperAdminDashboard: React.FC = () => {
         email,
         nombre: nombreUsuario,
         rol,
-        comercioId,
+        comercioId: rol === 'influencer' ? undefined : comercioId,
         telefono: telefonoUsuario ? `${countryCode}${telefonoUsuario}` : undefined,
+        prefijoCodigo: rol === 'influencer' ? prefijoCodigo.toUpperCase() : undefined,
         createdAt: Date.now()
       };
       await setDoc(userDocRef, userData);
@@ -152,6 +172,7 @@ const SuperAdminDashboard: React.FC = () => {
       setPassword('');
       setNombreUsuario('');
       setTelefonoUsuario('');
+      setPrefijoCodigo('');
       if (selectedComercioToList === comercioId) {
         setSelectedComercioToList(''); // trigger refresh manually or just clear
       }
@@ -325,7 +346,24 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  
+  const handleForzarRenovacion = async (code: any) => {
+    if (!window.confirm(`¿Seguro que deseas forzar la renovación del código ${code.id}? Esto permitirá a todos los usuarios usarlo nuevamente sin esperar los 30 días.`)) return;
+    try {
+      const { updateDoc } = await import('firebase/firestore');
+      // Set fechaUltimaRenovacion to 30 days ago to simulate it has expired and can be used/renewed normally by the influencer,
+      // OR just set it to Date.now() and we delete the canjes_codigos history? 
+      // Actually, if we force renew, we should delete the historical usage of this code by users.
+      // But a simpler approach is just letting the influencer renew it right now without waiting 30 days.
+      // So we set `fechaUltimaRenovacion` to 0 (epoch 1970) so the 30-day block is lifted for the influencer, allowing them to click "Renew".
+      // Or we can just perform the renewal here.
+      // The requirement says "esto se puede acelerar con intervención del superadmin, para que se renueve antes".
+      // So setting it to 0 allows the influencer to click the renew button immediately.
+      await updateDoc(doc(db, 'codigos_influencer', code.id), { fechaUltimaRenovacion: 0 });
+      setInfluencerCodes(influencerCodes.map(c => c.id === code.id ? { ...c, fechaUltimaRenovacion: 0 } : c));
+      setMensaje({ texto: `Renovación forzada habilitada para el código ${code.id}`, tipo: 'success' });
+    } catch(e: any) { setMensaje({ texto: 'Error: ' + e.message, tipo: 'error' }); }
+  };
+
   const handleToggleEstadoUsuario = async (usuario: Usuario) => {
     const nuevoEstado = usuario.estado === 'bloqueado' ? 'activo' : 'bloqueado';
     if (!window.confirm(`¿Seguro que deseas ${nuevoEstado === 'bloqueado' ? 'BLOQUEAR' : 'ACTIVAR'} a ${usuario.nombre}?`)) return;
@@ -497,8 +535,8 @@ const SuperAdminDashboard: React.FC = () => {
           <h3 className="sa-subtitle">2. Crear Usuarios (Admins/Vendedores)</h3>
           <form onSubmit={handleCrearUsuario} className="space-y-4">
             <div>
-              <label className="sa-label">Asignar al Comercio</label>
-              <select required className="sa-input" value={comercioId} onChange={e => setComercioId(e.target.value)}>
+              <label className="sa-label">Asignar al Comercio {rol === 'influencer' && '(Opcional)'}</label>
+              <select required={rol !== 'influencer'} className="sa-input" value={comercioId} onChange={e => setComercioId(e.target.value)}>
                 <option value="">-- Selecciona un Comercio --</option>
                 {comercios.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
@@ -509,6 +547,7 @@ const SuperAdminDashboard: React.FC = () => {
                 <select className="sa-input" value={rol} onChange={e => setRol(e.target.value as any)}>
                   <option value="vendedor">Vendedor (Cajero)</option>
                   <option value="admin_comercio">Administrador del Comercio</option>
+                  <option value="influencer">Influencer</option>
                 </select>
               </div>
               <div>
@@ -548,6 +587,12 @@ const SuperAdminDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
+            {rol === 'influencer' && (
+              <div>
+                <label className="sa-label">Prefijo de Código (Ej. NAT)</label>
+                <input type="text" maxLength={10} required className="sa-input uppercase" value={prefijoCodigo} onChange={e => setPrefijoCodigo(e.target.value)} />
+              </div>
+            )}
             <button type="submit" className="sa-btn-secondary">Crear Usuario</button>
           </form>
         </div>
@@ -643,6 +688,47 @@ const SuperAdminDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Forzar Renovación de Campañas de Influencers */}
+      <div className="sa-card">
+        <h3 className="sa-subtitle">Forzar Renovación de Códigos (Influencers)</h3>
+        <p className="text-sm text-[var(--text-muted)] mb-4">Permite habilitar prematuramente el botón de "Renovar" para un influencer, ignorando la regla de 30 días.</p>
+        <div className="overflow-x-auto">
+          <table className="sa-table">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Influencer ID</th>
+                <th>Comercio ID</th>
+                <th>Puntos / Canje</th>
+                <th>Última Renov.</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {influencerCodes.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-4 text-center text-[var(--text-muted)]">No hay códigos activos.</td>
+                </tr>
+              ) : (
+                influencerCodes.map(code => (
+                  <tr key={code.id}>
+                    <td className="font-bold">{code.id}</td>
+                    <td className="text-sm">{code.influencerId}</td>
+                    <td className="text-sm">{code.comercioId}</td>
+                    <td>{code.puntosPorCanje} pts</td>
+                    <td>{code.fechaUltimaRenovacion > 0 ? new Date(code.fechaUltimaRenovacion).toLocaleDateString() : 'Acelerado'}</td>
+                    <td>
+                      <button onClick={() => handleForzarRenovacion(code)} disabled={code.fechaUltimaRenovacion === 0} className={`text-xs font-bold px-3 py-1 rounded transition border ${code.fechaUltimaRenovacion === 0 ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-[var(--accent-primary)] text-black border-black hover:opacity-80'}`}>
+                        Forzar Habilitación
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* 5. Listado Global de Usuarios */}
       <div className="sa-card">

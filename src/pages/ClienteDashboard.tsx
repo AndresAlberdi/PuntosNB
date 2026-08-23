@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, runTransaction, setDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, runTransaction, setDoc, getDoc } from 'firebase/firestore';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { QRCodeSVG } from 'qrcode.react';
-import type { SaldoPunto, SesionQR, Transaccion, Premio, Comercio } from '../types';
+import type { SaldoPunto, SesionQR, Transaccion, Premio, Comercio, CodigoInfluencer, AsignacionInfluencer, CanjeCodigo } from '../types';
 import { CLIENT_AVATARS, getPaletteStyle } from '../utils/theme';
 import { generarCodigoUnicoQR } from '../utils/qr';
+import { validateCodeRedemption } from '../utils/influencers';
 
 // ==========================================
 // SUB-VIEW: DASHBOARD INICIAL (BIENVENIDA)
@@ -18,6 +19,7 @@ interface DashboardHomeProps {
   puntosUsados: number;
   transacciones: Transaccion[];
   onOpenScanner: () => void;
+  onCanjearCodigoInfluencer: (codigo: string) => Promise<void>;
 }
 
 const DashboardHome: React.FC<DashboardHomeProps> = ({
@@ -25,9 +27,12 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   saldosMap,
   puntosUsados,
   transacciones,
-  onOpenScanner
+  onOpenScanner,
+  onCanjearCodigoInfluencer
 }) => {
   const { userData } = useAuth();
+  const [influencerCode, setInfluencerCode] = useState('');
+  const [loadingCanje, setLoadingCanje] = useState(false);
   
   // Calcular puntos disponibles totales
   const puntosDisponibles = Object.values(saldosMap).reduce((a, b) => a + b, 0);
@@ -82,6 +87,33 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
           Ver Todos los Comercios
         </Link>
+      </div>
+
+      {/* Código de Influencer */}
+      <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-xl border border-purple-100 shadow-sm">
+        <h3 className="text-lg font-bold text-purple-900 mb-2">¿Tienes un código de Influencer?</h3>
+        <p className="text-sm text-purple-700 mb-4">Ingresa el código para recibir puntos de regalo en tus comercios favoritos.</p>
+        <div className="flex gap-2">
+          <input 
+            type="text" 
+            placeholder="Ej. NATGOLD" 
+            className="flex-1 border border-purple-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 font-bold uppercase tracking-wide"
+            value={influencerCode}
+            onChange={e => setInfluencerCode(e.target.value.toUpperCase())}
+          />
+          <button 
+            disabled={!influencerCode || loadingCanje}
+            onClick={async () => {
+              setLoadingCanje(true);
+              await onCanjearCodigoInfluencer(influencerCode);
+              setLoadingCanje(false);
+              setInfluencerCode('');
+            }}
+            className={`px-6 py-3 rounded-xl font-bold transition ${!influencerCode || loadingCanje ? 'bg-purple-200 text-purple-400 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'}`}
+          >
+            {loadingCanje ? '...' : 'Canjear'}
+          </button>
+        </div>
       </div>
 
       {/* Tus Comercios Activos */}
@@ -446,7 +478,7 @@ const ComercioDetail: React.FC<ComercioDetailProps> = ({
                   <div>
                     <span className="font-bold text-gray-800 block">{tx.tipo}</span>
                     <span className="text-gray-400 block mt-0.5">{new Date(tx.fechaHora).toLocaleString()}</span>
-                    {tx.tipo === 'ACUMULACION' && tx.montoFactura > 0 && (
+                    {tx.tipo === 'ACUMULACION' && (tx.montoFactura || 0) > 0 && (
                       <span className="text-gray-500 block mt-0.5">Factura: {tx.nroFactura} (${tx.montoFactura})</span>
                     )}
                   </div>
@@ -595,6 +627,113 @@ const ClienteDashboard: React.FC = () => {
       setMensaje({ texto: "¡Puntos acumulados exitosamente!", tipo: 'success' });
       cargarDatos();
       navigate('/cliente');
+    } catch (error: any) {
+      console.error(error);
+      setMensaje({ texto: error.message || "Error al procesar el código.", tipo: 'error' });
+    }
+  };
+
+  const handleCanjearCodigoInfluencer = async (codigoId: string) => {
+    if (!userData) return;
+    setMensaje({ texto: "Validando código de influencer...", tipo: 'info' });
+
+    try {
+      // 1. Lectura fuera de la transacción para obtener referencias
+      const codRef = doc(db, 'codigos_influencer', codigoId);
+      const codSnap = await getDoc(codRef);
+      if (!codSnap.exists()) {
+        throw new Error("El código ingresado no existe.");
+      }
+      const codigoData = codSnap.data() as CodigoInfluencer;
+      if (codigoData.estado !== 'ACTIVO') {
+        throw new Error("El código ingresado está inactivo.");
+      }
+
+      // 2. Verificar canjes previos
+      const qCanjes = query(
+        collection(db, 'canjes_codigo'), 
+        where('clienteId', '==', userData.uid),
+        where('codigoId', '==', codigoId)
+      );
+      const canjesSnap = await getDocs(qCanjes);
+      const canjesUsuario = canjesSnap.docs.map(d => d.data() as CanjeCodigo);
+      
+      // 3. Buscar la asignación correspondiente
+      const asignId = `${codigoData.comercioId}_${codigoData.influencerId}`;
+      const asigRef = doc(db, 'asignaciones_influencer', asignId);
+      
+      // 4. Transacción atómica
+      await runTransaction(db, async (transaction) => {
+        const asigDoc = await transaction.get(asigRef);
+        if (!asigDoc.exists()) throw new Error("La asignación del influencer no fue encontrada.");
+        
+        const asigData = asigDoc.data() as AsignacionInfluencer;
+        
+        const validationResult = validateCodeRedemption(codigoData, asigData, canjesUsuario);
+        if (!validationResult.success) {
+          throw new Error(validationResult.errorMsg);
+        }
+        
+        const puntosAEntregarCliente = validationResult.puntosAEntregarCliente;
+
+        // A. Actualizar Bolsa de la Asignacion
+        transaction.update(asigRef, {
+          puntosParaClientes: asigData.puntosParaClientes - puntosAEntregarCliente,
+          updatedAt: Date.now()
+        });
+
+        // B. Crear registro en canjes_codigo
+        const nuevoCanjeRef = doc(collection(db, 'canjes_codigo'));
+        const nuevoCanje: CanjeCodigo = {
+          id: nuevoCanjeRef.id,
+          clienteId: userData.uid,
+          codigoId: codigoId,
+          comercioId: asigData.comercioId,
+          fechaCanje: Date.now()
+        };
+        transaction.set(nuevoCanjeRef, nuevoCanje);
+
+        // C. Crear Transaccion para historial
+        const transaccionRef = doc(collection(db, 'transacciones'));
+        const nuevaTransaccion: Transaccion = {
+          id: transaccionRef.id,
+          fechaHora: Date.now(),
+          clienteId: userData.uid,
+          clienteAlias: userData.email?.split('@')[0] || 'Cliente',
+          comercioId: asigData.comercioId,
+          vendedorId: codigoData.influencerId,
+          vendedorAlias: 'INFLUENCER',
+          montoFactura: 0,
+          nroFactura: 'CÓDIGO INF',
+          puntos: puntosAEntregarCliente,
+          tipo: 'ACUMULACION',
+        };
+        transaction.set(transaccionRef, nuevaTransaccion);
+
+        // D. Acreditar Puntos al Cliente
+        const saldoId = `${userData.uid}_${asigData.comercioId}`;
+        const saldoRef = doc(db, 'puntos_saldos', saldoId);
+        const saldoDoc = await transaction.get(saldoRef);
+        
+        if (saldoDoc.exists()) {
+          const saldoActual = saldoDoc.data() as SaldoPunto;
+          transaction.update(saldoRef, {
+            saldoTotal: saldoActual.saldoTotal + puntosAEntregarCliente,
+            updatedAt: Date.now()
+          });
+        } else {
+          transaction.set(saldoRef, {
+            id: saldoId,
+            clienteId: userData.uid,
+            comercioId: asigData.comercioId,
+            saldoTotal: puntosAEntregarCliente,
+            updatedAt: Date.now()
+          });
+        }
+      });
+
+      setMensaje({ texto: "¡Código canjeado con éxito! Puntos acreditados a tu cuenta.", tipo: 'success' });
+      cargarDatos();
 
     } catch (error: any) {
       console.error(error);
@@ -655,6 +794,7 @@ const ClienteDashboard: React.FC = () => {
               puntosUsados={puntosUsados}
               transacciones={transacciones}
               onOpenScanner={() => setEscaneando(true)}
+              onCanjearCodigoInfluencer={handleCanjearCodigoInfluencer}
             />
           } 
         />

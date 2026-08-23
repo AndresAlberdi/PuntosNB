@@ -8,6 +8,7 @@ import VendedorDashboard from './pages/VendedorDashboard';
 import ClienteDashboard from './pages/ClienteDashboard';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import Reportes from './pages/Reportes';
+import { InfluencerDashboard } from './pages/InfluencerDashboard';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
@@ -547,6 +548,12 @@ const AppRoutes = () => {
         </ProtectedRoute>
       } />
 
+      <Route path="/influencer/*" element={
+        <ProtectedRoute allowedRoles={['influencer']}>
+          <InfluencerDashboard />
+        </ProtectedRoute>
+      } />
+
       <Route path="/reportes" element={
         <ProtectedRoute allowedRoles={['admin_comercio', 'superadmin', 'vendedor']}>
           <Reportes />
@@ -558,6 +565,7 @@ const AppRoutes = () => {
         userData.rol === 'cliente' ? <Navigate to="/cliente" replace /> :
         userData.rol === 'vendedor' ? <Navigate to="/vendedor" replace /> :
         userData.rol === 'superadmin' ? <Navigate to="/superadmin" replace /> :
+        userData.rol === 'influencer' ? <Navigate to="/influencer" replace /> :
         <Navigate to="/admin" replace />
       } />
     </Routes>

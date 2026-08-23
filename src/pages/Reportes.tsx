@@ -667,7 +667,7 @@ const Reportes: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 font-bold text-gray-800">{t.puntos}</td>
                     <td className="px-4 py-3 font-semibold text-gray-700">{t.clienteAlias || t.clienteId.slice(0, 6)}</td>
-                    <td className="px-4 py-3 text-gray-600">{t.vendedorAlias || t.vendedorId.slice(0, 6)}</td>
+                    <td className="px-4 py-3 text-gray-600">{t.vendedorAlias || (t.vendedorId || '').slice(0, 6)}</td>
                     <td className="px-4 py-3 text-xs text-gray-400">{t.nroFactura || '-'}</td>
                     <td className="px-4 py-3 font-medium text-gray-700">${(t.montoFactura || 0).toLocaleString()}</td>
                   </tr>
