@@ -57,11 +57,32 @@ describe('Pruebas del Módulo de Influencers', () => {
     expect(result.success).toBe(true);
   });
 
-  it('Debe rechazar el canje si la campaña no está aceptada', () => {
-    const asigInactiva: AsignacionInfluencer = { ...baseAsig, estado: 'RECHAZADO' };
-    const result = validateCodeRedemption(baseCodigo, asigInactiva, []);
-    expect(result.success).toBe(false);
-    expect(result.errorMsg).toContain('no está activa');
+  it('Debe rechazar el canje si la campaña está en estado RECHAZADO o PENDIENTE', () => {
+    const asigRechazada: AsignacionInfluencer = { ...baseAsig, estado: 'RECHAZADO' };
+    expect(validateCodeRedemption(baseCodigo, asigRechazada, []).success).toBe(false);
+
+    const asigPendiente: AsignacionInfluencer = { ...baseAsig, estado: 'PENDIENTE' };
+    expect(validateCodeRedemption(baseCodigo, asigPendiente, []).success).toBe(false);
+  });
+
+  it('Debe rechazar el canje si la alianza fue BLOQUEADA por el comercio o por el influencer', () => {
+    const asigBloqueadaComercio: AsignacionInfluencer = { 
+      ...baseAsig, 
+      estado: 'BLOQUEADO', 
+      bloqueadoPor: 'COMERCIO' 
+    };
+    const resCom = validateCodeRedemption(baseCodigo, asigBloqueadaComercio, []);
+    expect(resCom.success).toBe(false);
+    expect(resCom.errorMsg).toContain('no está activa');
+
+    const asigBloqueadaInfluencer: AsignacionInfluencer = { 
+      ...baseAsig, 
+      estado: 'BLOQUEADO', 
+      bloqueadoPor: 'INFLUENCER' 
+    };
+    const resInf = validateCodeRedemption(baseCodigo, asigBloqueadaInfluencer, []);
+    expect(resInf.success).toBe(false);
+    expect(resInf.errorMsg).toContain('no está activa');
   });
 
   it('Debe rechazar el canje si no quedan puntos en la campaña', () => {

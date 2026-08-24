@@ -51,6 +51,14 @@ const SuperAdminDashboard: React.FC = () => {
   const [editComercioPlan, setEditComercioPlan] = useState<'regular' | 'premium'>('regular');
   const [editComercioNit, setEditComercioNit] = useState('');
 
+  // States for Influencer ABM
+  const [editingInfluencer, setEditingInfluencer] = useState<Usuario | null>(null);
+  const [editInfNombre, setEditInfNombre] = useState('');
+  const [editInfEmailReal, setEditInfEmailReal] = useState('');
+  const [editInfTelefono, setEditInfTelefono] = useState('');
+  const [editInfPrefijo, setEditInfPrefijo] = useState('');
+  const [allAsignaciones, setAllAsignaciones] = useState<any[]>([]);
+
   // States for QR Simulator
   const [qrSimTipo, setQrSimTipo] = useState<'ACUMULACION' | 'CANJE'>('ACUMULACION');
   const [qrSimMonto, setQrSimMonto] = useState('');
@@ -77,9 +85,19 @@ const SuperAdminDashboard: React.FC = () => {
     } catch (err) {}
   };
 
+  const fetchAsignaciones = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'asignaciones_influencer'));
+      const asigs: any[] = [];
+      snap.forEach(d => asigs.push(d.data()));
+      setAllAsignaciones(asigs);
+    } catch (err) {}
+  };
+
   useEffect(() => {
     cargarComercios();
     fetchGlobalUsers();
+    fetchAsignaciones();
     const fetchCodes = async () => {
       try {
         const snap = await getDocs(collection(db, 'codigos_influencer'));
@@ -434,6 +452,32 @@ const SuperAdminDashboard: React.FC = () => {
       setMensaje({ texto: `Usuario ${nuevoEstado === 'bloqueado' ? 'bloqueado' : 'activado'} con éxito.`, tipo: 'success' });
     } catch (err: any) {
       setMensaje({ texto: 'Error al cambiar estado del usuario: ' + err.message, tipo: 'error' });
+    }
+  };
+
+  const handleAbrirEditarInfluencer = (inf: Usuario) => {
+    setEditingInfluencer(inf);
+    setEditInfNombre(inf.nombre);
+    setEditInfEmailReal(inf.emailReal || '');
+    setEditInfTelefono(inf.telefono || '');
+    setEditInfPrefijo(inf.prefijoCodigo || '');
+  };
+
+  const handleGuardarEdicionInfluencer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingInfluencer) return;
+    try {
+      await updateDoc(doc(db, 'users', editingInfluencer.uid), {
+        nombre: editInfNombre.trim(),
+        emailReal: editInfEmailReal.trim().toLowerCase(),
+        telefono: editInfTelefono.trim() || null,
+        prefijoCodigo: editInfPrefijo.trim().toUpperCase() || null
+      });
+      setMensaje({ texto: `Influencer "${editInfNombre}" actualizado con éxito.`, tipo: 'success' });
+      setEditingInfluencer(null);
+      fetchGlobalUsers();
+    } catch (err: any) {
+      setMensaje({ texto: 'Error al actualizar influencer: ' + err.message, tipo: 'error' });
     }
   };
 
@@ -824,9 +868,112 @@ const SuperAdminDashboard: React.FC = () => {
         )}
       </div>
 
-      {/* 4. Directorio Global de Todos los Usuarios (Incluyendo Influencers y Clientes) */}
+      {/* 4. Directorio y Gestión de Influencers (ABM) */}
       <div className="sa-card">
-        <h3 className="sa-subtitle">4. Directorio Global de Usuarios ({globalUsers.length})</h3>
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h3 className="sa-subtitle">4. Directorio y Gestión de Influencers (ABM)</h3>
+            <p className="text-xs text-[var(--text-muted)]">Visualiza y administra todos los influencers creados, sus datos de contacto y alianzas con comercios.</p>
+          </div>
+          <span className="sa-badge bg-purple-100 text-purple-800 font-bold px-3 py-1">
+            {globalUsers.filter(u => u.rol === 'influencer').length} Influencers Registrados
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="sa-table">
+            <thead>
+              <tr>
+                <th>Nombre / Prefijo</th>
+                <th>Usuario (Login)</th>
+                <th>Correo Real</th>
+                <th>WhatsApp</th>
+                <th>Alianzas Comerciales</th>
+                <th>Estado</th>
+                <th>Acciones (ABM)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {globalUsers.filter(u => u.rol === 'influencer').length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-4 text-center text-[var(--text-muted)]">No hay influencers registrados en el sistema. Puedes crear uno en la sección 2.</td>
+                </tr>
+              ) : (
+                globalUsers
+                  .filter(u => u.rol === 'influencer')
+                  .map(inf => {
+                    const asigsInfluencer = allAsignaciones.filter(a => a.influencerId === inf.uid);
+                    const asigsAceptadas = asigsInfluencer.filter(a => a.estado === 'ACEPTADO').length;
+                    const asigsPendientes = asigsInfluencer.filter(a => a.estado === 'PENDIENTE').length;
+
+                    return (
+                      <tr key={inf.uid} className={inf.estado === 'bloqueado' ? 'opacity-60 bg-red-50/20' : ''}>
+                        <td>
+                          <div className="font-bold text-sm">{inf.nombre}</div>
+                          <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-mono font-bold">
+                            PREFIJO: {inf.prefijoCodigo || 'INF'}
+                          </span>
+                        </td>
+                        <td className="font-mono text-xs font-semibold text-blue-600">{inf.email}</td>
+                        <td className="text-xs text-gray-600">{inf.emailReal || '-'}</td>
+                        <td className="text-xs">{inf.telefono || '-'}</td>
+                        <td className="text-xs">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold text-green-700">{asigsAceptadas} activas</span>
+                            {asigsPendientes > 0 && <span className="text-orange-600">{asigsPendientes} pendientes</span>}
+                          </div>
+                        </td>
+                        <td>
+                          {inf.estado === 'bloqueado' ? (
+                            <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded font-bold border border-red-200">BLOQUEADO</span>
+                          ) : (
+                            <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded font-bold border border-green-200">ACTIVO</span>
+                          )}
+                        </td>
+                        <td>
+                          <div className="flex flex-wrap gap-1.5">
+                            <button 
+                              onClick={() => handleAbrirEditarInfluencer(inf)} 
+                              className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1 rounded transition cursor-pointer"
+                              title="Editar datos del influencer"
+                            >
+                              Editar
+                            </button>
+                            <button 
+                              onClick={() => handleRecrearClave(inf)} 
+                              className="text-xs bg-amber-500 hover:bg-amber-600 text-black font-bold px-2.5 py-1 rounded transition cursor-pointer"
+                              title="Recrear clave de acceso"
+                            >
+                              Clave
+                            </button>
+                            <button 
+                              onClick={() => handleToggleEstadoUsuario(inf)} 
+                              className={`text-xs font-bold px-2.5 py-1 rounded transition cursor-pointer text-white ${inf.estado === 'bloqueado' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-orange-500 hover:bg-orange-600'}`}
+                              title={inf.estado === 'bloqueado' ? 'Desbloquear acceso' : 'Bloquear acceso'}
+                            >
+                              {inf.estado === 'bloqueado' ? 'Activar' : 'Bloquear'}
+                            </button>
+                            <button 
+                              onClick={() => handleBorrarUsuario(inf)} 
+                              className="text-xs bg-red-500 text-white font-bold px-2.5 py-1 rounded hover:bg-red-600 transition cursor-pointer"
+                              title="Eliminar permanentemente"
+                            >
+                              Borrar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 5. Directorio Global de Todos los Usuarios */}
+      <div className="sa-card">
+        <h3 className="sa-subtitle">5. Directorio Global de Usuarios ({globalUsers.length})</h3>
         <div className="mb-4">
           <input type="text" className="sa-input max-w-md" placeholder="Buscar en todos los usuarios (nombre, usuario, correo real)..." value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} />
         </div>
@@ -880,9 +1027,9 @@ const SuperAdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. Simulador QR */}
+      {/* 6. Simulador QR */}
       <div className="sa-card">
-        <h3 className="sa-subtitle">5. Simulador QR</h3>
+        <h3 className="sa-subtitle">6. Simulador QR</h3>
         <div className="grid md:grid-cols-2 gap-8">
           <div className="space-y-4">
             <h4 className="font-bold text-sm text-[var(--text-muted)]">Generar QR de Prueba</h4>
@@ -905,6 +1052,78 @@ const SuperAdminDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Modal para Editar Influencer (ABM) */}
+      {editingInfluencer && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <h3 className="text-lg font-bold text-[var(--text-main)]">Editar Datos del Influencer</h3>
+            <p className="text-xs text-[var(--text-muted)]">Usuario: <span className="font-mono font-bold text-blue-600">{editingInfluencer.email}</span></p>
+
+            <form onSubmit={handleGuardarEdicionInfluencer} className="space-y-4">
+              <div>
+                <label className="sa-label">Nombre Completo</label>
+                <input 
+                  type="text" 
+                  required 
+                  className="sa-input" 
+                  value={editInfNombre} 
+                  onChange={e => setEditInfNombre(e.target.value)} 
+                />
+              </div>
+
+              <div>
+                <label className="sa-label">Correo Electrónico Real (Administrativo)</label>
+                <input 
+                  type="email" 
+                  required 
+                  className="sa-input" 
+                  value={editInfEmailReal} 
+                  onChange={e => setEditInfEmailReal(e.target.value)} 
+                />
+              </div>
+
+              <div>
+                <label className="sa-label">Teléfono (WhatsApp)</label>
+                <input 
+                  type="tel" 
+                  className="sa-input" 
+                  value={editInfTelefono} 
+                  onChange={e => setEditInfTelefono(e.target.value)} 
+                  placeholder="ej: +59171234567" 
+                />
+              </div>
+
+              <div>
+                <label className="sa-label">Prefijo de Código (ej: NAT)</label>
+                <input 
+                  type="text" 
+                  maxLength={10} 
+                  className="sa-input uppercase font-mono font-bold" 
+                  value={editInfPrefijo} 
+                  onChange={e => setEditInfPrefijo(e.target.value)} 
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+                <button 
+                  type="button" 
+                  onClick={() => setEditingInfluencer(null)} 
+                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded font-medium text-sm transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="sa-btn-primary"
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );
