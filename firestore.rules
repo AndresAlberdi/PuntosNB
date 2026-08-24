@@ -35,8 +35,13 @@ service cloud.firestore {
     // Reglas por colección
 
     match /users/{userId} {
-      // Los usuarios pueden leer y escribir su propio documento. Superadmins y admins de comercio también.
-      allow read: if isAuth() && (request.auth.uid == userId || isSuperAdmin());
+      // Los usuarios pueden leer su propio documento, superadmins todo, admins pueden ver a los influencers y usuarios de su comercio
+      allow read: if isAuth() && (
+        request.auth.uid == userId || 
+        isSuperAdmin() || 
+        resource.data.rol == 'influencer' ||
+        (isAdminComercio() && resource.data.comercioId == getUserData().comercioId)
+      );
       allow write: if isAuth() && (request.auth.uid == userId || isSuperAdmin() || isAdminComercio());
     }
 
@@ -96,8 +101,8 @@ service cloud.firestore {
     }
 
     match /asignaciones_influencer/{asignacionId} {
-      // Influencers y Admin Comercio pueden leer/modificar sus propias asignaciones
-      allow read, update: if isAuth() && (
+      // Influencers y Admin Comercio pueden leer, modificar y eliminar sus propias asignaciones
+      allow read, update, delete: if isAuth() && (
         isSuperAdmin() || 
         (isAdminComercio() && getUserData().comercioId == resource.data.comercioId) || 
         (isInfluencer() && request.auth.uid == resource.data.influencerId)
