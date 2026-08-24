@@ -18,7 +18,7 @@ import { isStaging, APP_TITLE } from './utils/env';
 
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: RolUsuario[] }) => {
-  const { currentUser, userData, loading } = useAuth();
+  const { userData, loading, logout } = useAuth();
   const [commerceBlocked, setCommerceBlocked] = React.useState(false);
   const [checkingCommerce, setCheckingCommerce] = React.useState(true);
 
@@ -37,7 +37,7 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
 
   if (loading || checkingCommerce) return <LoadingScreen />;
   
-  if (!currentUser || !userData) {
+  if (!userData) {
     return <Navigate to="/login" replace />;
   }
 
@@ -55,13 +55,7 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Acceso Bloqueado</h2>
           <p className="text-gray-600 mb-6">Tu cuenta o el comercio al que perteneces ha sido bloqueado temporalmente. Por favor, contacta a soporte.</p>
           <button 
-            onClick={() => {
-              import('firebase/auth').then(({ signOut }) => {
-                import('./firebase').then(({ auth }) => {
-                  signOut(auth);
-                });
-              });
-            }}
+            onClick={() => logout()}
             className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition"
           >
             Cerrar Sesión
@@ -123,7 +117,7 @@ const NotificationBell = () => {
 };
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
-  const { currentUser, userData } = useAuth();
+  const { currentUser, userData, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [showPasswordModal, setShowPasswordModal] = React.useState(false);
@@ -185,11 +179,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   }, [userData]);
 
   const handleLogout = () => {
-    import('firebase/auth').then(({ signOut }) => {
-      import('./firebase').then(({ auth }) => {
-        signOut(auth);
-      });
-    });
+    logout();
   };
 
   const handleSaveProfile = async () => {

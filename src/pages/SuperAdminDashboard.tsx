@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { collection, doc, setDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, getDocs, query, where, deleteDoc, updateDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
 import { secondaryAuth } from '../secondaryApp';
 import type { Comercio, Usuario } from '../types';
 import { COLOR_PALETTES } from '../utils/theme';
+
+const RESERVED_DOMAINS = ['influencer', 'hiinfluencer', 'hiinfluencer.io', 'admin', 'superadmin', 'hipatia', 'puntosnb'];
 
 const SuperAdminDashboard: React.FC = () => {
   const [comercios, setComercios] = useState<Comercio[]>([]);
@@ -14,11 +16,15 @@ const SuperAdminDashboard: React.FC = () => {
   // States for new Comercio
   const [nombreComercio, setNombreComercio] = useState('');
   const [nitRut, setNitRut] = useState('');
+  const [dominioComercio, setDominioComercio] = useState('');
   const [logoBase64, setLogoBase64] = useState('');
   const [paletteId, setPaletteId] = useState('ocean');
+  const [planComercio, setPlanComercio] = useState<'regular' | 'premium'>('regular');
   
   // States for new User
-  const [email, setEmail] = useState('');
+  const [usuarioPrefix, setUsuarioPrefix] = useState('');
+  const [emailReal, setEmailReal] = useState('');
+  const [pinVendedor, setPinVendedor] = useState('');
   const [password, setPassword] = useState('');
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [telefonoUsuario, setTelefonoUsuario] = useState('');
@@ -27,14 +33,11 @@ const SuperAdminDashboard: React.FC = () => {
   const [comercioId, setComercioId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [prefijoCodigo, setPrefijoCodigo] = useState('');
-  const [planComercio, setPlanComercio] = useState<'regular' | 'premium'>('regular');
-
-
   
   // States for influencer campaigns forced renewal
-  const [influencerCodes, setInfluencerCodes] = useState<any[]>([]);
+  const [, setInfluencerCodes] = useState<any[]>([]);
 
-  const [mensaje, setMensaje] = useState<{texto: string, tipo: 'success'|'error'} | null>(null);
+  const [mensaje, setMensaje] = useState<{ texto: string; tipo: 'success' | 'error' } | null>(null);
 
   // States for listing users
   const [selectedComercioToList, setSelectedComercioToList] = useState('');
@@ -44,14 +47,14 @@ const SuperAdminDashboard: React.FC = () => {
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [editingComercio, setEditingComercio] = useState<Comercio | null>(null);
   const [editComercioNombre, setEditComercioNombre] = useState('');
-  const [editComercioPlan, setEditComercioPlan] = useState<'regular'|'premium'>('regular');
+  const [editComercioDominio, setEditComercioDominio] = useState('');
+  const [editComercioPlan, setEditComercioPlan] = useState<'regular' | 'premium'>('regular');
   const [editComercioNit, setEditComercioNit] = useState('');
 
   // States for QR Simulator
-  const [qrSimTipo, setQrSimTipo] = useState<'ACUMULACION'|'CANJE'>('ACUMULACION');
+  const [qrSimTipo, setQrSimTipo] = useState<'ACUMULACION' | 'CANJE'>('ACUMULACION');
   const [qrSimMonto, setQrSimMonto] = useState('');
   const [qrSimCodeResult, setQrSimCodeResult] = useState('');
-  const [qrSimReadInput, setQrSimReadInput] = useState('');
 
   const cargarComercios = async () => {
     try {
@@ -65,27 +68,28 @@ const SuperAdminDashboard: React.FC = () => {
     setLoading(false);
   };
 
+  const fetchGlobalUsers = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'users'));
+      const users: Usuario[] = [];
+      snap.forEach(d => users.push(d.data() as Usuario));
+      setGlobalUsers(users);
+    } catch (err) {}
+  };
+
   useEffect(() => {
     cargarComercios();
-    const fetchGlobalUsers = async () => {
+    fetchGlobalUsers();
+    const fetchCodes = async () => {
       try {
-        const snap = await getDocs(collection(db, 'users'));
-        const users: Usuario[] = [];
-        snap.forEach(d => users.push(d.data() as Usuario));
-        setGlobalUsers(users);
+        const snap = await getDocs(collection(db, 'codigos_influencer'));
+        const codes: any[] = [];
+        snap.forEach(d => codes.push(d.data()));
+        setInfluencerCodes(codes);
       } catch (err) {}
     };
-      fetchGlobalUsers();
-      const fetchCodes = async () => {
-        try {
-          const snap = await getDocs(collection(db, 'codigos_influencer'));
-          const codes: any[] = [];
-          snap.forEach(d => codes.push(d.data()));
-          setInfluencerCodes(codes);
-        } catch (err) {}
-      };
-      fetchCodes();
-    }, []);
+    fetchCodes();
+  }, []);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -106,15 +110,50 @@ const SuperAdminDashboard: React.FC = () => {
     fetchUsers();
   }, [selectedComercioToList]);
 
+  // Sugerencia automática de dominio al escribir nombre de comercio
+  const handleNombreComercioChange = (val: string) => {
+    setNombreComercio(val);
+    const suggested = val.toLowerCase().replace(/[^a-z0-9]/g, '') + '.io';
+    setDominioComercio(suggested);
+  };
+
+  const selectedComercio = comercios.find(c => c.id === comercioId);
+  const comercioDominio = selectedComercio?.dominio || (selectedComercio ? selectedComercio.nombre.toLowerCase().replace(/[^a-z0-9]/g, '') + '.io' : '');
+
+  const computedUsuarioSintetico = () => {
+    const cleanUser = usuarioPrefix.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    if (!cleanUser) return '';
+    if (rol === 'influencer') {
+      return `${cleanUser}@hiinfluencer.io`;
+    }
+    if (comercioDominio) {
+      return `${cleanUser}@${comercioDominio}`;
+    }
+    return cleanUser;
+  };
+
   const handleCrearComercio = async (e: React.FormEvent) => {
     e.preventDefault();
     setMensaje(null);
+
+    const cleanDominio = dominioComercio.trim().toLowerCase().replace(/^@+/, '');
+    const isReserved = RESERVED_DOMAINS.some(res => cleanDominio === res || cleanDominio.startsWith(res + '.'));
+    if (isReserved) {
+      setMensaje({ texto: `El dominio "${cleanDominio}" está reservado por el sistema y no puede ser usado por un comercio.`, tipo: 'error' });
+      return;
+    }
+    if (!cleanDominio.includes('.')) {
+      setMensaje({ texto: 'El dominio asignado debe tener una extensión válida (ej: mitienda.io).', tipo: 'error' });
+      return;
+    }
+
     try {
       const comercioRef = doc(collection(db, 'comercios'));
       const nuevoComercio: Comercio = {
         id: comercioRef.id,
-        nombre: nombreComercio,
-        nit_rut: nitRut,
+        nombre: nombreComercio.trim(),
+        nit_rut: nitRut.trim(),
+        dominio: cleanDominio,
         reglas: [],
         premios: [],
         productos: [],
@@ -124,9 +163,10 @@ const SuperAdminDashboard: React.FC = () => {
         plan: planComercio
       };
       await setDoc(comercioRef, nuevoComercio);
-      setMensaje({ texto: 'Comercio creado exitosamente', tipo: 'success' });
+      setMensaje({ texto: 'Comercio creado exitosamente con dominio ' + cleanDominio, tipo: 'success' });
       setNombreComercio('');
       setNitRut('');
+      setDominioComercio('');
       setLogoBase64('');
       setPaletteId('ocean');
       setPlanComercio('regular');
@@ -139,58 +179,158 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  const handleGuardarEdicionComercio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingComercio) return;
+
+    const cleanDominio = editComercioDominio.trim().toLowerCase().replace(/^@+/, '');
+    const isReserved = RESERVED_DOMAINS.some(res => cleanDominio === res || cleanDominio.startsWith(res + '.'));
+    if (isReserved) {
+      setMensaje({ texto: `El dominio "${cleanDominio}" está reservado por el sistema.`, tipo: 'error' });
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'comercios', editingComercio.id), {
+        nombre: editComercioNombre.trim(),
+        nit_rut: editComercioNit.trim(),
+        dominio: cleanDominio,
+        plan: editComercioPlan
+      });
+      setEditingComercio(null);
+      setMensaje({ texto: 'Comercio actualizado correctamente.', tipo: 'success' });
+      cargarComercios();
+    } catch (err: any) {
+      setMensaje({ texto: 'Error al actualizar comercio: ' + err.message, tipo: 'error' });
+    }
+  };
+
   const handleCrearUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
     setMensaje(null);
+
+    const syntheticUser = computedUsuarioSintetico();
+    if (!syntheticUser) {
+      setMensaje({ texto: 'Ingresa un identificador de usuario válido.', tipo: 'error' });
+      return;
+    }
+
     if (!comercioId && rol !== 'influencer') {
       setMensaje({ texto: 'Debes seleccionar un comercio.', tipo: 'error' });
       return;
     }
+
     if (rol === 'influencer' && (!prefijoCodigo || prefijoCodigo.length > 10)) {
-      setMensaje({ texto: 'El influencer debe tener un prefijo de código válido (máx 10 chars).', tipo: 'error' });
+      setMensaje({ texto: 'El influencer debe tener un prefijo de código válido (máx 10 caracteres).', tipo: 'error' });
       return;
     }
-    try {
-      // Create user using secondary app so the current superadmin is not signed out
-      const userCred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-      
-      const userDocRef = doc(db, 'users', userCred.user.uid);
-      const userData: Usuario = {
-        uid: userCred.user.uid,
-        email,
-        nombre: nombreUsuario,
-        rol,
-        comercioId: rol === 'influencer' ? undefined : comercioId,
-        telefono: telefonoUsuario ? `${countryCode}${telefonoUsuario}` : undefined,
-        prefijoCodigo: rol === 'influencer' ? prefijoCodigo.toUpperCase() : undefined,
-        createdAt: Date.now()
-      };
-      await setDoc(userDocRef, userData);
 
-      setMensaje({ texto: `Usuario ${rol} creado exitosamente.`, tipo: 'success' });
-      setEmail('');
+    try {
+      // 1. CASO VENDEDOR: No se crea en Firebase Auth (0 MAU). Se valida PIN y se guarda en Firestore.
+      if (rol === 'vendedor') {
+        if (!/^\d{6}$/.test(pinVendedor)) {
+          setMensaje({ texto: 'El PIN del vendedor debe ser exactamente de 6 dígitos numéricos.', tipo: 'error' });
+          return;
+        }
+
+        // Verificar si ya existe este usuario
+        const qExists = query(collection(db, 'users'), where('email', '==', syntheticUser));
+        const existsSnap = await getDocs(qExists);
+        if (!existsSnap.empty) {
+          setMensaje({ texto: `El usuario "${syntheticUser}" ya se encuentra registrado.`, tipo: 'error' });
+          return;
+        }
+
+        const newUid = 'vend_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        const userData: Usuario = {
+          uid: newUid,
+          email: syntheticUser,
+          usuario: syntheticUser,
+          nombre: nombreUsuario.trim(),
+          rol: 'vendedor',
+          comercioId: comercioId,
+          pin: pinVendedor.trim(),
+          telefono: telefonoUsuario ? `${countryCode}${telefonoUsuario}` : undefined,
+          createdAt: Date.now()
+        };
+
+        await setDoc(doc(db, 'users', newUid), userData);
+        setMensaje({ texto: `Vendedor creado exitosamente. Usuario de acceso: ${syntheticUser} (PIN: ${pinVendedor})`, tipo: 'success' });
+      } 
+      // 2. CASO ADMIN / INFLUENCER: Se crea en Firebase Auth con usuario sintético y guarda emailReal en Firestore
+      else {
+        if (!emailReal || !emailReal.includes('@')) {
+          setMensaje({ texto: 'Debes ingresar un correo electrónico real válido para administración.', tipo: 'error' });
+          return;
+        }
+
+        if (!password || password.length < 6) {
+          setMensaje({ texto: 'La contraseña debe tener al menos 6 caracteres.', tipo: 'error' });
+          return;
+        }
+
+        const userCred = await createUserWithEmailAndPassword(secondaryAuth, syntheticUser, password);
+        const userDocRef = doc(db, 'users', userCred.user.uid);
+        const userData: Usuario = {
+          uid: userCred.user.uid,
+          email: syntheticUser,
+          usuario: syntheticUser,
+          emailReal: emailReal.trim().toLowerCase(),
+          nombre: nombreUsuario.trim(),
+          rol,
+          comercioId: rol === 'influencer' ? undefined : comercioId,
+          telefono: telefonoUsuario ? `${countryCode}${telefonoUsuario}` : undefined,
+          prefijoCodigo: rol === 'influencer' ? prefijoCodigo.toUpperCase() : undefined,
+          createdAt: Date.now()
+        };
+        await setDoc(userDocRef, userData);
+
+        setMensaje({ texto: `Usuario ${rol} creado exitosamente. Usuario de login: ${syntheticUser}`, tipo: 'success' });
+      }
+
+      // Limpiar formulario
+      setUsuarioPrefix('');
+      setEmailReal('');
       setPassword('');
+      setPinVendedor('');
       setNombreUsuario('');
       setTelefonoUsuario('');
       setPrefijoCodigo('');
+      fetchGlobalUsers();
+
       if (selectedComercioToList === comercioId) {
-        setSelectedComercioToList(''); // trigger refresh manually or just clear
+        setSelectedComercioToList('');
+        setTimeout(() => setSelectedComercioToList(comercioId), 100);
       }
     } catch (error: any) {
       console.error(error);
-      setMensaje({ texto: 'Error al crear usuario: ' + error.message, tipo: 'error' });
+      if (error.code === 'auth/email-already-in-use') {
+        setMensaje({ texto: `El usuario "${syntheticUser}" ya existe en el sistema de autenticación.`, tipo: 'error' });
+      } else {
+        setMensaje({ texto: 'Error al crear usuario: ' + error.message, tipo: 'error' });
+      }
     }
   };
 
   const handleRecrearClave = async (usuario: Usuario) => {
-    const comercio = comercios.find(c => c.id === usuario.comercioId);
-    if (!comercio) return;
+    if (usuario.rol === 'vendedor') {
+      const nuevoPin = window.prompt("Ingresa el nuevo PIN de 6 dígitos para este vendedor:", usuario.pin || "123456");
+      if (!nuevoPin || !/^\d{6}$/.test(nuevoPin)) {
+        alert("El PIN debe ser exactamente de 6 dígitos numéricos.");
+        return;
+      }
+      await updateDoc(doc(db, 'users', usuario.uid), { pin: nuevoPin });
+      setMensaje({ texto: `PIN del vendedor actualizado a: ${nuevoPin}`, tipo: 'success' });
+      fetchGlobalUsers();
+      return;
+    }
 
-    const nombreLimpio = comercio.nombre.replace(/\s+/g, '');
+    const comercio = comercios.find(c => c.id === usuario.comercioId);
+    const nombreLimpio = comercio ? comercio.nombre.replace(/\s+/g, '') : 'Hipatia';
     const nuevaClave = `${nombreLimpio}*123`;
 
     const confirmacion = window.confirm(
-      `ATENCIÓN: Para recrear a este usuario, PRIMERO debes ir a Firebase Console -> Authentication -> Users y BORRAR manualmente el correo ${usuario.email}.\n\n` +
+      `ATENCIÓN: Para recrear a este usuario, PRIMERO debes ir a Firebase Console -> Authentication -> Users y BORRAR manualmente el usuario ${usuario.email}.\n\n` +
       `Si ya lo borraste, presiona Aceptar.\n` +
       `La nueva clave será exactamente: ${nuevaClave}`
     );
@@ -199,22 +339,18 @@ const SuperAdminDashboard: React.FC = () => {
 
     setMensaje(null);
     try {
-      // 1. Recreate the user in Firebase Auth
       const userCred = await createUserWithEmailAndPassword(secondaryAuth, usuario.email, nuevaClave);
       const newUid = userCred.user.uid;
 
-      // 2. Save new doc in Firestore with old data
       const newUserData = { ...usuario, uid: newUid, updatedAt: Date.now() };
       await setDoc(doc(db, 'users', newUid), newUserData);
-
-      // 3. Delete old doc in Firestore
       await deleteDoc(doc(db, 'users', usuario.uid));
 
       setMensaje({ texto: `Usuario recreado. Su nueva clave es: ${nuevaClave}`, tipo: 'success' });
       
-      // Refresh list
       setSelectedComercioToList('');
-      setTimeout(() => setSelectedComercioToList(usuario.comercioId!), 100);
+      setTimeout(() => setSelectedComercioToList(usuario.comercioId || ''), 100);
+      fetchGlobalUsers();
 
     } catch (err: any) {
       console.error(err);
@@ -242,160 +378,86 @@ const SuperAdminDashboard: React.FC = () => {
       const { writeBatch } = await import('firebase/firestore');
       const batch = writeBatch(db);
 
-      // 1. Delete associated users from Firestore
       const q = query(collection(db, 'users'), where('comercioId', '==', comercio.id));
       const usersSnap = await getDocs(q);
       usersSnap.forEach(userDoc => {
         batch.delete(userDoc.ref);
       });
 
-      // 2. Delete commerce document
       batch.delete(doc(db, 'comercios', comercio.id));
-
       await batch.commit();
 
-      setMensaje({ texto: `Comercio "${comercio.nombre}" y sus usuarios asociados fueron eliminados exitosamente de la base de datos.`, tipo: 'success' });
+      setMensaje({ texto: `Comercio "${comercio.nombre}" y sus usuarios eliminados exitosamente.`, tipo: 'success' });
       cargarComercios();
-      if (selectedComercioToList === comercio.id) {
-        setSelectedComercioToList('');
-      }
+      setSelectedComercioToList('');
+      fetchGlobalUsers();
     } catch (err: any) {
       console.error(err);
       setMensaje({ texto: 'Error al borrar comercio: ' + err.message, tipo: 'error' });
     }
   };
 
-
-  const handleBorrarUsuario = async (usuario: Usuario) => {
-    const confirmacion = window.confirm(
-      `¿Seguro que deseas borrar al usuario "${usuario.nombre}" (${usuario.email}) de la base de datos?\n\n` +
-      `Esta acción no se puede deshacer y el usuario perderá su perfil.`
-    );
-    if (!confirmacion) return;
-
-    setMensaje(null);
+  const handleToggleEstadoComercio = async (comercio: Comercio) => {
+    const nuevoEstado = comercio.estado === 'bloqueado' ? 'activo' : 'bloqueado';
     try {
-      await deleteDoc(doc(db, 'users', usuario.uid));
-      setMensaje({ texto: `Usuario "${usuario.nombre}" eliminado exitosamente de la base de datos.`, tipo: 'success' });
-      
-      // Refresh list
-      const q = query(collection(db, 'users'), where('comercioId', '==', usuario.comercioId));
-      const snap = await getDocs(q);
-      const users: Usuario[] = [];
-      snap.forEach(d => users.push(d.data() as Usuario));
-      setComercioUsers(users);
+      await updateDoc(doc(db, 'comercios', comercio.id), { estado: nuevoEstado });
+      setComercios(comercios.map(c => c.id === comercio.id ? { ...c, estado: nuevoEstado } : c));
+      setMensaje({ texto: `Comercio ${nuevoEstado === 'bloqueado' ? 'bloqueado' : 'desbloqueado'} con éxito.`, tipo: 'success' });
     } catch (err: any) {
-      console.error(err);
-      setMensaje({ texto: 'Error al borrar usuario: ' + err.message, tipo: 'error' });
+      setMensaje({ texto: 'Error al cambiar estado del comercio: ' + err.message, tipo: 'error' });
     }
-  };
-
-  const handleSimularQrGenerar = async () => {
-    if (!comercios.length) {
-      setMensaje({ texto: 'Debe existir al menos un comercio', tipo: 'error' });
-      return;
-    }
-    const comercioIdSim = 'TEST_SIMULATOR';
-    const { generarCodigoUnicoQR } = await import('../utils/qr');
-    const codigo = await generarCodigoUnicoQR(db);
-    
-    const sesionData: any = {
-      id: codigo,
-      tipo: qrSimTipo,
-      creadorId: 'superadmin_sim',
-      creadorAlias: 'Simulador',
-      comercioId: comercioIdSim,
-      estado: 'PENDIENTE',
-      createdAt: Date.now()
-    };
-    
-    if (qrSimTipo === 'ACUMULACION') {
-      sesionData.montoFactura = parseFloat(qrSimMonto) || 100;
-      sesionData.puntosCalculados = 10;
-    } else {
-      sesionData.premioId = 'sim_premio';
-    }
-
-    try {
-      await setDoc(doc(db, 'sesiones_qr', codigo), sesionData);
-      setQrSimCodeResult(codigo);
-      setMensaje({ texto: 'Código QR de prueba generado', tipo: 'success' });
-      setQrSimReadInput(codigo);
-    } catch (e: any) {
-      setMensaje({ texto: 'Error al generar: ' + e.message, tipo: 'error' });
-    }
-  };
-
-  const handleSimularQrLeer = async () => {
-    if (!qrSimReadInput) return;
-    try {
-      const { getDoc } = await import('firebase/firestore');
-      const docSnap = await getDoc(doc(db, 'sesiones_qr', qrSimReadInput));
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setMensaje({ texto: `Leído exitosamente! Tipo: ${data.tipo}, Estado: ${data.estado}`, tipo: 'success' });
-        // Auto-delete to invalidate
-        import('firebase/firestore').then(({deleteDoc}) => deleteDoc(doc(db, 'sesiones_qr', qrSimReadInput)));
-        setQrSimCodeResult('');
-        setQrSimReadInput('');
-      } else {
-        setMensaje({ texto: 'El QR no existe o es inválido', tipo: 'error' });
-      }
-    } catch (e: any) {
-      setMensaje({ texto: 'Error al leer: ' + e.message, tipo: 'error' });
-    }
-  };
-
-  const handleForzarRenovacion = async (code: any) => {
-    if (!window.confirm(`¿Seguro que deseas forzar la renovación del código ${code.id}? Esto permitirá a todos los usuarios usarlo nuevamente sin esperar los 30 días.`)) return;
-    try {
-      const { updateDoc } = await import('firebase/firestore');
-      // Set fechaUltimaRenovacion to 30 days ago to simulate it has expired and can be used/renewed normally by the influencer,
-      // OR just set it to Date.now() and we delete the canjes_codigos history? 
-      // Actually, if we force renew, we should delete the historical usage of this code by users.
-      // But a simpler approach is just letting the influencer renew it right now without waiting 30 days.
-      // So we set `fechaUltimaRenovacion` to 0 (epoch 1970) so the 30-day block is lifted for the influencer, allowing them to click "Renew".
-      // Or we can just perform the renewal here.
-      // The requirement says "esto se puede acelerar con intervención del superadmin, para que se renueve antes".
-      // So setting it to 0 allows the influencer to click the renew button immediately.
-      await updateDoc(doc(db, 'codigos_influencer', code.id), { fechaUltimaRenovacion: 0 });
-      setInfluencerCodes(influencerCodes.map(c => c.id === code.id ? { ...c, fechaUltimaRenovacion: 0 } : c));
-      setMensaje({ texto: `Renovación forzada habilitada para el código ${code.id}`, tipo: 'success' });
-    } catch(e: any) { setMensaje({ texto: 'Error: ' + e.message, tipo: 'error' }); }
   };
 
   const handleToggleEstadoUsuario = async (usuario: Usuario) => {
     const nuevoEstado = usuario.estado === 'bloqueado' ? 'activo' : 'bloqueado';
-    if (!window.confirm(`¿Seguro que deseas ${nuevoEstado === 'bloqueado' ? 'BLOQUEAR' : 'ACTIVAR'} a ${usuario.nombre}?`)) return;
     try {
-      const { updateDoc } = await import('firebase/firestore');
       await updateDoc(doc(db, 'users', usuario.uid), { estado: nuevoEstado });
+      setComercioUsers(comercioUsers.map(u => u.uid === usuario.uid ? { ...u, estado: nuevoEstado } : u));
       setGlobalUsers(globalUsers.map(u => u.uid === usuario.uid ? { ...u, estado: nuevoEstado } : u));
-      setMensaje({ texto: `Usuario ${nuevoEstado}`, tipo: 'success' });
-    } catch(e: any) { setMensaje({ texto: 'Error: ' + e.message, tipo: 'error' }); }
+      setMensaje({ texto: `Usuario ${nuevoEstado === 'bloqueado' ? 'bloqueado' : 'activado'} con éxito.`, tipo: 'success' });
+    } catch (err: any) {
+      setMensaje({ texto: 'Error al cambiar estado del usuario: ' + err.message, tipo: 'error' });
+    }
   };
 
-  const handleToggleEstadoComercio = async (comercio: Comercio) => {
-    const nuevoEstado = comercio.estado === 'bloqueado' ? 'activo' : 'bloqueado';
-    if (!window.confirm(`¿Seguro que deseas ${nuevoEstado === 'bloqueado' ? 'BLOQUEAR' : 'ACTIVAR'} el comercio ${comercio.nombre}?`)) return;
+  const handleBorrarUsuario = async (usuario: Usuario) => {
+    const confirmacion = window.confirm(`¿Estás seguro de que deseas eliminar permanentemente al usuario "${usuario.nombre}" (${usuario.email})?`);
+    if (!confirmacion) return;
+
     try {
-      const { updateDoc } = await import('firebase/firestore');
-      await updateDoc(doc(db, 'comercios', comercio.id), { estado: nuevoEstado });
-      cargarComercios();
-      setMensaje({ texto: `Comercio ${nuevoEstado}`, tipo: 'success' });
-    } catch(e: any) { setMensaje({ texto: 'Error: ' + e.message, tipo: 'error' }); }
+      await deleteDoc(doc(db, 'users', usuario.uid));
+      setComercioUsers(comercioUsers.filter(u => u.uid !== usuario.uid));
+      setGlobalUsers(globalUsers.filter(u => u.uid !== usuario.uid));
+      setMensaje({ texto: 'Usuario eliminado de Firestore.', tipo: 'success' });
+    } catch (err: any) {
+      setMensaje({ texto: 'Error al eliminar usuario: ' + err.message, tipo: 'error' });
+    }
   };
 
-  const handleGuardarEdicionComercio = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if(!editingComercio) return;
+  const handleSimularQrGenerar = async () => {
+    if (!comercioId) {
+      setMensaje({ texto: 'Selecciona un comercio en el paso 2 para simular el QR.', tipo: 'error' });
+      return;
+    }
     try {
-      const { updateDoc } = await import('firebase/firestore');
-      await updateDoc(doc(db, 'comercios', editingComercio.id), { nombre: editComercioNombre, nit_rut: editComercioNit, plan: editComercioPlan });
-      setMensaje({ texto: `Comercio editado exitosamente`, tipo: 'success' });
-      setEditingComercio(null);
-      cargarComercios();
-    } catch(e: any) { setMensaje({ texto: 'Error: ' + e.message, tipo: 'error' }); }
+      const { generarCodigoUnicoQR } = await import('../utils/qr');
+      const codigo = await generarCodigoUnicoQR(db);
+      const sesionRef = doc(db, 'sesiones_qr', codigo);
+      await setDoc(sesionRef, {
+        id: codigo,
+        tipo: qrSimTipo,
+        comercioId,
+        montoFactura: Number(qrSimMonto) || 100,
+        nroFactura: 'SIM-' + Math.floor(Math.random() * 10000),
+        puntosCalculados: Number(qrSimMonto) || 10,
+        estado: 'PENDIENTE',
+        createdAt: Date.now()
+      });
+      setQrSimCodeResult(codigo);
+      setMensaje({ texto: `QR generado exitosamente: ${codigo}`, tipo: 'success' });
+    } catch (err: any) {
+      setMensaje({ texto: 'Error al generar QR simulado: ' + err.message, tipo: 'error' });
+    }
   };
 
   if (loading) return <div className="p-8 text-center" style={{color: 'var(--text-main)', backgroundColor: 'var(--bg-main)'}}>Cargando panel de superadmin...</div>;
@@ -403,6 +465,7 @@ const SuperAdminDashboard: React.FC = () => {
   const filteredUsers = comercioUsers.filter(u => 
     u.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.email.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (u.emailReal && u.emailReal.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (u.telefono && u.telefono.includes(searchTerm))
   );
 
@@ -434,23 +497,28 @@ const SuperAdminDashboard: React.FC = () => {
       {mensaje && (
         <div className={`p-4 rounded-lg font-bold border ${mensaje.tipo === 'success' ? 'bg-[var(--accent-tertiary)] text-black border-black' : 'bg-red-500 text-white border-red-700'}`}>
           {mensaje.texto}
-          <button className="float-right font-black" onClick={() => setMensaje(null)}>✕</button>
+          <button className="float-right font-black cursor-pointer" onClick={() => setMensaje(null)}>✕</button>
         </div>
       )}
 
       <div className="grid md:grid-cols-2 gap-8">
         
-        {/* Crear Comercio */}
+        {/* 1. Crear Comercio */}
         <div className="sa-card">
           <h3 className="sa-subtitle">1. Crear Nuevo Comercio</h3>
           <form onSubmit={handleCrearComercio} className="space-y-4">
             <div>
               <label className="sa-label">Nombre Comercial</label>
-              <input type="text" required className="sa-input" value={nombreComercio} onChange={e => setNombreComercio(e.target.value)} />
+              <input type="text" required className="sa-input" value={nombreComercio} onChange={e => handleNombreComercioChange(e.target.value)} placeholder="Ej: Mi Mercado" />
+            </div>
+            <div>
+              <label className="sa-label">Dominio Asignado (.io)</label>
+              <input type="text" required className="sa-input" value={dominioComercio} onChange={e => setDominioComercio(e.target.value)} placeholder="Ej: mimercado.io" />
+              <p className="text-xs text-[var(--text-muted)] mt-1">Este dominio formará los usuarios de acceso del comercio (ej: admin@mimercado.io).</p>
             </div>
             <div>
               <label className="sa-label">NIT / RUT</label>
-              <input type="text" required className="sa-input" value={nitRut} onChange={e => setNitRut(e.target.value)} />
+              <input type="text" required className="sa-input" value={nitRut} onChange={e => setNitRut(e.target.value)} placeholder="Ej: 123456789" />
             </div>
             <div>
               <label className="sa-label">Paleta de Colores</label>
@@ -460,7 +528,7 @@ const SuperAdminDashboard: React.FC = () => {
             </div>
             <div>
               <label className="sa-label">Plan del Comercio</label>
-              <select className="sa-input" value={planComercio} onChange={e => setPlanComercio(e.target.value as 'regular'|'premium')}>
+              <select className="sa-input" value={planComercio} onChange={e => setPlanComercio(e.target.value as 'regular' | 'premium')}>
                 <option value="regular">Regular (Solo mini CRM)</option>
                 <option value="premium">Premium (Reportes y mini CRM)</option>
               </select>
@@ -498,7 +566,9 @@ const SuperAdminDashboard: React.FC = () => {
                   )}
                   <div className="min-w-0 flex-1">
                     <strong className="block truncate text-[var(--text-main)] text-lg">{c.nombre} {c.estado === 'bloqueado' && <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded ml-2">BLOQUEADO</span>}</strong>
-                    <span className="text-sm text-[var(--text-muted)] block truncate">NIT: {c.nit_rut} | Plan: <span className="font-bold text-brand-primary uppercase">{c.plan || 'regular'}</span></span>
+                    <span className="text-sm text-[var(--text-muted)] block truncate">
+                      Dominio: <span className="font-mono text-brand-primary">{c.dominio || '-'}</span> | NIT: {c.nit_rut} | Plan: <span className="font-bold text-brand-primary uppercase">{c.plan || 'regular'}</span>
+                    </span>
                   </div>
                 </div>
                 
@@ -506,6 +576,7 @@ const SuperAdminDashboard: React.FC = () => {
                   <form onSubmit={handleGuardarEdicionComercio} className="border-t pt-3 mt-2 space-y-3 bg-white p-3 rounded shadow-inner">
                     <h5 className="font-bold text-sm">Editar Comercio</h5>
                     <input className="sa-input" value={editComercioNombre} onChange={e=>setEditComercioNombre(e.target.value)} required placeholder="Nombre" />
+                    <input className="sa-input" value={editComercioDominio} onChange={e=>setEditComercioDominio(e.target.value)} required placeholder="Dominio (ej: tienda.io)" />
                     <input className="sa-input" value={editComercioNit} onChange={e=>setEditComercioNit(e.target.value)} required placeholder="NIT/RUT" />
                     <select className="sa-input" value={editComercioPlan} onChange={e=>setEditComercioPlan(e.target.value as any)}>
                       <option value="regular">Regular</option>
@@ -518,11 +589,11 @@ const SuperAdminDashboard: React.FC = () => {
                   </form>
                 ) : (
                   <div className="flex flex-wrap gap-2 border-t pt-3 mt-2">
-                    <button onClick={() => { setEditingComercio(c); setEditComercioNombre(c.nombre); setEditComercioNit(c.nit_rut); setEditComercioPlan(c.plan || 'regular'); }} className="text-xs bg-gray-200 text-gray-800 font-bold px-3 py-1.5 rounded hover:bg-gray-300 transition border">Editar</button>
-                    <button onClick={() => handleToggleEstadoComercio(c)} className={`text-xs font-bold px-3 py-1.5 rounded transition border ${c.estado === 'bloqueado' ? 'bg-green-500 text-white hover:bg-green-600 border-green-700' : 'bg-orange-500 text-white hover:bg-orange-600 border-orange-700'}`}>
+                    <button onClick={() => { setEditingComercio(c); setEditComercioNombre(c.nombre); setEditComercioDominio(c.dominio || ''); setEditComercioNit(c.nit_rut); setEditComercioPlan(c.plan || 'regular'); }} className="text-xs bg-gray-200 text-gray-800 font-bold px-3 py-1.5 rounded hover:bg-gray-300 transition border cursor-pointer">Editar</button>
+                    <button onClick={() => handleToggleEstadoComercio(c)} className={`text-xs font-bold px-3 py-1.5 rounded transition border cursor-pointer ${c.estado === 'bloqueado' ? 'bg-green-500 text-white hover:bg-green-600 border-green-700' : 'bg-orange-500 text-white hover:bg-orange-600 border-orange-700'}`}>
                       {c.estado === 'bloqueado' ? 'Desbloquear' : 'Bloquear'}
                     </button>
-                    <button onClick={() => handleBorrarComercio(c)} className="text-xs bg-red-500 text-white font-bold px-3 py-1.5 rounded hover:bg-red-600 transition border border-red-700 ml-auto">Borrar</button>
+                    <button onClick={() => handleBorrarComercio(c)} className="text-xs bg-red-500 text-white font-bold px-3 py-1.5 rounded hover:bg-red-600 transition border border-red-700 ml-auto cursor-pointer">Borrar</button>
                   </div>
                 )}
               </li>
@@ -530,37 +601,97 @@ const SuperAdminDashboard: React.FC = () => {
           </ul>
         </div>
 
-        {/* Crear Usuarios */}
+        {/* 2. Crear Usuarios */}
         <div className="sa-card">
           <h3 className="sa-subtitle">2. Crear Usuarios</h3>
           <form onSubmit={handleCrearUsuario} className="space-y-4">
             {rol !== 'influencer' && (
               <div>
-                <label className="sa-label">Asignar al Comercio</label>
+                <label className="sa-label">Comercio Asignado</label>
                 <select required className="sa-input" value={comercioId} onChange={e => setComercioId(e.target.value)}>
                   <option value="">-- Selecciona un Comercio --</option>
-                  {comercios.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  {comercios.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre} ({c.dominio || 'sin dominio'})
+                    </option>
+                  ))}
                 </select>
               </div>
             )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="sa-label">Rol</label>
                 <select className="sa-input" value={rol} onChange={e => setRol(e.target.value as any)}>
-                  <option value="vendedor">Vendedor (Cajero)</option>
+                  <option value="vendedor">Vendedor (Cajero - PIN)</option>
                   <option value="admin_comercio">Administrador del Comercio</option>
                   <option value="influencer">Influencer</option>
                 </select>
               </div>
               <div>
-                <label className="sa-label">Nombre</label>
-                <input type="text" required className="sa-input" value={nombreUsuario} onChange={e => setNombreUsuario(e.target.value)} />
+                <label className="sa-label">Nombre Completo</label>
+                <input type="text" required className="sa-input" value={nombreUsuario} onChange={e => setNombreUsuario(e.target.value)} placeholder="Ej: Juan Pérez" />
               </div>
             </div>
+
+            {/* Identificador de Usuario */}
             <div>
-              <label className="sa-label">Correo Electrónico</label>
-              <input type="email" required className="sa-input" value={email} onChange={e => setEmail(e.target.value)} />
+              <label className="sa-label">Identificador de Usuario (Login)</label>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="text" 
+                  required 
+                  className="sa-input flex-1" 
+                  value={usuarioPrefix} 
+                  onChange={e => setUsuarioPrefix(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))} 
+                  placeholder={rol === 'influencer' ? 'ej: carlos' : 'ej: admin o caja1'} 
+                />
+                <span className="text-xs font-mono bg-gray-100 p-2 rounded border text-gray-700 whitespace-nowrap">
+                  {rol === 'influencer' ? '@hiinfluencer.io' : (comercioDominio ? `@${comercioDominio}` : '@dominio.io')}
+                </span>
+              </div>
+              {computedUsuarioSintetico() && (
+                <p className="text-xs text-brand-primary mt-1 font-semibold">
+                  Usuario final de acceso: <span className="font-mono">{computedUsuarioSintetico()}</span>
+                </p>
+              )}
             </div>
+
+            {/* Correo Real (Solo Admin e Influencer) */}
+            {rol !== 'vendedor' && (
+              <div>
+                <label className="sa-label">Correo Electrónico Real (Administrativo)</label>
+                <input 
+                  type="email" 
+                  required 
+                  className="sa-input" 
+                  value={emailReal} 
+                  onChange={e => setEmailReal(e.target.value)} 
+                  placeholder="ej: correo.personal@gmail.com" 
+                />
+                <p className="text-xs text-[var(--text-muted)] mt-1">Este correo NO se envía a autenticación; queda guardado internamente para contacto y notificaciones.</p>
+              </div>
+            )}
+
+            {/* PIN de 6 dígitos para Vendedor */}
+            {rol === 'vendedor' && (
+              <div>
+                <label className="sa-label">PIN de Acceso (6 dígitos)</label>
+                <input 
+                  type="password" 
+                  maxLength={6} 
+                  pattern="\d{6}" 
+                  required 
+                  className="sa-input tracking-widest text-center text-lg font-bold" 
+                  value={pinVendedor} 
+                  onChange={e => setPinVendedor(e.target.value.replace(/\D/g, ''))} 
+                  placeholder="123456" 
+                />
+                <p className="text-xs text-[var(--text-muted)] mt-1">Los vendedores ingresan con su usuario y este PIN numérico sin sobrecargar cuentas de Firebase.</p>
+              </div>
+            )}
+
+            {/* Teléfono */}
             <div>
               <label className="sa-label">Teléfono (WhatsApp)</label>
               <div className="flex gap-2">
@@ -577,31 +708,38 @@ const SuperAdminDashboard: React.FC = () => {
                   <option value="+598">+598</option>
                   <option value="+1">+1</option>
                 </select>
-                <input type="tel" className="sa-input flex-1" value={telefonoUsuario} onChange={e => setTelefonoUsuario(e.target.value.replace(/\D/g, ''))} placeholder="Ej: 71234567" required />
+                <input type="tel" className="sa-input flex-1" value={telefonoUsuario} onChange={e => setTelefonoUsuario(e.target.value.replace(/\D/g, ''))} placeholder="Ej: 71234567" />
               </div>
             </div>
-            <div>
-              <label className="sa-label">Contraseña (Temporal)</label>
-              <div className="relative">
-                <input type={showPassword ? "text" : "password"} required minLength={6} className="sa-input" value={password} onChange={e => setPassword(e.target.value)} />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-main)] focus:outline-none text-xs font-medium cursor-pointer">
-                  {showPassword ? 'Ocultar' : 'Ver'}
-                </button>
+
+            {/* Contraseña para Admin e Influencer */}
+            {rol !== 'vendedor' && (
+              <div>
+                <label className="sa-label">Contraseña de Acceso (Temporal)</label>
+                <div className="relative">
+                  <input type={showPassword ? "text" : "password"} required minLength={6} className="sa-input" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-main)] focus:outline-none text-xs font-medium cursor-pointer">
+                    {showPassword ? 'Ocultar' : 'Ver'}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Prefijo para Influencer */}
             {rol === 'influencer' && (
               <div>
                 <label className="sa-label">Prefijo de Código (Ej. NAT)</label>
-                <input type="text" maxLength={10} required className="sa-input uppercase" value={prefijoCodigo} onChange={e => setPrefijoCodigo(e.target.value)} />
+                <input type="text" maxLength={10} required className="sa-input uppercase" value={prefijoCodigo} onChange={e => setPrefijoCodigo(e.target.value)} placeholder="NAT" />
               </div>
             )}
+
             <button type="submit" className="sa-btn-secondary">Crear Usuario</button>
           </form>
         </div>
 
       </div>
 
-      {/* Listar Usuarios */}
+      {/* 3. Listar y Administrar Usuarios por Comercio */}
       <div className="sa-card">
         <h3 className="sa-subtitle">3. Gestionar Usuarios por Comercio</h3>
         <div className="mb-4">
@@ -615,14 +753,15 @@ const SuperAdminDashboard: React.FC = () => {
         {selectedComercioToList && (
           <>
             <div className="mb-4">
-              <input type="text" className="sa-input max-w-md" placeholder="Buscar por nombre, correo o teléfono..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+              <input type="text" className="sa-input max-w-md" placeholder="Buscar por nombre, usuario, correo real o teléfono..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
             </div>
             <div className="overflow-x-auto">
               <table className="sa-table">
                 <thead>
                   <tr>
                     <th>Nombre</th>
-                    <th>Correo</th>
+                    <th>Usuario (Login)</th>
+                    <th>Correo Real</th>
                     <th>WhatsApp</th>
                     <th>Rol</th>
                     <th>Acciones</th>
@@ -631,18 +770,21 @@ const SuperAdminDashboard: React.FC = () => {
                 <tbody>
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-4 text-center text-[var(--text-muted)]">No hay usuarios que coincidan.</td>
+                      <td colSpan={6} className="p-4 text-center text-[var(--text-muted)]">No hay usuarios asignados a este comercio.</td>
                     </tr>
                   ) : (
                     filteredUsers.map(u => (
                       <tr key={u.uid}>
                         <td className="font-medium">{u.nombre}</td>
-                        <td>{u.email}</td>
+                        <td className="font-mono text-xs">{u.email}</td>
+                        <td className="text-xs text-gray-500">{u.emailReal || (u.rol === 'vendedor' ? 'PIN: ' + (u.pin || '******') : '-')}</td>
                         <td>{u.telefono || '-'}</td>
                         <td><span className="sa-badge">{u.rol.replace('_', ' ')}</span></td>
                         <td className="flex gap-2">
-                          <button onClick={() => handleRecrearClave(u)} className="text-xs bg-[var(--accent-primary)] text-black font-bold px-3 py-1 rounded hover:opacity-80 transition cursor-pointer border border-black">Recrear Contraseña</button>
-                          <button onClick={() => handleBorrarUsuario(u)} className="text-xs bg-red-500 text-white font-bold px-3 py-1 rounded hover:bg-red-600 transition cursor-pointer border border-red-700">Borrar Usuario</button>
+                          <button onClick={() => handleRecrearClave(u)} className="text-xs bg-[var(--accent-primary)] text-black font-bold px-3 py-1 rounded hover:opacity-80 transition cursor-pointer border border-black">
+                            {u.rol === 'vendedor' ? 'Cambiar PIN' : 'Recrear Contraseña'}
+                          </button>
+                          <button onClick={() => handleBorrarUsuario(u)} className="text-xs bg-red-500 text-white font-bold px-3 py-1 rounded hover:bg-red-600 transition cursor-pointer border border-red-700">Borrar</button>
                         </td>
                       </tr>
                     ))
@@ -654,9 +796,65 @@ const SuperAdminDashboard: React.FC = () => {
         )}
       </div>
 
-      {/* Simulador QR */}
+      {/* 4. Directorio Global de Todos los Usuarios (Incluyendo Influencers y Clientes) */}
       <div className="sa-card">
-        <h3 className="sa-subtitle">4. Simulador QR</h3>
+        <h3 className="sa-subtitle">4. Directorio Global de Usuarios ({globalUsers.length})</h3>
+        <div className="mb-4">
+          <input type="text" className="sa-input max-w-md" placeholder="Buscar en todos los usuarios (nombre, usuario, correo real)..." value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} />
+        </div>
+        <div className="overflow-x-auto max-h-96">
+          <table className="sa-table">
+            <thead className="sticky top-0 bg-[var(--bg-surface)]">
+              <tr>
+                <th>Nombre</th>
+                <th>Usuario (Login)</th>
+                <th>Correo Real</th>
+                <th>WhatsApp</th>
+                <th>Rol</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {globalUsers
+                .filter(u => 
+                  u.nombre.toLowerCase().includes(globalSearchTerm.toLowerCase()) || 
+                  u.email.toLowerCase().includes(globalSearchTerm.toLowerCase()) || 
+                  (u.emailReal && u.emailReal.toLowerCase().includes(globalSearchTerm.toLowerCase())) ||
+                  (u.telefono && u.telefono.includes(globalSearchTerm))
+                )
+                .map(u => (
+                  <tr key={u.uid} className={u.estado === 'bloqueado' ? 'opacity-60' : ''}>
+                    <td className="font-medium">{u.nombre}</td>
+                    <td className="font-mono text-xs">{u.email}</td>
+                    <td className="text-xs text-gray-500">{u.emailReal || (u.rol === 'vendedor' ? 'PIN: ' + (u.pin || '******') : '-')}</td>
+                    <td>{u.telefono || '-'}</td>
+                    <td><span className="sa-badge">{u.rol.replace('_', ' ')}</span></td>
+                    <td>
+                      {u.estado === 'bloqueado' ? (
+                        <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded font-bold border border-red-200">BLOQUEADO</span>
+                      ) : (
+                        <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded font-bold border border-green-200">ACTIVO</span>
+                      )}
+                    </td>
+                    <td className="flex gap-2">
+                      <button onClick={() => handleToggleEstadoUsuario(u)} className={`text-xs font-bold px-3 py-1 rounded transition border cursor-pointer ${u.estado === 'bloqueado' ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'}`}>
+                        {u.estado === 'bloqueado' ? 'Activar' : 'Bloquear'}
+                      </button>
+                      <button onClick={() => handleBorrarUsuario(u)} className="text-xs bg-red-500 text-white font-bold px-3 py-1 rounded hover:bg-red-600 transition cursor-pointer border border-red-700">
+                        Borrar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 5. Simulador QR */}
+      <div className="sa-card">
+        <h3 className="sa-subtitle">5. Simulador QR</h3>
         <div className="grid md:grid-cols-2 gap-8">
           <div className="space-y-4">
             <h4 className="font-bold text-sm text-[var(--text-muted)]">Generar QR de Prueba</h4>
@@ -676,103 +874,7 @@ const SuperAdminDashboard: React.FC = () => {
                 <p className="mt-2 text-xs text-red-500">Este QR no es válido para usuarios reales.</p>
               </div>
             )}
-            {mensaje && mensaje.texto.includes('Leído exitosamente') && (
-              <div className="mt-4 p-4 bg-green-100 text-green-800 rounded text-center font-bold">
-                {mensaje.texto}
-              </div>
-            )}
           </div>
-          <div className="space-y-4">
-            <h4 className="font-bold text-sm text-[var(--text-muted)]">Leer QR de Prueba</h4>
-            <input type="text" placeholder="Pega el ID del QR..." className="sa-input" value={qrSimReadInput} onChange={e => setQrSimReadInput(e.target.value)} />
-            <button onClick={handleSimularQrLeer} className="sa-btn-secondary">Consultar Estado de QR</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Forzar Renovación de Campañas de Influencers */}
-      <div className="sa-card">
-        <h3 className="sa-subtitle">Forzar Renovación de Códigos (Influencers)</h3>
-        <p className="text-sm text-[var(--text-muted)] mb-4">Permite habilitar prematuramente el botón de "Renovar" para un influencer, ignorando la regla de 30 días.</p>
-        <div className="overflow-x-auto">
-          <table className="sa-table">
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Influencer ID</th>
-                <th>Comercio ID</th>
-                <th>Puntos / Canje</th>
-                <th>Última Renov.</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              {influencerCodes.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-4 text-center text-[var(--text-muted)]">No hay códigos activos.</td>
-                </tr>
-              ) : (
-                influencerCodes.map(code => (
-                  <tr key={code.id}>
-                    <td className="font-bold">{code.id}</td>
-                    <td className="text-sm">{code.influencerId}</td>
-                    <td className="text-sm">{code.comercioId}</td>
-                    <td>{code.puntosPorCanje} pts</td>
-                    <td>{code.fechaUltimaRenovacion > 0 ? new Date(code.fechaUltimaRenovacion).toLocaleDateString() : 'Acelerado'}</td>
-                    <td>
-                      <button onClick={() => handleForzarRenovacion(code)} disabled={code.fechaUltimaRenovacion === 0} className={`text-xs font-bold px-3 py-1 rounded transition border ${code.fechaUltimaRenovacion === 0 ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-[var(--accent-primary)] text-black border-black hover:opacity-80'}`}>
-                        Forzar Habilitación
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* 5. Listado Global de Usuarios */}
-      <div className="sa-card">
-        <h3 className="sa-subtitle">5. Listado Global de Usuarios (Clientes, Vendedores, Admins)</h3>
-        <div className="mb-4">
-          <input type="text" className="sa-input max-w-md" placeholder="Buscar por nombre, correo o teléfono..." value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} />
-        </div>
-        <div className="overflow-x-auto max-h-96">
-          <table className="sa-table">
-            <thead className="sticky top-0 bg-[var(--bg-surface)]">
-              <tr>
-                <th>Nombre</th>
-                <th>Correo</th>
-                <th>WhatsApp</th>
-                <th>Rol</th>
-                <th>Estado</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {globalUsers.filter(u => u.nombre.toLowerCase().includes(globalSearchTerm.toLowerCase()) || u.email.toLowerCase().includes(globalSearchTerm.toLowerCase()) || (u.telefono && u.telefono.includes(globalSearchTerm))).map(u => (
-                  <tr key={u.uid} className={u.estado === 'bloqueado' ? 'opacity-60' : ''}>
-                    <td className="font-medium">{u.nombre}</td>
-                    <td>{u.email}</td>
-                    <td>{u.telefono || '-'}</td>
-                    <td><span className="sa-badge">{u.rol.replace('_', ' ')}</span></td>
-                    <td>
-                      {u.estado === 'bloqueado' ? (
-                        <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded font-bold border border-red-200">BLOQUEADO</span>
-                      ) : (
-                        <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded font-bold border border-green-200">ACTIVO</span>
-                      )}
-                    </td>
-                    <td className="flex gap-2">
-                      <button onClick={() => handleToggleEstadoUsuario(u)} className={`text-xs font-bold px-3 py-1 rounded transition border ${u.estado === 'bloqueado' ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'}`}>
-                        {u.estado === 'bloqueado' ? 'Activar' : 'Bloquear'}
-                      </button>
-                    </td>
-                  </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       </div>
 

@@ -1,6 +1,8 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
+import { isStaging } from "./utils/env";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -13,6 +15,21 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+// Initialize App Check with reCAPTCHA Enterprise (solo en producción)
+if (typeof window !== 'undefined' && !isStaging) {
+  const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+  if (siteKey) {
+    try {
+      initializeAppCheck(app, {
+        provider: new ReCaptchaEnterpriseProvider(siteKey),
+        isTokenAutoRefreshEnabled: true
+      });
+    } catch (e) {
+      console.warn("Firebase App Check reCAPTCHA Enterprise warning:", e);
+    }
+  }
+}
 
 // Initialize Auth
 export const auth = getAuth(app);

@@ -3,6 +3,9 @@ export type RolUsuario = 'cliente' | 'vendedor' | 'admin_comercio' | 'superadmin
 export interface Usuario {
   uid: string;
   email: string;
+  emailReal?: string; // Correo administrativo real para Admin/Influencer
+  usuario?: string; // Identificador de acceso sintético (ej: admin@dominio.io)
+  pin?: string; // PIN de 6 dígitos para vendedores (sin Firebase Auth)
   nombre: string;
   rol: RolUsuario;
   comercioId?: string; // Solo para vendedores o admin_comercio
@@ -57,6 +60,7 @@ export interface Comercio {
   id: string;
   nombre: string;
   nit_rut: string;
+  dominio?: string; // ej: "elcorte.io", "marca.io" (asignado por superadmin)
   logoUrl?: string;
   reglas: ReglaPunto[];
   premios: Premio[];
