@@ -101,9 +101,12 @@ service cloud.firestore {
     }
 
     match /asignaciones_influencer/{asignacionId} {
-      // Influencers y Admin Comercio pueden leer, modificar y eliminar sus propias asignaciones
-      allow read, update, delete: if isAuth() && (
+      // Todos los usuarios autenticados pueden consultar asignaciones para validar códigos
+      allow read: if isAuth();
+      // Superadmin, admin del comercio, influencer y clientes (al canjear puntos de la bolsa) pueden actualizar
+      allow update: if isAuth() && (
         isSuperAdmin() || 
+        isCliente() ||
         (isAdminComercio() && getUserData().comercioId == resource.data.comercioId) || 
         (isInfluencer() && request.auth.uid == resource.data.influencerId)
       );
@@ -111,6 +114,11 @@ service cloud.firestore {
         isSuperAdmin() || 
         (isAdminComercio() && getUserData().comercioId == request.resource.data.comercioId) || 
         (isInfluencer() && request.auth.uid == request.resource.data.influencerId)
+      );
+      allow delete: if isAuth() && (
+        isSuperAdmin() || 
+        (isAdminComercio() && getUserData().comercioId == resource.data.comercioId) || 
+        (isInfluencer() && request.auth.uid == resource.data.influencerId)
       );
     }
 
@@ -120,6 +128,13 @@ service cloud.firestore {
       allow create: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == request.resource.data.influencerId));
       allow update: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == resource.data.influencerId));
       allow delete: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == resource.data.influencerId));
+    }
+
+    match /canjes_codigo/{canjeId} {
+      allow read: if isAuth();
+      // Clientes pueden registrar el canje
+      allow create: if isAuth() && (isSuperAdmin() || (isCliente() && request.resource.data.clienteId == request.auth.uid));
+      allow update, delete: if isSuperAdmin();
     }
 
     match /canjes_codigos/{canjeId} {

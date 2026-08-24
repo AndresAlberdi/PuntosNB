@@ -559,18 +559,30 @@ const ClienteDashboard: React.FC = () => {
     cargarDatos();
   }, [userData]);
 
-  const procesarQR = async (sesionId: string) => {
+  const procesarQR = async (rawCode: string) => {
     if (!userData) return;
+    const cleanCode = rawCode.trim();
+    if (!cleanCode) return;
+
     setEscaneando(false);
     setMensaje({ texto: "Procesando código...", tipo: 'info' });
 
     try {
-      const sesionRef = doc(db, 'sesiones_qr', sesionId);
+      // 1. Primero verificar si es un código de canje / influencer
+      const codRef = doc(db, 'codigos_influencer', cleanCode.toUpperCase());
+      const codSnap = await getDoc(codRef);
+      if (codSnap.exists()) {
+        await handleCanjearCodigoInfluencer(cleanCode.toUpperCase());
+        return;
+      }
+
+      // 2. Si no es código de influencer, procesar como sesión QR de comercio/vendedor
+      const sesionRef = doc(db, 'sesiones_qr', cleanCode);
 
       await runTransaction(db, async (transaction) => {
         const sesionDoc = await transaction.get(sesionRef);
         if (!sesionDoc.exists()) {
-          throw new Error("El código QR no es válido o no existe.");
+          throw new Error("El código QR o de canje no es válido o no existe.");
         }
 
         const sesion = sesionDoc.data() as SesionQR;
