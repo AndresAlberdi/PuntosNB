@@ -250,8 +250,8 @@ const SuperAdminDashboard: React.FC = () => {
           rol: 'vendedor',
           comercioId: comercioId,
           pin: pinVendedor.trim(),
-          telefono: telefonoUsuario ? `${countryCode}${telefonoUsuario}` : undefined,
-          createdAt: Date.now()
+          createdAt: Date.now(),
+          ...(telefonoUsuario ? { telefono: `${countryCode}${telefonoUsuario}` } : {})
         };
 
         await setDoc(doc(db, 'users', newUid), userData);
@@ -269,23 +269,44 @@ const SuperAdminDashboard: React.FC = () => {
           return;
         }
 
-        const userCred = await createUserWithEmailAndPassword(secondaryAuth, syntheticUser, password);
-        const userDocRef = doc(db, 'users', userCred.user.uid);
-        const userData: Usuario = {
-          uid: userCred.user.uid,
-          email: syntheticUser,
-          usuario: syntheticUser,
-          emailReal: emailReal.trim().toLowerCase(),
-          nombre: nombreUsuario.trim(),
-          rol,
-          comercioId: rol === 'influencer' ? undefined : comercioId,
-          telefono: telefonoUsuario ? `${countryCode}${telefonoUsuario}` : undefined,
-          prefijoCodigo: rol === 'influencer' ? prefijoCodigo.toUpperCase() : undefined,
-          createdAt: Date.now()
-        };
-        await setDoc(userDocRef, userData);
+        let userUid: string | null = null;
+        try {
+          const userCred = await createUserWithEmailAndPassword(secondaryAuth, syntheticUser, password);
+          userUid = userCred.user.uid;
+        } catch (authErr: any) {
+          if (authErr.code === 'auth/email-already-in-use') {
+            // Intentar recuperar el UID si el usuario ya existe en Auth
+            try {
+              const { signInWithEmailAndPassword } = await import('firebase/auth');
+              const signInCred = await signInWithEmailAndPassword(secondaryAuth, syntheticUser, password);
+              userUid = signInCred.user.uid;
+            } catch (signInErr) {
+              setMensaje({ texto: `El usuario "${syntheticUser}" ya existe en Firebase Auth. Si olvidaste la clave o falló el guardado previo, elimínalo primero de Auth o usa la misma contraseña.`, tipo: 'error' });
+              return;
+            }
+          } else {
+            throw authErr;
+          }
+        }
 
-        setMensaje({ texto: `Usuario ${rol} creado exitosamente. Usuario de login: ${syntheticUser}`, tipo: 'success' });
+        if (userUid) {
+          const userDocRef = doc(db, 'users', userUid);
+          const userData: Usuario = {
+            uid: userUid,
+            email: syntheticUser,
+            usuario: syntheticUser,
+            emailReal: emailReal.trim().toLowerCase(),
+            nombre: nombreUsuario.trim(),
+            rol,
+            createdAt: Date.now(),
+            ...(rol !== 'influencer' && comercioId ? { comercioId } : {}),
+            ...(telefonoUsuario ? { telefono: `${countryCode}${telefonoUsuario}` } : {}),
+            ...(rol === 'influencer' && prefijoCodigo ? { prefijoCodigo: prefijoCodigo.toUpperCase() } : {})
+          };
+          await setDoc(userDocRef, userData);
+
+          setMensaje({ texto: `Usuario ${rol} creado exitosamente. Usuario de login: ${syntheticUser}`, tipo: 'success' });
+        }
       }
 
       // Limpiar formulario
@@ -304,11 +325,7 @@ const SuperAdminDashboard: React.FC = () => {
       }
     } catch (error: any) {
       console.error(error);
-      if (error.code === 'auth/email-already-in-use') {
-        setMensaje({ texto: `El usuario "${syntheticUser}" ya existe en el sistema de autenticación.`, tipo: 'error' });
-      } else {
-        setMensaje({ texto: 'Error al crear usuario: ' + error.message, tipo: 'error' });
-      }
+      setMensaje({ texto: 'Error al crear usuario: ' + error.message, tipo: 'error' });
     }
   };
 
@@ -695,20 +712,31 @@ const SuperAdminDashboard: React.FC = () => {
             <div>
               <label className="sa-label">Teléfono (WhatsApp)</label>
               <div className="flex gap-2">
-                <select className="sa-input w-24" value={countryCode} onChange={e => setCountryCode(e.target.value)}>
-                  <option value="+591">+591</option>
-                  <option value="+54">+54</option>
-                  <option value="+55">+55</option>
-                  <option value="+56">+56</option>
-                  <option value="+57">+57</option>
-                  <option value="+593">+593</option>
-                  <option value="+34">+34</option>
-                  <option value="+52">+52</option>
-                  <option value="+51">+51</option>
-                  <option value="+598">+598</option>
-                  <option value="+1">+1</option>
+                <select 
+                  className="sa-input flex-shrink-0" 
+                  style={{ width: '130px', flexShrink: 0 }} 
+                  value={countryCode} 
+                  onChange={e => setCountryCode(e.target.value)}
+                >
+                  <option value="+591">🇧🇴 +591</option>
+                  <option value="+54">🇦🇷 +54</option>
+                  <option value="+55">🇧🇷 +55</option>
+                  <option value="+56">🇨🇱 +56</option>
+                  <option value="+57">🇨🇴 +57</option>
+                  <option value="+593">🇪🇨 +593</option>
+                  <option value="+34">🇪🇸 +34</option>
+                  <option value="+52">🇲🇽 +52</option>
+                  <option value="+51">🇵🇪 +51</option>
+                  <option value="+598">🇺🇾 +598</option>
+                  <option value="+1">🇺🇸 +1</option>
                 </select>
-                <input type="tel" className="sa-input flex-1" value={telefonoUsuario} onChange={e => setTelefonoUsuario(e.target.value.replace(/\D/g, ''))} placeholder="Ej: 71234567" />
+                <input 
+                  type="tel" 
+                  className="sa-input flex-1 min-w-0" 
+                  value={telefonoUsuario} 
+                  onChange={e => setTelefonoUsuario(e.target.value.replace(/\D/g, ''))} 
+                  placeholder="Ej: 71234567" 
+                />
               </div>
             </div>
 
