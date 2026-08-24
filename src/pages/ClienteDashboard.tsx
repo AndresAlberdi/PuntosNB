@@ -89,9 +89,9 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
         </Link>
       </div>
 
-      {/* Código de Influencer */}
+      {/* Código de Canje */}
       <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-xl border border-purple-100 shadow-sm">
-        <h3 className="text-lg font-bold text-purple-900 mb-2">¿Tienes un código de Influencer?</h3>
+        <h3 className="text-lg font-bold text-purple-900 mb-2">¿Tienes un código de canje?</h3>
         <p className="text-sm text-purple-700 mb-4">Ingresa el código para recibir puntos de regalo en tus comercios favoritos.</p>
         <div className="flex gap-2">
           <input 
@@ -635,7 +635,7 @@ const ClienteDashboard: React.FC = () => {
 
   const handleCanjearCodigoInfluencer = async (codigoId: string) => {
     if (!userData) return;
-    setMensaje({ texto: "Validando código de influencer...", tipo: 'info' });
+    setMensaje({ texto: "Validando código de canje...", tipo: 'info' });
 
     try {
       // 1. Lectura fuera de la transacción para obtener referencias

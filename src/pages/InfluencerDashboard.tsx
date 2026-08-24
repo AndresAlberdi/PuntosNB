@@ -197,6 +197,59 @@ export const InfluencerDashboard: React.FC = () => {
     }
   };
 
+  // Crear o editar código de campaña para una alianza activa
+  const handleCrearOEditarCodigo = async (asig: AsignacionInfluencer) => {
+    try {
+      const comercioNombre = comerciosMap[asig.comercioId]?.nombre || 'COMERCIO';
+      const cleanComercioName = comercioNombre.replace(/\s+/g, '').toUpperCase().substring(0, 5);
+      const codigoBase = `${userData?.prefijoCodigo || 'INF'}${cleanComercioName}`;
+      
+      const codigoExistente = codigos.find(c => c.comercioId === asig.comercioId);
+      
+      const codigoId = window.prompt(
+        codigoExistente 
+          ? `Modifica tu código único de campaña para ${comercioNombre}:` 
+          : `Ingresa el código que deseas usar para la campaña en ${comercioNombre} (Ej. ${codigoBase}):`, 
+        codigoExistente ? codigoExistente.id : codigoBase
+      );
+      if (!codigoId) return;
+
+      const cleanCode = codigoId.trim().toUpperCase();
+
+      if (!codigoExistente || codigoExistente.id !== cleanCode) {
+        // Verificar si el nuevo código ya existe
+        const checkSnap = await getDocs(query(collection(db, 'codigos_influencer'), where('id', '==', cleanCode)));
+        if (!checkSnap.empty) {
+          alert("Este código ya está en uso por otro influencer. Por favor, elige otro.");
+          return;
+        }
+
+        if (codigoExistente) {
+          // Eliminar el código anterior
+          await deleteDoc(doc(db, 'codigos_influencer', codigoExistente.id));
+        }
+      }
+
+      // Guardar nuevo código
+      const nuevoCodigo: CodigoInfluencer = {
+        id: cleanCode,
+        influencerId: userData!.uid,
+        comercioId: asig.comercioId,
+        puntosPorCanje: asig.ratio?.cliente || 10,
+        estado: 'ACTIVO',
+        createdAt: codigoExistente ? codigoExistente.createdAt : Date.now(),
+        fechaUltimaRenovacion: codigoExistente ? codigoExistente.fechaUltimaRenovacion : Date.now(),
+      };
+
+      await setDoc(doc(db, 'codigos_influencer', cleanCode), nuevoCodigo);
+      alert(`¡Código "${cleanCode}" configurado con éxito!`);
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      alert("Error al configurar el código.");
+    }
+  };
+
   // Renovar campaña cada 30 días
   const handleRenovarCampana = async (codigo: CodigoInfluencer) => {
     try {
@@ -382,31 +435,59 @@ export const InfluencerDashboard: React.FC = () => {
             {asignacionesActivas.map(asig => {
               const c = comerciosMap[asig.comercioId];
               const codigo = codigos.find(cod => cod.comercioId === asig.comercioId);
-              
-              if (!codigo) return null;
 
-              const msSinceRenovation = Date.now() - codigo.fechaUltimaRenovacion;
-              const canRenew = msSinceRenovation >= THIRTY_DAYS_MS;
-              const daysLeft = Math.ceil((THIRTY_DAYS_MS - msSinceRenovation) / (1000 * 60 * 60 * 24));
+              const msSinceRenovation = codigo ? Date.now() - codigo.fechaUltimaRenovacion : 0;
+              const canRenew = codigo ? msSinceRenovation >= THIRTY_DAYS_MS : false;
+              const daysLeft = codigo ? Math.ceil((THIRTY_DAYS_MS - msSinceRenovation) / (1000 * 60 * 60 * 24)) : 0;
 
               return (
                 <div key={asig.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col justify-between">
                   <div className="bg-gray-50 p-4 border-b flex justify-between items-center">
-                    <h4 className="font-bold text-gray-800 text-lg">{c?.nombre}</h4>
-                    <span className="text-xs bg-green-100 text-green-800 font-bold px-2 py-0.5 rounded">
-                      ACTIVA
+                    <h4 className="font-bold text-gray-800 text-lg">{c?.nombre || 'Comercio'}</h4>
+                    <span className="text-xs bg-green-100 text-green-800 font-bold px-2 py-0.5 rounded border border-green-200">
+                      ALIANZA ACTIVA
                     </span>
                   </div>
 
                   <div className="p-5 space-y-4">
-                    <div className="text-center p-4 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300">
-                      <p className="text-xs text-gray-500 mb-1">CÓDIGO PARA TUS SEGUIDORES</p>
-                      <p className="text-2xl font-black text-brand-primary tracking-widest font-mono">{codigo.id}</p>
-                    </div>
+                    {codigo ? (
+                      <div className="text-center p-4 bg-purple-50/50 rounded-lg border-2 border-dashed border-purple-300">
+                        <p className="text-xs text-purple-700 font-medium mb-1">CÓDIGO PARA TUS SEGUIDORES</p>
+                        <p className="text-2xl font-black text-brand-primary tracking-widest font-mono select-all">{codigo.id}</p>
+                        <div className="mt-2 flex justify-center gap-2">
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(codigo.id);
+                              alert(`Código "${codigo.id}" copiado al portapapeles.`);
+                            }}
+                            className="text-xs bg-white text-purple-700 hover:bg-purple-100 border border-purple-300 px-3 py-1 rounded font-bold transition cursor-pointer"
+                          >
+                            📋 Copiar Código
+                          </button>
+                          <button 
+                            onClick={() => handleCrearOEditarCodigo(asig)}
+                            className="text-xs bg-white text-gray-700 hover:bg-gray-100 border border-gray-300 px-3 py-1 rounded font-medium transition cursor-pointer"
+                          >
+                            ✏️ Cambiar Código
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center p-5 bg-amber-50 rounded-lg border-2 border-dashed border-amber-300">
+                        <p className="text-sm font-bold text-amber-900 mb-1">Código de Campaña Pendiente</p>
+                        <p className="text-xs text-amber-700 mb-3">La alianza está aprobada por el comercio. Debes generar tu código único para que tus clientes puedan canjearlo.</p>
+                        <button 
+                          onClick={() => handleCrearOEditarCodigo(asig)}
+                          className="bg-brand-primary hover:bg-brand-primary-hover text-white font-bold px-4 py-2 rounded-lg text-sm transition shadow cursor-pointer"
+                        >
+                          ✨ Generar Código de Campaña
+                        </button>
+                      </div>
+                    )}
                     
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Bolsa restante:</span>
-                      <span className="font-bold font-mono">{asig.puntosParaClientes} pts</span>
+                      <span className="font-bold font-mono text-brand-primary">{asig.puntosParaClientes} pts</span>
                     </div>
 
                     <div className="flex justify-between text-sm">
@@ -415,22 +496,24 @@ export const InfluencerDashboard: React.FC = () => {
                     </div>
 
                     <div className="pt-4 border-t space-y-3">
-                      {canRenew ? (
-                        <div className="space-y-2">
-                          <p className="text-xs text-green-600 font-medium">¡Han pasado 30 días! Puedes renovar tu campaña para que tus seguidores vuelvan a canjear.</p>
-                          <button 
-                            onClick={() => handleRenovarCampana(codigo)} 
-                            className="w-full bg-brand-primary hover:bg-brand-primary-hover text-white font-bold py-2 rounded-lg transition cursor-pointer"
-                          >
-                            Renovar Campaña
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="text-center">
-                          <p className="text-xs text-orange-600 font-medium bg-orange-50 p-2 rounded">
-                            Faltan {daysLeft} días para que puedas renovar y volver a repartir puntos a los mismos clientes.
-                          </p>
-                        </div>
+                      {codigo && (
+                        canRenew ? (
+                          <div className="space-y-2">
+                            <p className="text-xs text-green-600 font-medium">¡Han pasado 30 días! Puedes renovar tu campaña para que tus seguidores vuelvan a canjear.</p>
+                            <button 
+                              onClick={() => handleRenovarCampana(codigo)} 
+                              className="w-full bg-brand-primary hover:bg-brand-primary-hover text-white font-bold py-2 rounded-lg transition cursor-pointer"
+                            >
+                              Renovar Campaña
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-center">
+                            <p className="text-xs text-orange-600 font-medium bg-orange-50 p-2 rounded">
+                              Faltan {daysLeft} días para que puedas renovar y volver a repartir puntos a los mismos clientes.
+                            </p>
+                          </div>
+                        )
                       )}
 
                       {/* Botones de Bloqueo y Desvinculación */}
