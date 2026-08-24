@@ -129,8 +129,9 @@ export interface AsignacionInfluencer {
     cliente: number;
     influencer: number;
   };
-  estado: 'PENDIENTE' | 'ACEPTADO' | 'RECHAZADO';
+  estado: 'PENDIENTE' | 'ACEPTADO' | 'RECHAZADO' | 'BLOQUEADO';
   iniciadoPor: 'COMERCIO' | 'INFLUENCER';
+  bloqueadoPor?: 'COMERCIO' | 'INFLUENCER';
   createdAt: number;
   updatedAt: number;
 }
