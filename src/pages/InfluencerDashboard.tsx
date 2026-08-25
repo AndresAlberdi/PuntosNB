@@ -556,14 +556,41 @@ export const InfluencerDashboard: React.FC = () => {
               </div>
             </div>
 
-            <p className="text-[11px] text-gray-500">Toma una captura de pantalla o descarga esta tarjeta para compartir en tus historias de Instagram o TikTok.</p>
-
-            <button 
-              onClick={() => setModalQR(null)}
-              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2 rounded-xl text-xs transition"
-            >
-              Cerrar
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => {
+                  const svgEl = document.querySelector('#qr-canvas-card svg');
+                  if (!svgEl) return;
+                  const svgData = new XMLSerializer().serializeToString(svgEl);
+                  const canvas = document.createElement("canvas");
+                  const ctx = canvas.getContext("2d");
+                  const img = new Image();
+                  img.onload = () => {
+                    canvas.width = 400;
+                    canvas.height = 400;
+                    if (ctx) {
+                      ctx.fillStyle = "#ffffff";
+                      ctx.fillRect(0, 0, 400, 400);
+                      ctx.drawImage(img, 50, 50, 300, 300);
+                    }
+                    const a = document.createElement("a");
+                    a.download = `QR_Influencer_${modalQR.codigo}.png`;
+                    a.href = canvas.toDataURL("image/png");
+                    a.click();
+                  };
+                  img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+                }}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1 shadow"
+              >
+                📥 Descargar QR (PNG)
+              </button>
+              <button 
+                onClick={() => setModalQR(null)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

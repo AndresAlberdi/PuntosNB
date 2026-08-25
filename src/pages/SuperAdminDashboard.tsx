@@ -160,6 +160,13 @@ const SuperAdminDashboard: React.FC = () => {
     return cleanUser;
   };
 
+  const parseDecimal = (val: string, defaultVal: number): number => {
+    if (!val) return defaultVal;
+    const normalized = val.trim().replace(',', '.');
+    const parsed = parseFloat(normalized);
+    return isNaN(parsed) ? defaultVal : parsed;
+  };
+
   const handleCrearComercio = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsgCard1(null);
@@ -175,13 +182,19 @@ const SuperAdminDashboard: React.FC = () => {
       return;
     }
 
+    const dominioRepetido = comercios.some(c => c.dominio?.toLowerCase() === cleanDominio);
+    if (dominioRepetido) {
+      setMsgCard1({ texto: `El dominio "${cleanDominio}" ya pertenece a otro comercio registrado. Elige un dominio único.`, tipo: 'error' });
+      return;
+    }
+
     try {
       const comercioRef = doc(collection(db, 'comercios'));
       const nuevoComercio: Comercio = {
         id: comercioRef.id,
         nombre: nombreComercio.trim(),
         nit_rut: nitRut.trim(),
-        razonSocial: razonSocial.trim() || undefined,
+        razonSocial: razonSocial.trim() || '',
         dominio: cleanDominio,
         reglas: [],
         premios: [],
@@ -193,8 +206,8 @@ const SuperAdminDashboard: React.FC = () => {
         
         // Facturación & Prepago
         modalidadPago: modalidadPago,
-        mensualidadBs: parseFloat(mensualidadBs) || 25.00,
-        costoPorPremioBs: parseFloat(costoPorPremioBs) || 1.25,
+        mensualidadBs: parseDecimal(mensualidadBs, 25.00),
+        costoPorPremioBs: parseDecimal(costoPorPremioBs, 1.25),
         recibeFactura: recibeFactura,
         mesesPagados: modalidadPago === 'PREPAGO' ? [] : undefined,
         saldoPremiosBs: 0
@@ -231,17 +244,27 @@ const SuperAdminDashboard: React.FC = () => {
       setMsgCard1({ texto: `El dominio "${cleanDominio}" está reservado por el sistema.`, tipo: 'error' });
       return;
     }
+    if (!cleanDominio.includes('.')) {
+      setMsgCard1({ texto: 'El dominio asignado debe tener una extensión válida (ej: mitienda.io).', tipo: 'error' });
+      return;
+    }
+
+    const dominioRepetido = comercios.some(c => c.id !== editingComercio.id && c.dominio?.toLowerCase() === cleanDominio);
+    if (dominioRepetido) {
+      setMsgCard1({ texto: `El dominio "${cleanDominio}" ya pertenece a otro comercio registrado.`, tipo: 'error' });
+      return;
+    }
 
     try {
-      const updates: Partial<Comercio> = {
+      const updates: any = {
         nombre: editComercioNombre.trim(),
         nit_rut: editComercioNit.trim(),
-        razonSocial: editComercioRazonSocial.trim() || undefined,
+        razonSocial: editComercioRazonSocial.trim() || '',
         dominio: cleanDominio,
         plan: editComercioPlan,
         modalidadPago: editModalidadPago,
-        mensualidadBs: parseFloat(editMensualidadBs) || 25.00,
-        costoPorPremioBs: parseFloat(editCostoPorPremioBs) || 1.25,
+        mensualidadBs: parseDecimal(editMensualidadBs, 25.00),
+        costoPorPremioBs: parseDecimal(editCostoPorPremioBs, 1.25),
         recibeFactura: editRecibeFactura
       };
 
@@ -691,7 +714,7 @@ const SuperAdminDashboard: React.FC = () => {
               <input type="text" className="sa-input" value={razonSocial} onChange={e => setRazonSocial(e.target.value)} placeholder="Ej: Mi Mercado S.R.L." />
             </div>
             <div>
-              <label className="sa-label">NIT / RUT</label>
+              <label className="sa-label">NIT</label>
               <input type="text" required className="sa-input" value={nitRut} onChange={e => setNitRut(e.target.value)} placeholder="Ej: 123456789" />
             </div>
             <div>
@@ -721,11 +744,13 @@ const SuperAdminDashboard: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="sa-label">Mensualidad (Bs)</label>
-                  <input type="number" step="0.01" required className="sa-input" value={mensualidadBs} onChange={e => setMensualidadBs(e.target.value)} />
+                  <input type="text" inputMode="decimal" required className="sa-input" value={mensualidadBs} onChange={e => setMensualidadBs(e.target.value)} placeholder="Ej: 25.00 o 25,00" />
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma (ej: 25.00)</span>
                 </div>
                 <div>
                   <label className="sa-label">Monto por Premio (Bs)</label>
-                  <input type="number" step="0.01" required className="sa-input" value={costoPorPremioBs} onChange={e => setCostoPorPremioBs(e.target.value)} />
+                  <input type="text" inputMode="decimal" required className="sa-input" value={costoPorPremioBs} onChange={e => setCostoPorPremioBs(e.target.value)} placeholder="Ej: 1.25 o 1,25" />
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma (ej: 1.50)</span>
                 </div>
               </div>
             </div>
@@ -792,22 +817,34 @@ const SuperAdminDashboard: React.FC = () => {
                 
                 {editingComercio?.id === c.id ? (
                   <form onSubmit={handleGuardarEdicionComercio} className="border-t pt-3 mt-2 space-y-3 bg-white dark:bg-gray-800 p-3 rounded shadow-inner text-xs">
-                    <h5 className="font-bold text-sm">Editar Comercio</h5>
-                    <input className="sa-input" value={editComercioNombre} onChange={e=>setEditComercioNombre(e.target.value)} required placeholder="Nombre" />
-                    <input className="sa-input" value={editComercioRazonSocial} onChange={e=>setEditComercioRazonSocial(e.target.value)} placeholder="Razón Social" />
-                    <input className="sa-input" value={editComercioDominio} onChange={e=>setEditComercioDominio(e.target.value)} required placeholder="Dominio (ej: tienda.io)" />
-                    <input className="sa-input" value={editComercioNit} onChange={e=>setEditComercioNit(e.target.value)} required placeholder="NIT/RUT" />
+                    <h5 className="font-bold text-sm text-gray-800 dark:text-white">Editar Comercio</h5>
+                    <div>
+                      <label className="sa-label">Nombre Comercial</label>
+                      <input className="sa-input" value={editComercioNombre} onChange={e=>setEditComercioNombre(e.target.value)} required placeholder="Ej: Mi Mercado" />
+                    </div>
+                    <div>
+                      <label className="sa-label">Razón Social (Opcional)</label>
+                      <input className="sa-input" value={editComercioRazonSocial} onChange={e=>setEditComercioRazonSocial(e.target.value)} placeholder="Ej: Mi Mercado S.R.L." />
+                    </div>
+                    <div>
+                      <label className="sa-label">Dominio Asignado (.io)</label>
+                      <input className="sa-input" value={editComercioDominio} onChange={e=>setEditComercioDominio(e.target.value)} required placeholder="Ej: mimercado.io" />
+                    </div>
+                    <div>
+                      <label className="sa-label">NIT</label>
+                      <input className="sa-input" value={editComercioNit} onChange={e=>setEditComercioNit(e.target.value)} required placeholder="Ej: 123456789" />
+                    </div>
                     
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="sa-label">Modalidad</label>
+                        <label className="sa-label">Modalidad Comercial</label>
                         <select className="sa-input" value={editModalidadPago} onChange={e=>setEditModalidadPago(e.target.value as any)}>
                           <option value="PILOTO">Piloto</option>
                           <option value="PREPAGO">Prepago</option>
                         </select>
                       </div>
                       <div>
-                        <label className="sa-label">Factura</label>
+                        <label className="sa-label">Emisión de Factura</label>
                         <select className="sa-input" value={editRecibeFactura ? 'SI' : 'NO'} onChange={e=>setEditRecibeFactura(e.target.value === 'SI')}>
                           <option value="SI">Sí recibe</option>
                           <option value="NO">No recibe</option>
@@ -817,17 +854,19 @@ const SuperAdminDashboard: React.FC = () => {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="sa-label">Mensualidad Bs</label>
-                        <input type="number" step="0.01" className="sa-input" value={editMensualidadBs} onChange={e=>setEditMensualidadBs(e.target.value)} />
+                        <label className="sa-label">Mensualidad (Bs)</label>
+                        <input type="text" inputMode="decimal" className="sa-input" value={editMensualidadBs} onChange={e=>setEditMensualidadBs(e.target.value)} placeholder="Ej: 25.00 o 25,00" />
+                        <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma</span>
                       </div>
                       <div>
-                        <label className="sa-label">Costo Premio Bs</label>
-                        <input type="number" step="0.01" className="sa-input" value={editCostoPorPremioBs} onChange={e=>setEditCostoPorPremioBs(e.target.value)} />
+                        <label className="sa-label">Costo por Premio (Bs)</label>
+                        <input type="text" inputMode="decimal" className="sa-input" value={editCostoPorPremioBs} onChange={e=>setEditCostoPorPremioBs(e.target.value)} placeholder="Ej: 1.25 o 1,25" />
+                        <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma</span>
                       </div>
                     </div>
 
                     <div className="flex gap-2 pt-2">
-                      <button type="submit" className="sa-btn-primary text-xs">Guardar</button>
+                      <button type="submit" className="sa-btn-primary text-xs">Guardar Cambios</button>
                       <button type="button" onClick={() => setEditingComercio(null)} className="sa-btn-secondary text-xs">Cancelar</button>
                     </div>
                   </form>

@@ -44,11 +44,11 @@ const Login: React.FC = () => {
   if (currentUser && !userData && !pendingGoogleUser) {
     return (
       <div className="flex flex-col justify-center items-center min-h-[calc(100vh-60px)] space-y-4 p-4 text-center">
-        <div className="text-xl text-blue-600 font-medium mb-2">Cargando perfil o perfil no encontrado...</div>
-        <p className="text-gray-500 max-w-sm text-sm mb-4">Si esta pantalla no desaparece, es probable que tu cuenta no tenga un perfil asignado en la base de datos.</p>
+        <div className="text-xl text-brand-primary font-bold mb-2">Comprobando estado de usuario...</div>
+        <p className="text-gray-500 max-w-sm text-sm mb-4">Si esta pantalla no desaparece, es probable que tu comercio esté deshabilitado temporalmente por falta de pago o tu usuario requiera activación.</p>
         <button 
           onClick={() => logout()}
-          className="text-red-600 font-medium hover:underline"
+          className="bg-brand-primary text-white text-xs font-bold py-2 px-4 rounded-lg hover:bg-brand-primary-hover transition cursor-pointer"
         >
           Cerrar Sesión para reintentar
         </button>
