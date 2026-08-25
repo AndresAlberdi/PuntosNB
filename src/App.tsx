@@ -62,8 +62,8 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
           <div className="w-16 h-16 mx-auto bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Acceso Bloqueado</h2>
-          <p className="text-gray-600 mb-6">Tu cuenta o el comercio al que perteneces ha sido bloqueado temporalmente por administración.</p>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Comercio Deshabilitado Temporalmente</h2>
+          <p className="text-gray-600 mb-6">Comercio deshabilitado temporalmente por falta de pago o bloqueo administrativo.</p>
           <button 
             onClick={() => logout()}
             className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition"
@@ -84,7 +84,7 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
           </div>
           <h2 className="text-xl font-bold text-gray-800 mb-2">Comercio Deshabilitado Temporalmente</h2>
           <p className="text-gray-600 mb-6 text-sm">
-            La mensualidad correspondiente a este mes no ha sido prepagada aún. Por favor realiza tu depósito para reactivar el servicio.
+            Comercio deshabilitado temporalmente por falta de pago. Por favor realiza tu depósito para reactivar el servicio.
           </p>
           <button 
             onClick={() => logout()}
@@ -226,10 +226,16 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <header className="bg-white border-b border-gray-100 sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link to="/" className="flex items-center gap-2">
-              <div className="w-9 h-9 bg-brand-primary text-white rounded-xl flex items-center justify-center font-black text-lg shadow-sm">
-                H
-              </div>
+            <Link to="/" className="flex items-center gap-2.5">
+              <img 
+                src="/logo-hipatia.png" 
+                alt="Logo Hipatia" 
+                className="h-9 w-auto max-h-9 object-contain"
+                onError={(e) => {
+                  // Fallback si la imagen no carga
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
               <span className="font-black text-xl text-gray-800 tracking-tight">Hipatia <span className="text-brand-primary font-bold">Puntos</span></span>
             </Link>
           </div>

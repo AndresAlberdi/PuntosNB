@@ -98,4 +98,27 @@ describe('Políticas de Usuarios, Dominios y Prefijos', () => {
     expect(validateCodigoCampaña('NATVERANO26', 'NAT').valid).toBe(true);
     expect(validateCodigoCampaña('PROMO26', 'NAT').valid).toBe(false);
   });
+
+  it('Debe validar que el dominio asignado a un comercio no pueda repetirse', () => {
+    const dominiosExistentes = ['tienda1.io', 'mercado.com.bo', 'zapatos.io'];
+    const esDominioDuplicado = (dom: string) => dominiosExistentes.includes(dom.trim().toLowerCase());
+    
+    expect(esDominioDuplicado('tienda1.io')).toBe(true);
+    expect(esDominioDuplicado('TIENDA1.IO')).toBe(true);
+    expect(esDominioDuplicado('nueva-tienda.io')).toBe(false);
+  });
+
+  it('Debe parsear correctamente valores numéricos con punto o coma', () => {
+    const parseDecimal = (val: string, defaultVal: number): number => {
+      if (!val) return defaultVal;
+      const normalized = val.trim().replace(',', '.');
+      const parsed = parseFloat(normalized);
+      return isNaN(parsed) ? defaultVal : parsed;
+    };
+
+    expect(parseDecimal('1.5', 1.25)).toBe(1.5);
+    expect(parseDecimal('1,5', 1.25)).toBe(1.5);
+    expect(parseDecimal('25,50', 25.0)).toBe(25.5);
+    expect(parseDecimal('', 1.25)).toBe(1.25);
+  });
 });

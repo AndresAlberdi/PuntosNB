@@ -610,6 +610,66 @@ const Reportes: React.FC = () => {
               <p className="text-[11px] text-gray-400 mt-1">en total registradas</p>
             </div>
           </div>
+
+          {/* Desglose Detallado de Actividad por Comercio */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-6 space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div>
+                <h3 className="text-base font-black text-gray-800">Detalle de Actividad por Comercio</h3>
+                <p className="text-xs text-gray-500">Métricas transaccionales y de emisión de cada comercio registrado</p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-gray-50 text-gray-500 font-bold uppercase">
+                  <tr>
+                    <th className="px-4 py-3">Comercio</th>
+                    <th className="px-4 py-3">NIT</th>
+                    <th className="px-4 py-3 text-center">Clientes Únicos</th>
+                    <th className="px-4 py-3 text-center">Transacciones</th>
+                    <th className="px-4 py-3 text-center">Puntos Emitidos</th>
+                    <th className="px-4 py-3 text-center">Premios Entregados</th>
+                    <th className="px-4 py-3 text-right">Detalle</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {superAdminReport.comerciosActividad.map((ca) => (
+                    <tr key={ca.comercioId} className="hover:bg-gray-50 transition">
+                      <td className="px-4 py-3 font-bold text-gray-800 flex items-center gap-2">
+                        {ca.nombreComercio}
+                        {!ca.tieneActividad && (
+                          <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded font-normal">Sin actividad</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-gray-500">{ca.nitRut}</td>
+                      <td className="px-4 py-3 text-center font-bold text-gray-700">{ca.usuariosUnicos}</td>
+                      <td className="px-4 py-3 text-center font-bold text-gray-700">{ca.transaccionesCount}</td>
+                      <td className="px-4 py-3 text-center font-black text-green-600">+{ca.puntosOtorgados}</td>
+                      <td className="px-4 py-3 text-center font-black text-purple-600">{ca.premiosCanjeadosCount}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          disabled={!ca.tieneActividad}
+                          onClick={() => {
+                            const txsCom = transaccionesFiltradas.filter(t => t.comercioId === ca.comercioId);
+                            txsCom.sort((a, b) => b.fechaHora - a.fechaHora);
+                            setModalDetalle({
+                              titulo: `Detalle de Comercio: ${ca.nombreComercio}`,
+                              subtitulo: `${txsCom.length} transacciones registradas en este periodo`,
+                              transacciones: txsCom
+                            });
+                          }}
+                          className={`text-xs px-2.5 py-1 rounded font-bold transition cursor-pointer ${ca.tieneActividad ? 'bg-brand-primary text-white hover:bg-brand-primary-hover' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                        >
+                          Ver Transacciones
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
