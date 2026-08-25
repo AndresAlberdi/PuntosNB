@@ -670,17 +670,22 @@ const ClienteDashboard: React.FC = () => {
       const canjesSnap = await getDocs(qCanjes);
       const canjesUsuario = canjesSnap.docs.map(d => d.data() as CanjeCodigo);
       
-      // 3. Buscar la asignación correspondiente
+      // 3. Buscar referencias
       const asignId = `${codigoData.comercioId}_${codigoData.influencerId}`;
       const asigRef = doc(db, 'asignaciones_influencer', asignId);
+      const saldoId = `${userData.uid}_${codigoData.comercioId}`;
+      const saldoRef = doc(db, 'puntos_saldos', saldoId);
       
-      // 4. Transacción atómica
+      // 4. Transacción atómica: TODOS los reads primero, luego los writes
       await runTransaction(db, async (transaction) => {
+        // --- READS (Siempre primero) ---
         const asigDoc = await transaction.get(asigRef);
         if (!asigDoc.exists()) throw new Error("La asignación del influencer no fue encontrada.");
         
+        const saldoDoc = await transaction.get(saldoRef);
+
+        // --- VALIDACIONES ---
         const asigData = asigDoc.data() as AsignacionInfluencer;
-        
         const validationResult = validateCodeRedemption(codigoData, asigData, canjesUsuario);
         if (!validationResult.success) {
           throw new Error(validationResult.errorMsg);
@@ -688,6 +693,7 @@ const ClienteDashboard: React.FC = () => {
         
         const puntosAEntregarCliente = validationResult.puntosAEntregarCliente;
 
+        // --- WRITES (Posteriores a los reads) ---
         // A. Actualizar Bolsa de la Asignacion
         transaction.update(asigRef, {
           puntosParaClientes: asigData.puntosParaClientes - puntosAEntregarCliente,
@@ -723,10 +729,6 @@ const ClienteDashboard: React.FC = () => {
         transaction.set(transaccionRef, nuevaTransaccion);
 
         // D. Acreditar Puntos al Cliente
-        const saldoId = `${userData.uid}_${asigData.comercioId}`;
-        const saldoRef = doc(db, 'puntos_saldos', saldoId);
-        const saldoDoc = await transaction.get(saldoRef);
-        
         if (saldoDoc.exists()) {
           const saldoActual = saldoDoc.data() as SaldoPunto;
           transaction.update(saldoRef, {
