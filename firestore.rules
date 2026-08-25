@@ -32,6 +32,10 @@ service cloud.firestore {
       return isAuth() && getUserData().rol == 'influencer';
     }
 
+    function isContador() {
+      return isAuth() && getUserData().rol == 'contador';
+    }
+
     // Reglas por colección
 
     match /users/{userId} {
@@ -39,6 +43,7 @@ service cloud.firestore {
       allow read: if isAuth() && (
         request.auth.uid == userId || 
         isSuperAdmin() || 
+        isContador() ||
         resource.data.rol == 'influencer' ||
         (isAdminComercio() && resource.data.comercioId == getUserData().comercioId)
       );
@@ -48,8 +53,21 @@ service cloud.firestore {
     match /comercios/{comercioId} {
       // Todos los usuarios autenticados pueden leer los comercios
       allow read: if isAuth();
-      // Solo superadmins y admins de su propio comercio pueden modificar
-      allow write: if isSuperAdmin() || (isAdminComercio() && getUserData().comercioId == comercioId);
+      // Superadmins, contadores (para prepago) y admins de su propio comercio pueden modificar
+      allow write: if isSuperAdmin() || isContador() || (isAdminComercio() && getUserData().comercioId == comercioId);
+    }
+
+    match /cobros_prepago/{cobroId} {
+      // Superadmins, contadores y el admin del comercio respectivo pueden leer
+      allow read: if isAuth() && (
+        isSuperAdmin() || 
+        isContador() || 
+        (isAdminComercio() && getUserData().comercioId == resource.data.comercioId)
+      );
+      // Contadores y Superadmins pueden registrar y modificar cobros
+      allow create: if isAuth() && (isSuperAdmin() || isContador());
+      allow update: if isAuth() && (isSuperAdmin() || (isContador() && resource.data.contadorId == request.auth.uid));
+      allow delete: if isAuth() && (isSuperAdmin() || (isContador() && resource.data.contadorId == request.auth.uid));
     }
 
     match /transacciones/{txId} {
@@ -74,7 +92,7 @@ service cloud.firestore {
     match /puntos_saldos/{saldoId} {
       // Misma lógica de lectura que transacciones
       allow read: if isAuth() && (
-        isSuperAdmin() ||
+        isSuperAdmin() || 
         resource == null ||
         ((isCliente() || isInfluencer()) && resource.data.clienteId == request.auth.uid) ||
         ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)

@@ -5,8 +5,7 @@ import {
   getDateRangeBetween,
   filterTransactionsByTimeRange,
   calculateAdminComercioReport,
-  calculateVendedorReport,
-  calculateSuperAdminReport,
+  checkComercioPrepagoStatus,
 } from '../../utils/reports';
 
 describe('Pruebas del Módulo de Reportes', () => {
@@ -18,6 +17,7 @@ describe('Pruebas del Módulo de Reportes', () => {
       clienteAlias: 'JuanPerez',
       comercioId: 'com1',
       vendedorId: 'vend1',
+      vendedorAlias: 'VendedorUno',
       montoFactura: 100,
       nroFactura: 'F-001',
       puntos: 10,
@@ -30,6 +30,7 @@ describe('Pruebas del Módulo de Reportes', () => {
       clienteAlias: 'JuanPerez',
       comercioId: 'com1',
       vendedorId: 'vend1',
+      vendedorAlias: 'VendedorUno',
       montoFactura: 250,
       nroFactura: 'F-002',
       puntos: 25,
@@ -42,11 +43,27 @@ describe('Pruebas del Módulo de Reportes', () => {
       clienteAlias: 'MariaGomez',
       comercioId: 'com1',
       vendedorId: 'vend2',
+      vendedorAlias: 'VendedorDos',
       montoFactura: 0,
       nroFactura: '',
       puntos: 50,
       tipo: 'CANJE',
       premioId: 'prem1',
+    },
+    {
+      id: 'tx_inf',
+      fechaHora: new Date(2026, 6, 22, 10, 0).getTime(), // July 22, 2026
+      clienteId: 'cli4',
+      clienteAlias: 'AnaSeguidora',
+      comercioId: 'com1',
+      vendedorId: 'inf_nat',
+      vendedorAlias: 'INFLUENCER',
+      influencerId: 'inf_nat',
+      codigoId: 'NATGOLD',
+      montoFactura: 0,
+      nroFactura: 'CÓDIGO INF',
+      puntos: 15,
+      tipo: 'ACUMULACION',
     },
     {
       id: 'tx4',
@@ -62,13 +79,7 @@ describe('Pruebas del Módulo de Reportes', () => {
     },
   ];
 
-  const mockComercios: Comercio[] = [
-    { id: 'com1', nombre: 'Comercio Alpha', nit_rut: '111', reglas: [], premios: [], createdAt: 0 },
-    { id: 'com2', nombre: 'Comercio Beta', nit_rut: '222', reglas: [], premios: [], createdAt: 0 },
-  ];
-
   it('Debe calcular correctamente el rango de fechas para un mes', () => {
-    // Julio 2026 (Mes index 6)
     const { startMs, endMs } = getDateRangeForMonth(2026, 6);
     expect(new Date(startMs).getDate()).toBe(1);
     expect(new Date(startMs).getMonth()).toBe(6);
@@ -85,10 +96,10 @@ describe('Pruebas del Módulo de Reportes', () => {
   it('Debe filtrar transacciones por rango de tiempo', () => {
     const { startMs, endMs } = getDateRangeForMonth(2026, 6); // Julio 2026
     const filtradas = filterTransactionsByTimeRange(mockTransacciones, startMs, endMs);
-    expect(filtradas).toHaveLength(3); // tx1, tx2, tx3
+    expect(filtradas).toHaveLength(4); // tx1, tx2, tx3, tx_inf
   });
 
-  it('Debe calcular correctamente el reporte para Admin Comercio', () => {
+  it('Debe calcular correctamente el reporte para Admin Comercio (Top Clientes, Vendedores e Influencers)', () => {
     const { startMs, endMs } = getDateRangeForMonth(2026, 6);
     const transCom1 = filterTransactionsByTimeRange(mockTransacciones, startMs, endMs).filter(
       t => t.comercioId === 'com1'
@@ -96,46 +107,67 @@ describe('Pruebas del Módulo de Reportes', () => {
 
     const report = calculateAdminComercioReport(transCom1);
 
-    expect(report.usuariosUnicos).toBe(2); // cli1, cli2
-    expect(report.puntosGenerados).toBe(35); // 10 + 25
+    expect(report.usuariosUnicos).toBe(3); // cli1, cli2, cli4
+    expect(report.puntosGenerados).toBe(50); // 10 + 25 + 15
     expect(report.premiosCanjeadosCount).toBe(1); // tx3
     expect(report.puntosCanjeados).toBe(50); // tx3 puntos
     expect(report.montoFacturadoTotal).toBe(350); // 100 + 250
 
-    expect(report.topUsuariosConsumo).toHaveLength(1);
-    expect(report.topUsuariosConsumo[0].clienteAlias).toBe('JuanPerez');
-    expect(report.topUsuariosConsumo[0].totalMonto).toBe(350);
+    // Top Vendedores
+    expect(report.topVendedores).toHaveLength(2);
+    expect(report.topVendedores[0].vendedorId).toBe('vend1');
+    expect(report.topVendedores[0].totalMonto).toBe(350);
+    expect(report.topVendedores[0].totalPuntos).toBe(35);
+    expect(report.topVendedores[0].cantidadTransacciones).toBe(2);
 
-    expect(report.topUsuariosCanje).toHaveLength(1);
-    expect(report.topUsuariosCanje[0].clienteAlias).toBe('MariaGomez');
-    expect(report.topUsuariosCanje[0].totalCanjes).toBe(1);
+    // Top Influencers
+    expect(report.topInfluencers).toHaveLength(1);
+    expect(report.topInfluencers[0].influencerId).toBe('inf_nat');
+    expect(report.topInfluencers[0].codigoId).toBe('NATGOLD');
+    expect(report.topInfluencers[0].puntosOtorgados).toBe(15);
+    expect(report.topInfluencers[0].cantidadCanjes).toBe(1);
   });
 
-  it('Debe calcular correctamente el reporte para Vendedor', () => {
-    const reportVend1 = calculateVendedorReport(mockTransacciones, 'vend1');
-    expect(reportVend1.puntosGenerados).toBe(35);
-    expect(reportVend1.montoFacturado).toBe(350);
-    expect(reportVend1.cantidadAcumulaciones).toBe(2);
+  it('Debe validar correctamente el estado de prepago de un comercio', () => {
+    const comPiloto: Comercio = {
+      id: 'com_p',
+      nombre: 'Piloto',
+      nit_rut: '00',
+      reglas: [],
+      premios: [],
+      createdAt: 0,
+      modalidadPago: 'PILOTO',
+    };
 
-    const reportVend2 = calculateVendedorReport(mockTransacciones, 'vend2');
-    expect(reportVend2.premiosCanjeadosCount).toBe(1);
-    expect(reportVend2.puntosCanjeados).toBe(50);
-  });
+    const statusPiloto = checkComercioPrepagoStatus(comPiloto);
+    expect(statusPiloto.puedeOperar).toBe(true);
+    expect(statusPiloto.puedeCanjearPremios).toBe(true);
 
-  it('Debe calcular correctamente el reporte para SuperAdmin', () => {
-    const report = calculateSuperAdminReport(mockTransacciones, mockComercios);
+    const comPrepago: Comercio = {
+      id: 'com_pre',
+      nombre: 'Prepago',
+      nit_rut: '01',
+      reglas: [],
+      premios: [],
+      createdAt: 0,
+      modalidadPago: 'PREPAGO',
+      mensualidadBs: 25,
+      costoPorPremioBs: 1.25,
+      mesesPagados: ['2026-08'],
+      saldoPremiosBs: 25, // 20 premios
+    };
 
-    expect(report.totalComercios).toBe(2);
-    expect(report.totalComerciosActivos).toBe(2);
-    expect(report.totalPuntosOtorgados).toBe(85); // 10 + 25 + 50
-    expect(report.totalPremiosCanjeadosCount).toBe(1);
+    // Caso: Mes actual pagado
+    const fechaAgosto = new Date(2026, 7, 15); // Agosto 15, 2026
+    const statusAgosto = checkComercioPrepagoStatus(comPrepago, fechaAgosto);
+    expect(statusAgosto.puedeOperar).toBe(true);
+    expect(statusAgosto.puedeCanjearPremios).toBe(true);
+    expect(statusAgosto.premiosDisponibles).toBe(20);
 
-    expect(report.comerciosActividad).toHaveLength(2);
-    const com1Res = report.comerciosActividad.find(c => c.comercioId === 'com1');
-    expect(com1Res?.puntosOtorgados).toBe(35);
-    expect(com1Res?.premiosCanjeadosCount).toBe(1);
-
-    expect(report.topUsuariosConsumoGlobal[0].clienteAlias).toBe('CarlosRuiz');
-    expect(report.topUsuariosConsumoGlobal[0].totalMonto).toBe(500);
+    // Caso: Mes siguiente impago
+    const fechaSept = new Date(2026, 8, 1); // Sept 1, 2026
+    const statusSept = checkComercioPrepagoStatus(comPrepago, fechaSept);
+    expect(statusSept.puedeOperar).toBe(false);
+    expect(statusSept.alertaRojaMensualidad).toBe(true);
   });
 });

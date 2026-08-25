@@ -2,9 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Transaccion } from '../types';
-import { 
-  ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
-} from 'recharts';
+import { isTransaccionInfluencer } from '../utils/reports';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { format } from 'date-fns';
 
 interface CRMSectionProps {
@@ -18,24 +17,20 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
 
   useEffect(() => {
     const fetchTransacciones = async () => {
-      setLoading(true);
       try {
-        const q = query(
-          collection(db, 'transacciones'),
-          where('comercioId', '==', comercioId)
-        );
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map(doc => doc.data() as Transaccion).sort((a, b) => a.fechaHora - b.fechaHora);
+        const q = query(collection(db, 'transacciones'), where('comercioId', '==', comercioId));
+        const snap = await getDocs(q);
+        const data: Transaccion[] = [];
+        snap.forEach(doc => data.push({ id: doc.id, ...doc.data() } as Transaccion));
         setTransacciones(data);
       } catch (err) {
-        console.error("Error fetching CRM data:", err);
+        console.error("Error cargando transacciones para CRM:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    if (comercioId) {
-      fetchTransacciones();
-    }
+    fetchTransacciones();
   }, [comercioId]);
 
   if (loading) {
@@ -46,16 +41,33 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
   let totalPuntosEmitidos = 0;
   let totalPremiosEntregados = 0;
 
-  const sellersMap: Record<string, { alias: string, puntos: number }> = {};
+  const sellersMap: Record<string, { alias: string, puntos: number, monto: number, txs: number }> = {};
+  const influencersMap: Record<string, { alias: string, codigoId?: string, puntos: number, canjes: number }> = {};
   const clientsMap: Record<string, { alias: string, puntos: number, canjes: number }> = {};
 
   transacciones.forEach(t => {
+    const esInfluencer = isTransaccionInfluencer(t);
+
     if (t.tipo === 'ACUMULACION') {
       totalPuntosEmitidos += (t.puntos || 0);
 
-      if (t.vendedorId) {
-        if (!sellersMap[t.vendedorId]) sellersMap[t.vendedorId] = { alias: t.vendedorAlias || t.vendedorId, puntos: 0 };
+      // Separación Vendedores vs Influencers
+      if (esInfluencer) {
+        const infId = t.influencerId || t.vendedorId || 'inf_desconocido';
+        const infAlias = (t.vendedorAlias && t.vendedorAlias !== 'INFLUENCER') ? t.vendedorAlias : (t.influencerId ? t.influencerId.slice(0, 6) : 'Influencer');
+        if (!influencersMap[infId]) {
+          influencersMap[infId] = { alias: infAlias, codigoId: t.codigoId, puntos: 0, canjes: 0 };
+        }
+        influencersMap[infId].puntos += (t.puntos || 0);
+        influencersMap[infId].canjes += 1;
+        if (t.codigoId) influencersMap[infId].codigoId = t.codigoId;
+      } else if (t.vendedorId) {
+        if (!sellersMap[t.vendedorId]) {
+          sellersMap[t.vendedorId] = { alias: t.vendedorAlias || t.vendedorId, puntos: 0, monto: 0, txs: 0 };
+        }
         sellersMap[t.vendedorId].puntos += (t.puntos || 0);
+        sellersMap[t.vendedorId].monto += (t.montoFactura || 0);
+        sellersMap[t.vendedorId].txs += 1;
       }
 
       if (t.clienteId) {
@@ -73,6 +85,7 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
   });
 
   const topSellers = Object.values(sellersMap).sort((a, b) => b.puntos - a.puntos).slice(0, 3);
+  const topInfluencers = Object.values(influencersMap).sort((a, b) => b.canjes - a.canjes || b.puntos - a.puntos).slice(0, 3);
   const topClients = Object.values(clientsMap).sort((a, b) => b.puntos - a.puntos).slice(0, 5);
 
   // Chart Data preparation
@@ -112,101 +125,135 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
-          <span className="text-sm text-gray-500 font-medium">Puntos Emitidos</span>
-          <span className="text-3xl font-bold text-blue-600 mt-2">{totalPuntosEmitidos}</span>
+          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Puntos Emitidos</span>
+          <span className="text-3xl font-black text-blue-600 mt-1">{totalPuntosEmitidos}</span>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
-          <span className="text-sm text-gray-500 font-medium">Premios Entregados</span>
-          <span className="text-3xl font-bold text-yellow-600 mt-2">{totalPremiosEntregados}</span>
+          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Premios Entregados</span>
+          <span className="text-3xl font-black text-amber-600 mt-1">{totalPremiosEntregados}</span>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
-          <span className="text-sm text-gray-500 font-medium">Top Vendedor</span>
-          <span className="text-xl font-bold text-gray-800 mt-2 truncate w-full" title={topSellers[0]?.alias || '-'}>
+          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Top Vendedor</span>
+          <span className="text-lg font-black text-gray-800 mt-1 truncate w-full" title={topSellers[0]?.alias || '-'}>
             {topSellers[0]?.alias || '-'}
           </span>
+          <span className="text-[10px] text-gray-400">{topSellers[0] ? `${topSellers[0].puntos} pts (${topSellers[0].txs} ventas)` : 'Sin ventas'}</span>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
-          <span className="text-sm text-gray-500 font-medium">Top Cliente</span>
-          <span className="text-xl font-bold text-gray-800 mt-2 truncate w-full" title={topClients[0]?.alias || '-'}>
-            {topClients[0]?.alias || '-'}
+          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Top Influencer</span>
+          <span className="text-lg font-black text-purple-700 mt-1 truncate w-full" title={topInfluencers[0]?.alias || '-'}>
+            {topInfluencers[0]?.alias || '-'}
           </span>
+          <span className="text-[10px] text-gray-400">{topInfluencers[0] ? `${topInfluencers[0].canjes} canjes (${topInfluencers[0].puntos} pts)` : 'Sin canjes'}</span>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Top Sellers */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">🏆 Top 3 Vendedores</h3>
-          {topSellers.length === 0 ? (
-            <p className="text-gray-500 text-sm">Sin datos aún.</p>
-          ) : (
-            <ul className="space-y-3">
-              {topSellers.map((s, idx) => (
-                <li key={idx} className="flex justify-between items-center bg-gray-50 p-2 rounded">
-                  <span className="font-medium text-gray-700">{idx + 1}. {s.alias}</span>
-                  <span className="text-blue-600 font-bold">{s.puntos} pts</span>
-                </li>
-              ))}
-            </ul>
-          )}
+      <div className="grid md:grid-cols-3 gap-6">
+        {/* Top 3 Sellers */}
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <h3 className="text-base font-extrabold text-gray-800 mb-3 border-b pb-2 flex items-center gap-1.5">
+              <span>🏆</span> Top 3 Vendedores
+            </h3>
+            {topSellers.length === 0 ? (
+              <p className="text-gray-400 text-xs py-4 text-center">Sin transacciones de vendedores aún.</p>
+            ) : (
+              <ul className="space-y-2">
+                {topSellers.map((s, idx) => (
+                  <li key={idx} className="flex justify-between items-center bg-gray-50 p-2.5 rounded-lg text-xs">
+                    <div>
+                      <span className="font-bold text-gray-800 block">{idx + 1}. {s.alias}</span>
+                      <span className="text-[10px] text-gray-500">${s.monto.toLocaleString()} facturados ({s.txs} ventas)</span>
+                    </div>
+                    <span className="text-blue-600 font-black text-sm">+{s.puntos} pts</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
-        {/* Top Clients */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">🌟 Top 5 Clientes</h3>
-          {topClients.length === 0 ? (
-            <p className="text-gray-500 text-sm">Sin datos aún.</p>
-          ) : (
-            <ul className="space-y-3">
-              {topClients.map((c, idx) => (
-                <li key={idx} className="flex justify-between items-center bg-gray-50 p-2 rounded">
-                  <span className="font-medium text-gray-700">{idx + 1}. {c.alias}</span>
-                  <span className="text-green-600 font-bold text-sm text-right">
-                    {c.puntos} pts <br/> <span className="text-xs text-gray-500">{c.canjes} canjes</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+        {/* Top 3 Influencers */}
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <h3 className="text-base font-extrabold text-purple-900 mb-3 border-b pb-2 flex items-center gap-1.5">
+              <span>🌟</span> Top 3 Influencers
+            </h3>
+            {topInfluencers.length === 0 ? (
+              <p className="text-gray-400 text-xs py-4 text-center">Sin canjes de influencers aún.</p>
+            ) : (
+              <ul className="space-y-2">
+                {topInfluencers.map((inf, idx) => (
+                  <li key={idx} className="flex justify-between items-center bg-purple-50/60 p-2.5 rounded-lg text-xs border border-purple-100">
+                    <div>
+                      <span className="font-bold text-purple-900 block">{idx + 1}. {inf.alias}</span>
+                      <span className="text-[10px] text-purple-700 font-mono">CÓD: {inf.codigoId || 'ACTIVO'} ({inf.canjes} seguidores)</span>
+                    </div>
+                    <span className="text-purple-700 font-black text-sm">{inf.puntos} pts</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        {/* Top 5 Clients */}
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <h3 className="text-base font-extrabold text-gray-800 mb-3 border-b pb-2 flex items-center gap-1.5">
+              <span>👥</span> Top Clientes
+            </h3>
+            {topClients.length === 0 ? (
+              <p className="text-gray-400 text-xs py-4 text-center">Sin actividad de clientes aún.</p>
+            ) : (
+              <ul className="space-y-2">
+                {topClients.map((c, idx) => (
+                  <li key={idx} className="flex justify-between items-center bg-gray-50 p-2.5 rounded-lg text-xs">
+                    <span className="font-medium text-gray-700">{idx + 1}. {c.alias}</span>
+                    <span className="text-green-600 font-bold text-right">
+                      +{c.puntos} pts <span className="text-[10px] text-gray-400 block">{c.canjes} canjes</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Chart */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-bold text-gray-800">📈 Actividad del Comercio</h3>
+          <h3 className="text-base font-bold text-gray-800">📈 Actividad del Comercio</h3>
           <select 
-            className="border-gray-300 rounded-md text-sm border p-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="border-gray-300 rounded-md text-xs font-semibold border p-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
             value={agrupacion}
             onChange={(e) => setAgrupacion(e.target.value as any)}
           >
-            <option value="dia">Diaria</option>
-            <option value="semana">Semanal</option>
-            <option value="mes">Mensual</option>
+            <option value="dia">Por Día</option>
+            <option value="semana">Por Semana</option>
+            <option value="mes">Por Mes</option>
           </select>
         </div>
         
-        {chartData.length === 0 ? (
-          <div className="h-64 flex items-center justify-center text-gray-500">No hay actividad registrada.</div>
-        ) : (
-          <div className="h-72 w-full">
+        <div className="h-64 w-full">
+          {chartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+              No hay datos suficientes para graficar.
+            </div>
+          ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={chartData}
-                margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
-              >
-                <CartesianGrid stroke="#f5f5f5" />
-                <XAxis dataKey="label" scale="band" />
-                <YAxis yAxisId="left" orientation="left" stroke="#2563eb" label={{ value: 'Puntos', angle: -90, position: 'insideLeft' }} />
-                <YAxis yAxisId="right" orientation="right" stroke="#d97706" label={{ value: 'Canjes', angle: 90, position: 'insideRight' }} />
+              <BarChart data={chartData}>
+                <XAxis dataKey="label" fontSize={12} tickLine={false} />
+                <YAxis fontSize={12} tickLine={false} />
                 <Tooltip />
                 <Legend />
-                <Bar yAxisId="left" dataKey="Puntos" barSize={20} fill="#3b82f6" />
-                <Line yAxisId="right" type="monotone" dataKey="Canjes" stroke="#f59e0b" strokeWidth={3} />
-              </ComposedChart>
+                <Bar dataKey="Puntos" fill="#3B82F6" radius={[4, 4, 0, 0]} name="Puntos Emitidos" />
+                <Bar dataKey="Canjes" fill="#EAB308" radius={[4, 4, 0, 0]} name="Canjes de Premios" />
+              </BarChart>
             </ResponsiveContainer>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

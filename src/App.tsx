@@ -1,12 +1,13 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
-import type { RolUsuario } from './types';
+import type { RolUsuario, Comercio } from './types';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import VendedorDashboard from './pages/VendedorDashboard';
 import ClienteDashboard from './pages/ClienteDashboard';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
+import ContadorDashboard from './pages/ContadorDashboard';
 import Reportes from './pages/Reportes';
 import { InfluencerDashboard } from './pages/InfluencerDashboard';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
@@ -15,18 +16,27 @@ import { db } from './firebase';
 import { COLOR_PALETTES, CLIENT_AVATARS, getPaletteStyle } from './utils/theme';
 import { LoadingScreen } from './components/LoadingScreen';
 import { isStaging, APP_TITLE } from './utils/env';
-
+import { checkComercioPrepagoStatus } from './utils/reports';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: RolUsuario[] }) => {
   const { userData, loading, logout } = useAuth();
   const [commerceBlocked, setCommerceBlocked] = React.useState(false);
+  const [commerceImpago, setCommerceImpago] = React.useState(false);
   const [checkingCommerce, setCheckingCommerce] = React.useState(true);
 
   React.useEffect(() => {
     if (userData?.comercioId && (userData.rol === 'admin_comercio' || userData.rol === 'vendedor')) {
       getDoc(doc(db, 'comercios', userData.comercioId)).then(snap => {
-        if (snap.exists() && snap.data().estado === 'bloqueado') {
-          setCommerceBlocked(true);
+        if (snap.exists()) {
+          const com = snap.data() as Comercio;
+          if (com.estado === 'bloqueado') {
+            setCommerceBlocked(true);
+          } else {
+            const prepagoStatus = checkComercioPrepagoStatus(com);
+            if (!prepagoStatus.puedeOperar) {
+              setCommerceImpago(true);
+            }
+          }
         }
         setCheckingCommerce(false);
       });
@@ -42,7 +52,7 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
   }
 
   if (allowedRoles && !allowedRoles.includes(userData.rol)) {
-    return <Navigate to="/" replace />; // Or unauthorized page
+    return <Navigate to="/" replace />;
   }
 
   if (userData.estado === 'bloqueado' || commerceBlocked) {
@@ -53,10 +63,32 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
           </div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Acceso Bloqueado</h2>
-          <p className="text-gray-600 mb-6">Tu cuenta o el comercio al que perteneces ha sido bloqueado temporalmente. Por favor, contacta a soporte.</p>
+          <p className="text-gray-600 mb-6">Tu cuenta o el comercio al que perteneces ha sido bloqueado temporalmente por administración.</p>
           <button 
             onClick={() => logout()}
             className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition"
+          >
+            Cerrar Sesión
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (commerceImpago) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+        <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center border-t-4 border-amber-500">
+          <div className="w-16 h-16 mx-auto bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mb-4 text-2xl font-black">
+            💳
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Comercio Deshabilitado Temporalmente</h2>
+          <p className="text-gray-600 mb-6 text-sm">
+            La mensualidad correspondiente a este mes no ha sido prepagada aún. Por favor realiza tu depósito para reactivar el servicio.
+          </p>
+          <button 
+            onClick={() => logout()}
+            className="w-full bg-gray-800 hover:bg-gray-900 text-white font-bold py-3 px-4 rounded-lg transition text-sm"
           >
             Cerrar Sesión
           </button>
@@ -87,7 +119,7 @@ const NotificationBell = () => {
         const comerciosSnap = await getDocs(collection(db, 'comercios'));
         let totalPrizes = 0;
         comerciosSnap.forEach(d => {
-          const c = d.data();
+          const c = d.data() as Comercio;
           const saldo = sMap[c.id] || 0;
           if (saldo > 0) {
              const canAfford = (c.premios || []).filter((p: any) => p.activo && p.puntosRequeridos <= saldo).length;
@@ -105,11 +137,13 @@ const NotificationBell = () => {
   if (!userData || userData.rol !== 'cliente') return null;
 
   return (
-    <Link to="/cliente/premios" className="relative p-2 text-gray-500 hover:text-brand-primary transition">
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+    <Link to="/cliente/premios" className="relative p-2 text-gray-600 hover:text-brand-primary transition" title="Premios disponibles">
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+      </svg>
       {count > 0 && (
-        <span className="absolute top-1 right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center justify-center transform translate-x-1/2 -translate-y-1/2">
-          {count}
+        <span className="absolute top-1 right-1 bg-brand-primary text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center animate-pulse">
+          {count > 9 ? '9+' : count}
         </span>
       )}
     </Link>
@@ -117,160 +151,148 @@ const NotificationBell = () => {
 };
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
-  const { currentUser, userData, logout } = useAuth();
+  const { userData, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [showPasswordModal, setShowPasswordModal] = React.useState(false);
   const [showProfileModal, setShowProfileModal] = React.useState(false);
-  const [commercePaletteId, setCommercePaletteId] = React.useState<string | undefined>(undefined);
-  const [commercePlan, setCommercePlan] = React.useState<'regular' | 'premium'>('premium');
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-
-  const [isDarkMode, setIsDarkMode] = React.useState(() => {
-    return localStorage.getItem('theme') === 'dark';
-  });
-
-  React.useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDarkMode]);
-
-  // States for Profile Modal form
-  const [selectedPalette, setSelectedPalette] = React.useState('ocean');
-  const [selectedAvatar, setSelectedAvatar] = React.useState('');
-  const [telefonoCountry, setTelefonoCountry] = React.useState('+591');
+  const [selectedAvatar, setSelectedAvatar] = React.useState(userData?.avatarUrl || CLIENT_AVATARS[0]);
+  const [selectedPalette, setSelectedPalette] = React.useState(userData?.paletteId || 'ocean');
   const [telefonoNumber, setTelefonoNumber] = React.useState('');
+  const [telefonoCountry, setTelefonoCountry] = React.useState('+591');
+  const [commercePlan, setCommercePlan] = React.useState<'regular' | 'premium'>('regular');
+  const [savingProfile, setSavingProfile] = React.useState(false);
 
   React.useEffect(() => {
-    if (userData?.comercioId) {
-      getDoc(doc(db, 'comercios', userData.comercioId)).then(snap => {
-        if (snap.exists()) {
-          const data = snap.data();
-          setCommercePaletteId(data.paletteId);
-          setCommercePlan(data.plan || 'regular');
-        }
-      });
-    } else {
-      setCommercePaletteId(undefined);
-      setCommercePlan('premium');
-    }
-
-    if (userData?.rol === 'cliente') {
-      setSelectedPalette(userData.paletteId || 'ocean');
-      setSelectedAvatar(userData.avatarUrl || CLIENT_AVATARS[0]);
-      if (userData.telefono) {
-        // Attempt to parse country code and number. Assuming typical format +XXX NNNNN
-        const match = userData.telefono.match(/^(\+\d{1,3})\s?(.*)$/);
-        if (match) {
-          setTelefonoCountry(match[1]);
-          setTelefonoNumber(match[2].replace(/\D/g, ''));
-        } else {
-          setTelefonoNumber(userData.telefono.replace(/\D/g, ''));
-        }
+    if (userData?.telefono) {
+      const match = userData.telefono.match(/^(\+\d{1,4})(\d+)$/);
+      if (match) {
+        setTelefonoCountry(match[1]);
+        setTelefonoNumber(match[2]);
       } else {
-        setTelefonoNumber('');
+        setTelefonoNumber(userData.telefono);
       }
     }
   }, [userData]);
 
-  const handleLogout = () => {
-    logout();
+  React.useEffect(() => {
+    if (userData?.comercioId && (userData.rol === 'admin_comercio' || userData.rol === 'vendedor')) {
+      getDoc(doc(db, 'comercios', userData.comercioId)).then(snap => {
+        if (snap.exists()) {
+          setCommercePlan(snap.data().plan || 'regular');
+        }
+      });
+    }
+  }, [userData]);
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
   };
 
   const handleSaveProfile = async () => {
-    if (userData?.uid) {
-      try {
-        const fullPhone = telefonoNumber ? `${telefonoCountry}${telefonoNumber}` : '';
-        await updateDoc(doc(db, 'users', userData.uid), {
-          paletteId: selectedPalette,
-          avatarUrl: selectedAvatar,
-          telefono: fullPhone
-        });
-        setShowProfileModal(false);
-      } catch (err) {
-        console.error("Error saving profile", err);
-        alert("Error al guardar cambios de perfil.");
-      }
+    if (!userData) return;
+    setSavingProfile(true);
+    try {
+      const fullTelefono = telefonoNumber.trim() ? `${telefonoCountry}${telefonoNumber.trim()}` : null;
+      await updateDoc(doc(db, 'users', userData.uid), {
+        avatarUrl: selectedAvatar,
+        paletteId: selectedPalette,
+        telefono: fullTelefono
+      });
+      userData.avatarUrl = selectedAvatar;
+      userData.paletteId = selectedPalette;
+      userData.telefono = fullTelefono || undefined;
+      setShowProfileModal(false);
+    } catch (e) {
+      console.error(e);
+      alert("Error al actualizar perfil");
+    } finally {
+      setSavingProfile(false);
     }
   };
 
-  let activePaletteId: string | undefined = undefined;
-  if (userData?.rol === 'cliente') {
-    activePaletteId = userData.paletteId;
-  } else if (userData?.rol === 'superadmin') {
-    activePaletteId = 'charcoal';
-  } else if (userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') {
-    activePaletteId = commercePaletteId;
-  }
-
-  const isGoogleUser = currentUser?.providerData?.some(p => p.providerId === 'google.com');
+  const isGoogleUser = userData?.email?.includes('@') && !userData?.usuario;
 
   return (
-    <div style={getPaletteStyle(activePaletteId)} className="min-h-screen bg-[var(--bg-main)] font-sans text-[var(--text-main)] transition-colors duration-300">
-      <header className="bg-[var(--bg-surface)] shadow-sm border-b border-[var(--border-color)]">
-        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-1.5 text-xl font-black text-brand-primary tracking-tight hover:opacity-80 transition z-10">
-            <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-8 h-8 object-contain" />
-            <span>Hipatia{isStaging ? ' (pruebas)' : ''}</span>
-          </Link>
-          
+    <div style={getPaletteStyle(userData?.paletteId || 'ocean')} className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
+      {isStaging && (
+        <div className="bg-brand-primary text-white text-xs font-black py-1 px-4 text-center tracking-widest uppercase shadow-inner z-50">
+          Entorno de Pruebas (Staging) - Puntos Hipatia
+        </div>
+      )}
+
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link to="/" className="flex items-center gap-2">
+              <div className="w-9 h-9 bg-brand-primary text-white rounded-xl flex items-center justify-center font-black text-lg shadow-sm">
+                H
+              </div>
+              <span className="font-black text-xl text-gray-800 tracking-tight">Hipatia <span className="text-brand-primary font-bold">Puntos</span></span>
+            </Link>
+          </div>
+
           {userData && (
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                className="p-2 text-gray-500 hover:text-[var(--accent-primary)] transition rounded-full hover:bg-[var(--bg-main)]"
-                title={isDarkMode ? "Cambiar a Modo Día" : "Cambiar a Modo Noche"}
-              >
-                {isDarkMode ? '☀️' : '🌙'}
-              </button>
+            <div className="flex items-center gap-3">
               <NotificationBell />
-              
-              {/* Botón menú móvil */}
+
+              {/* Botón Hamburguesa Móvil */}
               <button 
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                className="p-2 -mr-2 text-gray-600 sm:hidden hover:text-gray-900 focus:outline-none"
+                className="sm:hidden p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100 focus:outline-none"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={isMobileMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} />
+                  {isMobileMenuOpen ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                  )}
                 </svg>
               </button>
 
               {/* Menú Desktop */}
               <div className="hidden sm:flex items-center gap-4">
-                {userData?.rol === 'cliente' ? (
-                  <button 
+                {userData.rol === 'cliente' && (
+                  <button
                     onClick={() => setShowProfileModal(true)}
-                    className="flex items-center gap-2 hover:bg-brand-bg-light p-1.5 rounded-lg transition border border-transparent hover:border-brand-border"
+                    className="flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-brand-primary transition py-1 px-2 rounded-lg hover:bg-gray-50 border border-gray-200"
                   >
                     <img 
                       src={userData.avatarUrl || CLIENT_AVATARS[0]} 
                       alt="Avatar" 
-                      className="w-8 h-8 rounded-full border bg-white object-contain" 
+                      className="w-6 h-6 rounded-full border bg-white object-contain" 
                     />
-                    <span className="text-sm font-medium text-gray-700 truncate max-w-[120px]">
-                      Hola, {userData.nombre}
-                    </span>
+                    <span>Perfil</span>
                   </button>
-                ) : (
-                  <span className="text-sm font-medium text-gray-700 truncate max-w-[150px]">
-                    Hola, {userData.nombre}
-                  </span>
                 )}
-                
+
                 {userData?.rol === 'superadmin' && (
                   <div className="flex gap-2">
-                    <Link to="/superadmin" className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname.startsWith('/superadmin') ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}>Panel Sistema</Link>
+                    <Link 
+                      to="/superadmin" 
+                      className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname.startsWith('/superadmin') ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}
+                    >
+                      Panel Sistema
+                    </Link>
                     <button 
                       onClick={() => navigate('/reportes')}
                       className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname === '/reportes' ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}
                     >
                       Reportes
                     </button>
+                  </div>
+                )}
+
+                {userData?.rol === 'contador' && (
+                  <div className="flex gap-2">
+                    <Link 
+                      to="/contador" 
+                      className={`text-sm font-medium px-3 py-1 rounded transition border ${location.pathname.startsWith('/contador') ? 'bg-brand-bg-light text-brand-primary border-brand-border font-bold' : 'text-gray-600 hover:bg-gray-100 border-transparent'}`}
+                    >
+                      Cobranzas Prepago
+                    </Link>
                   </div>
                 )}
                 
@@ -308,7 +330,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
                 <button 
                   onClick={handleLogout}
-                  className="text-sm font-medium text-red-600 hover:text-red-700 font-semibold"
+                  className="text-sm font-medium text-red-600 hover:text-red-700 font-semibold cursor-pointer"
                 >
                   Salir
                 </button>
@@ -355,6 +377,10 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               </>
             )}
 
+            {userData?.rol === 'contador' && (
+              <Link to="/contador" onClick={() => setIsMobileMenuOpen(false)} className="block w-full text-left text-sm font-medium text-brand-primary py-2">Cobranzas Prepago</Link>
+            )}
+
             {(userData?.rol === 'admin_comercio' || userData?.rol === 'vendedor') && (
               <>
                 <button 
@@ -392,7 +418,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </div>
         )}
       </header>
-      <main className="max-w-4xl mx-auto mt-6 px-4">
+
+      <main className="w-full max-w-7xl mx-auto mt-6 px-4 sm:px-6 lg:px-8">
         {children}
       </main>
 
@@ -439,6 +466,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                   ))}
                 </div>
               </div>
+
               {/* Teléfono */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Número de WhatsApp (Opcional)</label>
@@ -468,37 +496,25 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                     className="flex-1 border border-gray-300 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Regístralo para poder acceder a futuras funciones integradas con WhatsApp.</p>
               </div>
 
-              {/* Botón Cambiar Clave Integrado */}
-              {!isGoogleUser && (
-                <div className="pt-4 border-t">
-                  <button 
-                    type="button"
-                    onClick={() => { setShowProfileModal(false); setShowPasswordModal(true); }}
-                    className="w-full py-2 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition text-sm flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                    Cambiar Contraseña
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3 border-t pt-4">
-              <button 
-                onClick={() => setShowProfileModal(false)} 
-                className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50 text-sm font-medium"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleSaveProfile} 
-                className="px-4 py-2 bg-brand-primary hover:bg-brand-primary-hover text-white rounded-lg text-sm font-semibold transition"
-              >
-                Guardar Cambios
-              </button>
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm font-medium"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveProfile}
+                  disabled={savingProfile}
+                  className="px-4 py-2 bg-brand-primary text-white font-medium rounded-lg hover:bg-brand-primary-hover transition text-sm"
+                >
+                  {savingProfile ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -538,6 +554,12 @@ const AppRoutes = () => {
         </ProtectedRoute>
       } />
 
+      <Route path="/contador/*" element={
+        <ProtectedRoute allowedRoles={['contador', 'superadmin']}>
+          <ContadorDashboard />
+        </ProtectedRoute>
+      } />
+
       <Route path="/influencer/*" element={
         <ProtectedRoute allowedRoles={['influencer']}>
           <InfluencerDashboard />
@@ -555,6 +577,7 @@ const AppRoutes = () => {
         userData.rol === 'cliente' ? <Navigate to="/cliente" replace /> :
         userData.rol === 'vendedor' ? <Navigate to="/vendedor" replace /> :
         userData.rol === 'superadmin' ? <Navigate to="/superadmin" replace /> :
+        userData.rol === 'contador' ? <Navigate to="/contador" replace /> :
         userData.rol === 'influencer' ? <Navigate to="/influencer" replace /> :
         <Navigate to="/admin" replace />
       } />

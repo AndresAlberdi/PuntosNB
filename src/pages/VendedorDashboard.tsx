@@ -1,27 +1,29 @@
 import React, { useEffect, useState } from 'react';
+import { doc, getDoc, collection, setDoc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
-import { Scanner } from '@yudiel/react-qr-scanner';
-import { doc, getDoc, collection, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import type { Comercio, SesionQR, SaldoPunto, Transaccion } from '../types';
+import type { Comercio, SesionQR, Transaccion, SaldoPunto } from '../types';
 import { getPaletteStyle } from '../utils/theme';
-import { generarCodigoUnicoQR } from '../utils/qr';
+import { checkComercioPrepagoStatus } from '../utils/reports';
 
 const VendedorDashboard: React.FC = () => {
   const { userData } = useAuth();
   const [comercio, setComercio] = useState<Comercio | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Form states
-  const [nroFactura, setNroFactura] = useState('');
-  const [montoFactura, setMontoFactura] = useState<number | ''>('');
-  const [reglaSeleccionada, setReglaSeleccionada] = useState<string>('');
-  const [productos, setProductos] = useState<{ id: string; qty: number }[]>([]);
-  const [qrData, setQrData] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'GENERAR' | 'ESCANEAR'>('GENERAR');
+
+  // Generation state
+  const [montoFactura, setMontoFactura] = useState<string>('');
+  const [nroFactura, setNroFactura] = useState<string>('');
+  const [sinFactura, setSinFactura] = useState<boolean>(false);
+  const [reglaSeleccionada, setReglaSeleccionada] = useState<string>('');
+  const [productos, setProductos] = useState<{ id: string, qty: number }[]>([]);
+  const [qrData, setQrData] = useState<string | null>(null);
+
+  // Scanning / Code redemption state
+  const [codigoManual, setCodigoManual] = useState<string>('');
   const [mensaje, setMensaje] = useState<{ texto: string, tipo: 'success' | 'error' | 'info' } | null>(null);
-  const [escaneando, setEscaneando] = useState(false);
 
   useEffect(() => {
     const fetchComercio = async () => {
@@ -30,11 +32,15 @@ const VendedorDashboard: React.FC = () => {
           const docRef = doc(db, 'comercios', userData.comercioId);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            const data = docSnap.data() as Comercio;
-            setComercio(data);
-            const activas = data.reglas.filter(r => r.activa);
-            if (activas.length === 1) {
-              setReglaSeleccionada(activas[0].id);
+            const comData = docSnap.data() as Comercio;
+            setComercio(comData);
+            
+            const reglasActivas = comData.reglas?.filter(r => r.activa) || [];
+            const reglaCompra = reglasActivas.find(r => r.tipo === 'POR_COMPRA');
+            if (reglaCompra) {
+              setReglaSeleccionada(reglaCompra.id);
+            } else if (reglasActivas.length > 0) {
+              setReglaSeleccionada(reglasActivas[0].id);
             }
           }
         } catch (error) {
@@ -43,27 +49,56 @@ const VendedorDashboard: React.FC = () => {
       }
       setLoading(false);
     };
+
     fetchComercio();
   }, [userData]);
 
-  const procesarQRCanje = async (sesionId: string) => {
-    if (!userData || !comercio) return;
-    setEscaneando(false);
-    setMensaje({ texto: "Procesando canje...", tipo: 'info' });
+  // Listener para QR activo generado por el vendedor
+  useEffect(() => {
+    if (!qrData) return;
+
+    const unsubscribe = onSnapshot(doc(db, 'sesiones_qr', qrData), (docSnap) => {
+      if (docSnap.exists()) {
+        const sesion = docSnap.data() as SesionQR;
+        if (sesion.estado === 'USADO') {
+          setMensaje({ texto: "¡Puntos asignados al cliente con éxito!", tipo: 'success' });
+          setQrData(null);
+          setMontoFactura('');
+          setNroFactura('');
+          setSinFactura(false);
+          setProductos([]);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [qrData]);
+
+  // Procesar canje de premio introducido por el cliente (6 dígitos o QR)
+  const handleProcesarCodigoPremio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!codigoManual || !comercio || !userData) return;
+    setMensaje(null);
+
+    // Verificar prepago antes de canjear
+    const prepagoStatus = checkComercioPrepagoStatus(comercio);
+    if (!prepagoStatus.puedeOperar) {
+      setMensaje({ texto: "Comercio deshabilitado temporalmente por falta de pago.", tipo: 'error' });
+      return;
+    }
 
     try {
-      const sesionRef = doc(db, 'sesiones_qr', sesionId);
-      const { runTransaction } = await import('firebase/firestore');
-
       await runTransaction(db, async (transaction) => {
+        const sesionRef = doc(db, 'sesiones_qr', codigoManual.trim());
         const sesionDoc = await transaction.get(sesionRef);
+
         if (!sesionDoc.exists()) {
-          throw new Error("El código QR no es válido o no existe.");
+          throw new Error("El código no es válido o no existe.");
         }
 
         const sesion = sesionDoc.data() as SesionQR;
         if (sesion.estado !== 'PENDIENTE') {
-          throw new Error("Este código QR ya fue procesado o ha expirado.");
+          throw new Error("Este código ya fue procesado o ha expirado.");
         }
         if (sesion.tipo !== 'CANJE') {
           throw new Error("Este código no es un código de canje de premio.");
@@ -74,7 +109,6 @@ const VendedorDashboard: React.FC = () => {
 
         const saldoId = `${sesion.creadorId}_${comercio.id}`;
         const saldoRef = doc(db, 'puntos_saldos', saldoId);
-        
         const saldoDoc = await transaction.get(saldoRef);
 
         if (!saldoDoc.exists()) {
@@ -88,10 +122,22 @@ const VendedorDashboard: React.FC = () => {
           throw new Error(`Saldo insuficiente. El cliente tiene ${saldoActual.saldoTotal} pts y requiere ${puntosARestar} pts.`);
         }
 
+        // Si es prepago, verificar y deducir costo por premio del saldo del comercio
+        const comercioRef = doc(db, 'comercios', comercio.id);
+        const comDoc = await transaction.get(comercioRef);
+        if (comDoc.exists()) {
+          const comFresh = comDoc.data() as Comercio;
+          if (comFresh.modalidadPago === 'PREPAGO') {
+            const costo = comFresh.costoPorPremioBs || 1.25;
+            const nuevoSaldo = Math.max(0, (comFresh.saldoPremiosBs || 0) - costo);
+            transaction.update(comercioRef, { saldoPremiosBs: nuevoSaldo });
+          }
+        }
+
         // 1. Marcar sesión como usada
         transaction.update(sesionRef, { estado: 'USADO' });
 
-        // 2. Registrar transacción (negativa)
+        // 2. Registrar transacción
         const transaccionRef = doc(collection(db, 'transacciones'));
         const nuevaTransaccion: Transaccion = {
           id: transaccionRef.id,
@@ -108,7 +154,7 @@ const VendedorDashboard: React.FC = () => {
         };
         transaction.set(transaccionRef, nuevaTransaccion);
 
-        // 3. Actualizar saldo
+        // 3. Actualizar saldo cliente
         transaction.update(saldoRef, {
           saldoTotal: saldoActual.saldoTotal - puntosARestar,
           updatedAt: Date.now()
@@ -116,6 +162,7 @@ const VendedorDashboard: React.FC = () => {
       });
 
       setMensaje({ texto: "¡Canje aprobado y procesado exitosamente! Entrega el premio al cliente.", tipo: 'success' });
+      setCodigoManual('');
     } catch (error: any) {
       console.error(error);
       setMensaje({ texto: error.message || "Error al procesar el código.", tipo: 'error' });
@@ -144,48 +191,48 @@ const VendedorDashboard: React.FC = () => {
   };
 
   const calcularPuntos = () => {
-    if (!comercio || !reglaSeleccionada) return 0;
+    if (!comercio) return 0;
     
-    const regla = comercio.reglas.find(r => r.id === reglaSeleccionada && r.activa);
-    if (!regla) return 0;
+    const reglaSel = comercio.reglas.find(r => r.id === reglaSeleccionada);
+    if (!reglaSel) return 0;
 
-    let total = 0;
-
-    if (regla.tipo === 'POR_COMPRA') {
-      total = regla.puntosAOtorgar || 0;
-    } else if (regla.tipo === 'POR_PRODUCTO') {
-      const seleccion = productos.find(p => p.id === regla.id);
-      if (seleccion) {
-        total = (seleccion.qty * (regla.puntosAOtorgar || 0));
-      }
-    } else if (regla.tipo === 'POR_RANGO') {
+    let pts = 0;
+    if (reglaSel.tipo === 'POR_COMPRA') {
       const monto = Number(montoFactura) || 0;
-      if (monto >= (regla.rangoDesde || 0) && monto <= (regla.rangoHasta || Infinity)) {
-        total = regla.puntosAOtorgar || 0;
-      }
-    } else if (regla.tipo === 'POR_REGISTRO') {
-      total = regla.puntosAOtorgar || 0;
+      pts = Math.floor(monto * (reglaSel.puntosAOtorgar || 0));
+    } else if (reglaSel.tipo === 'POR_PRODUCTO') {
+      const totalQty = productos.reduce((acc, p) => acc + p.qty, 0);
+      pts = totalQty * (reglaSel.puntosAOtorgar || 0);
+    } else if (reglaSel.tipo === 'POR_RANGO') {
+      pts = reglaSel.puntosAOtorgar || 0;
+    } else if (reglaSel.tipo === 'POR_REGISTRO') {
+      pts = reglaSel.puntosAOtorgar || 0;
     }
-
-    return total;
+    return pts;
   };
 
   const generarQR = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reglaSeleccionada) {
-      alert("Debes seleccionar una regla de asignación.");
+    setMensaje(null);
+
+    const prepagoStatus = checkComercioPrepagoStatus(comercio!);
+    if (!prepagoStatus.puedeOperar) {
+      setMensaje({ texto: "Comercio deshabilitado temporalmente por falta de pago de mensualidad.", tipo: 'error' });
       return;
     }
 
     const puntos = calcularPuntos();
-    if (puntos === 0) {
-      alert("La compra no genera puntos con la regla seleccionada y el monto/producto actual.");
+    if (puntos <= 0) {
+      setMensaje({ texto: "El cálculo de puntos debe ser mayor a 0 para generar el código.", tipo: 'error' });
       return;
     }
 
     try {
-      const codigo = await generarCodigoUnicoQR(db);
-      const sesionData: Omit<SesionQR, 'id'> = {
+      const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+      const nroFinal = sinFactura ? 'S/F' : (nroFactura.trim() || 'S/F');
+
+      const sesionData: SesionQR = {
+        id: codigo,
         tipo: 'ACUMULACION',
         creadorId: userData!.uid,
         creadorAlias: userData!.email?.split('@')[0] || 'Vendedor',
@@ -193,7 +240,7 @@ const VendedorDashboard: React.FC = () => {
         estado: 'PENDIENTE',
         createdAt: Date.now(),
         montoFactura: Number(montoFactura) || 0,
-        nroFactura: (reglaSeleccionada && comercio!.reglas.find(r => r.id === reglaSeleccionada)?.tipo === 'POR_REGISTRO') ? 'BONO BIENVENIDA' : nroFactura,
+        nroFactura: (reglaSeleccionada && comercio!.reglas.find(r => r.id === reglaSeleccionada)?.tipo === 'POR_REGISTRO') ? 'BONO BIENVENIDA' : nroFinal,
         puntosCalculados: puntos,
         reglaAplicadaId: reglaSeleccionada
       };
@@ -202,13 +249,14 @@ const VendedorDashboard: React.FC = () => {
       setQrData(codigo);
     } catch (error) {
       console.error("Error al generar código de 6 dígitos:", error);
-      alert("Hubo un error al generar el código.");
+      setMensaje({ texto: "Hubo un error al generar el código.", tipo: 'error' });
     }
   };
 
-  if (loading) return <div className="p-8 text-center">Cargando panel del vendedor...</div>;
+  if (loading) return <div className="p-8 text-center text-gray-500">Cargando panel del vendedor...</div>;
   if (!comercio) return <div className="p-8 text-center text-red-500">Error: Comercio no encontrado.</div>;
 
+  const prepagoStatus = checkComercioPrepagoStatus(comercio);
   const puntosTotales = calcularPuntos();
   const reglasActivas = comercio.reglas.filter(r => {
     if (!r.activa) return false;
@@ -221,223 +269,272 @@ const VendedorDashboard: React.FC = () => {
   const reglasProducto = reglasActivas.filter(r => r.tipo === 'POR_PRODUCTO');
 
   return (
-    <div style={getPaletteStyle(comercio.paletteId)} className="p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6 border-b pb-4">
+    <div style={getPaletteStyle(comercio.paletteId)} className="w-full max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+      
+      {/* Alertas de Prepago para Vendedores */}
+      {comercio.modalidadPago === 'PREPAGO' && (
+        <>
+          {prepagoStatus.alertaRojaMensualidad && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-xl shadow-sm text-red-800 text-xs">
+              <strong className="font-black text-sm block">⚠️ Comercio Temporalmente Inhabilitado</strong>
+              La mensualidad no ha sido prepagada. No se pueden otorgar puntos ni canjear premios.
+            </div>
+          )}
+          {prepagoStatus.alertaAmarillaMensualidad && !prepagoStatus.alertaRojaMensualidad && (
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-xl shadow-sm text-amber-900 text-xs">
+              <strong>⏳ Alerta de Prepago:</strong> La mensualidad vence en {prepagoStatus.diasRestantesMes} días.
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4 bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-3">
           {comercio.logoUrl ? (
-            <img src={comercio.logoUrl} alt="Logo" className="w-12 h-12 object-contain rounded border bg-white flex-shrink-0" />
+            <img src={comercio.logoUrl} alt="Logo" className="w-12 h-12 object-contain rounded-xl border bg-white flex-shrink-0" />
           ) : (
-            <div className="w-12 h-12 bg-brand-bg-light text-brand-primary rounded flex items-center justify-center font-bold text-lg border border-brand-border flex-shrink-0">NB</div>
+            <div className="w-12 h-12 bg-brand-bg-light text-brand-primary rounded-xl flex items-center justify-center font-bold text-lg border border-brand-border flex-shrink-0">NB</div>
           )}
           <div>
-            <h2 className="text-2xl font-bold text-gray-800">Panel Vendedor</h2>
-            <p className="text-sm text-gray-500 font-semibold">{comercio.nombre}</p>
+            <h2 className="text-xl font-black text-gray-800 dark:text-white">Panel de Ventas y Canje</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-semibold">{comercio.nombre}</p>
           </div>
         </div>
-        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+        <div className="flex gap-2 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl text-xs font-bold">
           <button 
             onClick={() => { setActiveTab('GENERAR'); setMensaje(null); }}
-            className={`px-4 py-2 text-sm font-bold rounded-md transition ${activeTab === 'GENERAR' ? 'bg-white shadow-sm text-brand-primary' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-4 py-2 rounded-lg transition ${activeTab === 'GENERAR' ? 'bg-white dark:bg-gray-800 shadow-sm text-brand-primary' : 'text-gray-500 hover:text-gray-700 dark:text-gray-300'}`}
           >
             Otorgar Puntos
           </button>
           <button 
             onClick={() => { setActiveTab('ESCANEAR'); setMensaje(null); }}
-            className={`px-4 py-2 text-sm font-bold rounded-md transition ${activeTab === 'ESCANEAR' ? 'bg-white shadow-sm text-brand-primary' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-4 py-2 rounded-lg transition ${activeTab === 'ESCANEAR' ? 'bg-white dark:bg-gray-800 shadow-sm text-brand-primary' : 'text-gray-500 hover:text-gray-700 dark:text-gray-300'}`}
           >
             Canjear Premio
           </button>
         </div>
       </div>
 
-      {mensaje && (
-        <div className={`p-4 rounded-lg mb-6 ${
-          mensaje.tipo === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 
-          mensaje.tipo === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 
-          'bg-brand-bg-light text-brand-text-dark border border-brand-border'
-        }`}>
-          {mensaje.texto}
-          <button className="float-right font-bold" onClick={() => setMensaje(null)}>✕</button>
-        </div>
-      )}
-
       {activeTab === 'GENERAR' && (
         <>
           {!qrData ? (
-        <form onSubmit={generarQR} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Número de Factura</label>
-              <input 
-                type="text" required={comercio?.reglas.find(r => r.id === reglaSeleccionada)?.tipo !== 'POR_REGISTRO'}
-                className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                value={nroFactura} onChange={(e) => setNroFactura(e.target.value)}
-                placeholder="000-000-001"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Monto de la Factura (Bs.)</label>
-              <input 
-                type="number" required={comercio?.reglas.find(r => r.id === reglaSeleccionada)?.tipo !== 'POR_REGISTRO'} min="0" step="0.01"
-                className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                value={montoFactura} onChange={(e) => setMontoFactura(Number(e.target.value) || '')}
-                placeholder="100.00"
-              />
-            </div>
-          </div>
+            <form onSubmit={generarQR} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-6 text-xs">
+              
+              {/* Mensajes de Alerta dentro del mismo recuadro */}
+              {mensaje && (
+                <div className={`p-3 rounded-xl text-xs font-bold flex justify-between items-center ${
+                  mensaje.tipo === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                }`}>
+                  <span>{mensaje.texto}</span>
+                  <button type="button" onClick={() => setMensaje(null)} className="font-black ml-2">✕</button>
+                </div>
+              )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Selecciona la Regla a Aplicar</label>
-            {reglasActivas.length === 0 ? (
-              <p className="text-red-500 text-sm">No hay reglas activas. Contacta al administrador.</p>
-            ) : (
-              <div className="space-y-2">
-                {reglasActivas.map(r => (
-                  <label key={r.id} className={`flex items-center p-3 border rounded-lg cursor-pointer transition ${reglaSeleccionada === r.id ? 'border-brand-primary bg-brand-bg-light' : 'border-gray-200 hover:bg-gray-50'}`}>
-                    <input 
-                      type="radio" 
-                      name="regla" 
-                      value={r.id} 
-                      checked={reglaSeleccionada === r.id}
-                      onChange={(e) => setReglaSeleccionada(e.target.value)}
-                      className="mr-3 h-4 w-4 text-brand-primary focus:ring-brand-primary"
-                    />
-                    <div className="flex-1">
-                      <p className="font-semibold text-gray-800">
-                        {r.tipo === 'POR_COMPRA' && 'Regla por Compra General'}
-                        {r.tipo === 'POR_PRODUCTO' && `Producto Específico: ${r.nombreProducto}`}
-                        {r.tipo === 'POR_RANGO' && `Rango: Bs. ${r.rangoDesde} a Bs. ${r.rangoHasta}`}
-                        {r.tipo === 'POR_REGISTRO' && 'Bono de Bienvenida/Registro'}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Otorga {r.puntosAOtorgar} pts.
-                      </p>
-                    </div>
-                  </label>
-                ))}
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="font-bold text-gray-700 dark:text-gray-300">Número de Factura</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSinFactura(!sinFactura);
+                        if (!sinFactura) setNroFactura('');
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded font-black transition cursor-pointer ${sinFactura ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      {sinFactura ? '✓ Marcado Sin Factura' : 'Botón: Sin Factura'}
+                    </button>
+                  </div>
+                  <input 
+                    type="text" 
+                    disabled={sinFactura}
+                    required={!sinFactura && comercio?.reglas.find(r => r.id === reglaSeleccionada)?.tipo !== 'POR_REGISTRO'}
+                    className={`w-full border rounded-xl px-3 py-2 ${sinFactura ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white'}`}
+                    value={sinFactura ? 'S/F' : nroFactura} 
+                    onChange={(e) => setNroFactura(e.target.value)}
+                    placeholder="000-000-001"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 dark:text-gray-300 mb-1">Monto de la Venta (Bs.)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    min="0"
+                    className="w-full border rounded-xl px-3 py-2 bg-white font-bold text-gray-800"
+                    value={montoFactura} 
+                    onChange={(e) => setMontoFactura(e.target.value)}
+                    placeholder="Ej: 150.00"
+                  />
+                </div>
               </div>
-            )}
-          </div>
 
-          {reglaSeleccionada && reglasActivas.find(r => r.id === reglaSeleccionada)?.tipo === 'POR_PRODUCTO' && (
-            <div className="pt-4 border-t border-gray-100">
-              <h3 className="font-medium text-gray-800 mb-3">Cantidad de Productos Especiales</h3>
-              <div className="space-y-2">
-                {reglasProducto.filter(r => r.id === reglaSeleccionada).map(r => {
-                  const qty = productos.find(p => p.id === r.id)?.qty || 0;
-                  return (
-                    <div key={r.id} className="flex justify-between items-center p-3 bg-gray-50 rounded border border-gray-200">
-                      <div>
-                        <span className="font-medium text-gray-800">{r.nombreProducto}</span>
-                        <span className="text-xs text-gray-500 ml-2">({r.puntosAOtorgar} pts c/u)</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button type="button" onClick={() => handleRemoveProduct(r.id)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 hover:bg-gray-100">-</button>
-                        <span className="w-4 text-center font-bold">{qty}</span>
-                        <button type="button" onClick={() => handleAddProduct(r.id)} className="w-8 h-8 flex items-center justify-center rounded-full bg-brand-primary text-white border border-blue-600 hover:bg-brand-primary-hover">+</button>
-                      </div>
-                    </div>
-                  );
-                })}
+              {/* Selector de Regla */}
+              <div>
+                <label className="block font-bold text-gray-700 dark:text-gray-300 mb-2">Seleccionar Regla / Promoción</label>
+                <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {reglasActivas.map(r => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        setReglaSeleccionada(r.id);
+                        if (r.tipo !== 'POR_PRODUCTO') setProductos([]);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                        reglaSeleccionada === r.id 
+                          ? 'border-brand-primary bg-brand-bg-light ring-2 ring-brand-primary' 
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="font-bold text-gray-800">
+                        {r.tipo === 'POR_COMPRA' && 'General por Compra'}
+                        {r.tipo === 'POR_PRODUCTO' && `Producto: ${r.nombreProducto}`}
+                        {r.tipo === 'POR_RANGO' && `Rango ($${r.rangoDesde}-$${r.rangoHasta})`}
+                        {r.tipo === 'POR_REGISTRO' && 'Bono Primer Registro'}
+                      </span>
+                      <span className="text-brand-primary font-black mt-1">+{r.puntosAOtorgar} pts</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
 
-          <div className="bg-brand-bg-light p-4 rounded-lg flex justify-between items-center border border-brand-border">
-            <span className="text-brand-text-dark font-medium">Puntos Calculados:</span>
-            <span className="text-2xl font-bold text-brand-primary">{puntosTotales}</span>
-          </div>
+              {/* Catálogo con Fotos para Productos Especiales */}
+              {reglasProducto.length > 0 && (
+                <div className="border-t pt-4 space-y-3">
+                  <label className="font-bold text-gray-700 dark:text-gray-300 block">Agregar Productos Especiales Vendidos</label>
+                  <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {reglasProducto.map(rp => {
+                      const prodItem = productos.find(p => p.id === rp.id);
+                      const qty = prodItem ? prodItem.qty : 0;
+                      return (
+                        <div key={rp.id} className="p-3 border rounded-xl bg-white flex items-center justify-between gap-2 shadow-sm">
+                          <div className="flex items-center gap-2">
+                            {rp.imagenUrl ? (
+                              <img src={rp.imagenUrl} alt="Foto" className="w-10 h-10 object-cover rounded-lg border" />
+                            ) : (
+                              <div className="w-10 h-10 bg-purple-100 text-purple-700 rounded-lg flex items-center justify-center font-bold text-xs">📦</div>
+                            )}
+                            <div>
+                              <strong className="block text-gray-800">{rp.nombreProducto}</strong>
+                              <span className="text-purple-600 font-bold">+{rp.puntosAOtorgar} pts c/u</span>
+                            </div>
+                          </div>
 
-          <button type="submit" className="w-full bg-brand-primary text-white font-medium py-3 rounded-lg hover:bg-brand-primary-hover transition shadow-sm">
-            Generar Código / QR
-          </button>
-        </form>
-      ) : (
-        <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center">
-          <h3 className="text-xl font-bold text-gray-800 mb-2">Código y QR Listo</h3>
-          <p className="text-gray-500 text-sm mb-6 text-center">Pídele al cliente que escanee este código desde su aplicación, o dale este código de 6 dígitos:</p>
-          
-          <div className="bg-white p-4 border-2 border-gray-200 rounded-xl mb-4">
-            <QRCodeSVG value={qrData} size={200} />
-          </div>
+                          <div className="flex items-center gap-1.5">
+                            {qty > 0 && (
+                              <button 
+                                type="button" 
+                                onClick={() => handleRemoveProduct(rp.id)} 
+                                className="w-6 h-6 bg-red-100 text-red-700 rounded font-black flex items-center justify-center cursor-pointer"
+                              >
+                                -
+                              </button>
+                            )}
+                            <span className="font-black px-1">{qty}</span>
+                            <button 
+                              type="button" 
+                              onClick={() => handleAddProduct(rp.id)} 
+                              className="w-6 h-6 bg-green-100 text-green-700 rounded font-black flex items-center justify-center cursor-pointer"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
-          <div className="bg-brand-bg-light w-full p-4 rounded text-center mb-8 border border-brand-border">
-            <p className="text-xs text-brand-text-dark font-medium mb-2 uppercase tracking-wider">Código de 6 dígitos (Uso Único):</p>
-            <div className="text-3xl font-black text-brand-primary tracking-widest select-all">{qrData}</div>
-          </div>
+              {/* Botón Generar QR */}
+              <div className="border-t pt-4 flex items-center justify-between">
+                <div>
+                  <span className="text-gray-400 block font-bold">Puntos a Entregar:</span>
+                  <span className="text-2xl font-black text-brand-primary">{puntosTotales} pts</span>
+                </div>
+                <button
+                  type="submit"
+                  disabled={!prepagoStatus.puedeOperar}
+                  className={`px-6 py-3 rounded-xl font-black text-white text-sm shadow transition ${
+                    prepagoStatus.puedeOperar ? 'bg-brand-primary hover:bg-brand-primary-hover cursor-pointer' : 'bg-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  Generar Código QR
+                </button>
+              </div>
 
-          <button 
-            onClick={() => {
-              setQrData(null);
-              setNroFactura('');
-              setMontoFactura('');
-              setProductos([]);
-            }} 
-            className="text-brand-primary font-medium hover:underline"
-          >
-            ← Volver y generar otra factura
-          </button>
-        </div>
-      )}
-      </>
-      )}
-
-      {activeTab === 'ESCANEAR' && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center">
-          <h3 className="font-bold text-lg mb-4 text-brand-text-dark">Escanear QR o Código de Canje</h3>
-          
-          {!escaneando ? (
-            <button 
-              onClick={() => setEscaneando(true)}
-              className="w-full max-w-sm bg-brand-secondary text-white font-medium py-4 rounded-xl shadow-md hover:opacity-90 transition flex items-center justify-center gap-2 mb-8"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
-              Abrir Cámara
-            </button>
+            </form>
           ) : (
-            <>
-              <div className="w-full max-w-sm overflow-hidden rounded-lg border-2 border-dashed border-brand-border relative bg-gray-50 flex items-center justify-center min-h-[250px]">
-                <Scanner 
-                  onScan={(result) => {
-                    if (result && result.length > 0) {
-                      procesarQRCanje(result[0].rawValue);
-                    }
-                  }}
-                />
-              </div>
-              <button 
-                onClick={() => setEscaneando(false)}
-                className="mt-4 text-red-600 font-medium hover:underline"
-              >
-                Cerrar Cámara
-              </button>
-            </>
-          )}
+            <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 text-center space-y-4 max-w-md mx-auto">
+              <h3 className="text-lg font-black text-gray-800 dark:text-white">Escanea el Código QR</h3>
+              <p className="text-xs text-gray-500">Pide al cliente que escanee este código desde su teléfono para recibir sus puntos.</p>
 
-          <div className="w-full max-w-sm mt-6 pt-6 border-t border-gray-100">
-            <p className="text-sm text-gray-600 mb-4 text-center">O ingresa el código de 6 dígitos del cliente:</p>
-            <div className="flex gap-2">
-              <input 
-                id="manual-qr-canje-input"
-                type="text" 
-                maxLength={6}
-                placeholder="Ej. 123456" 
-                className="flex-1 border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-secondary text-sm text-center font-bold tracking-widest"
-              />
-              <button 
-                onClick={() => {
-                  const input = document.getElementById('manual-qr-canje-input') as HTMLInputElement;
-                  if (input.value) procesarQRCanje(input.value.trim());
-                }}
-                className="bg-brand-secondary text-white px-4 py-2 rounded font-medium text-sm hover:opacity-90"
+              <div className="p-4 bg-white rounded-2xl shadow-md border inline-block">
+                <QRCodeSVG value={qrData} size={220} level="H" />
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-xs text-gray-400 font-bold uppercase block">O introduce el código de 6 dígitos</span>
+                <span className="text-3xl font-mono font-black text-brand-primary tracking-widest">{qrData}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setQrData(null)}
+                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 rounded-xl text-xs transition"
               >
-                Procesar
+                Cancelar y Nueva Venta
               </button>
             </div>
-          </div>
+          )}
+        </>
+      )}
+
+      {/* Pestaña Canjear Premio */}
+      {activeTab === 'ESCANEAR' && (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 max-w-lg mx-auto space-y-4 text-xs">
+          <h3 className="text-base font-black text-gray-800 dark:text-white">Validar Canje de Premio</h3>
+          <p className="text-gray-500">Ingresa el código numérico de 6 dígitos que el cliente generó al canjear su premio:</p>
+
+          {mensaje && (
+            <div className={`p-3 rounded-xl text-xs font-bold flex justify-between items-center ${
+              mensaje.tipo === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+            }`}>
+              <span>{mensaje.texto}</span>
+              <button type="button" onClick={() => setMensaje(null)} className="font-black ml-2">✕</button>
+            </div>
+          )}
+
+          <form onSubmit={handleProcesarCodigoPremio} className="space-y-4">
+            <div>
+              <label className="block font-bold text-gray-700 dark:text-gray-300 mb-1">Código de Canje (6 Dígitos)</label>
+              <input 
+                type="text" 
+                required
+                maxLength={6}
+                value={codigoManual}
+                onChange={(e) => setCodigoManual(e.target.value.replace(/\D/g, ''))}
+                placeholder="Ej: 849201"
+                className="w-full border rounded-xl px-3 py-2.5 font-mono text-center text-2xl font-black text-brand-primary tracking-widest"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={!prepagoStatus.puedeOperar}
+              className={`w-full py-3 rounded-xl font-black text-white text-sm shadow transition ${
+                prepagoStatus.puedeOperar ? 'bg-purple-600 hover:bg-purple-700 cursor-pointer' : 'bg-gray-400 cursor-not-allowed'
+              }`}
+            >
+              Validar y Descontar Premio
+            </button>
+          </form>
         </div>
       )}
+
     </div>
   );
 };

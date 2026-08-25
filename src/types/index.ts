@@ -1,10 +1,10 @@
-export type RolUsuario = 'cliente' | 'vendedor' | 'admin_comercio' | 'superadmin' | 'influencer';
+export type RolUsuario = 'cliente' | 'vendedor' | 'admin_comercio' | 'superadmin' | 'influencer' | 'contador';
 
 export interface Usuario {
   uid: string;
   email: string;
-  emailReal?: string; // Correo administrativo real para Admin/Influencer
-  usuario?: string; // Identificador de acceso sintético (ej: admin@dominio.io)
+  emailReal?: string; // Correo administrativo real para Admin/Influencer/Contador
+  usuario?: string; // Identificador de acceso sintético (ej: admin@dominio.io o contador@hipatia.io)
   pin?: string; // PIN de 6 dígitos para vendedores (sin Firebase Auth)
   nombre: string;
   rol: RolUsuario;
@@ -21,7 +21,7 @@ export interface Usuario {
   redesSociales?: string[]; // ej: ["https://instagram.com/user", ...]
   seguidores?: number;
   descripcion?: string;
-  prefijoCodigo?: string; // Ej: NAT (max 3 chars por convención general)
+  prefijoCodigo?: string; // Ej: NAT (único por influencer)
 }
 
 export type TipoRegla = 
@@ -36,6 +36,7 @@ export interface ReglaPunto {
   puntosAOtorgar?: number; // Opcional
   productoId?: string; // Para POR_PRODUCTO
   nombreProducto?: string;
+  imagenUrl?: string; // Fotografía opcional del producto
   rangoDesde?: number; // Para POR_RANGO
   rangoHasta?: number; // Para POR_RANGO
   activa: boolean;
@@ -44,6 +45,7 @@ export interface ReglaPunto {
 export interface ProductoCatalogo {
   id: string;
   nombre: string;
+  imagenUrl?: string; // Fotografía opcional optimizada
   activo: boolean;
 }
 
@@ -56,19 +58,30 @@ export interface Premio {
   activo: boolean;
 }
 
+export type ModalidadPagoComercio = 'PREPAGO' | 'PILOTO';
+
 export interface Comercio {
   id: string;
   nombre: string;
   nit_rut: string;
+  razonSocial?: string; // Razón Social opcional
   dominio?: string; // ej: "elcorte.io", "marca.io" (asignado por superadmin)
   logoUrl?: string;
   reglas: ReglaPunto[];
   premios: Premio[];
-  productos?: ProductoCatalogo[]; // Added
+  productos?: ProductoCatalogo[];
   createdAt: number;
   paletteId?: string; // Paleta de colores para todos los usuarios del comercio
   plan?: 'regular' | 'premium';
   estado?: 'activo' | 'bloqueado';
+
+  // --- FACTURACIÓN & PREPAGO ---
+  modalidadPago?: ModalidadPagoComercio; // 'PREPAGO' | 'PILOTO' (default: PILOTO)
+  mensualidadBs?: number; // Ej: 25.00
+  costoPorPremioBs?: number; // Ej: 1.25
+  recibeFactura?: boolean; // Booleano
+  mesesPagados?: string[]; // Meses pagados en formato 'YYYY-MM' (ej: ['2026-08', '2026-09'])
+  saldoPremiosBs?: number; // Saldo prepagado disponible para premios (ej: 60.00)
 }
 
 export interface SaldoPunto {
@@ -90,7 +103,7 @@ export interface Transaccion {
   vendedorId?: string; // Optional for CODIGO_INFLUENCER
   vendedorAlias?: string; // Nombre antes del @
   montoFactura?: number; // Optional for CODIGO_INFLUENCER
-  nroFactura?: string; // Optional for CODIGO_INFLUENCER
+  nroFactura?: string; // Optional for CODIGO_INFLUENCER (ej: 'S/F' o 'F-123')
   puntos: number;
   tipo: TipoTransaccion;
   premioId?: string; // Solo en caso de CANJE
@@ -147,10 +160,39 @@ export interface CodigoInfluencer {
 }
 
 export interface CanjeCodigo {
-  id: string; // clienteId_codigoId_fecha (si se requiere histórico, o solo clienteId_codigoId si se sobrescribe/borra cada 30 días, aunque por requerimiento es bloquear por 30 días, veremos la implementación)
+  id: string;
   clienteId: string;
   codigoId: string;
   comercioId: string;
   fechaCanje: number;
 }
 
+// --- FACTURACIÓN & PREPAGO ---
+
+export interface CobroPrepago {
+  id: string;
+  comercioId: string;
+  nombreComercio: string;
+  nitRut: string;
+  razonSocial?: string;
+  recibeFactura: boolean;
+  
+  contadorId: string;
+  contadorAlias: string;
+  fechaHora: number;
+  
+  montoTotal: number;
+  montoMensualidad: number;
+  mesesPagados: string[]; // ['2026-08', '2026-09']
+  montoPremios: number;
+  cantidadPremiosEquivalentes: number;
+  
+  codigoDeposito: string;
+  comprobanteUrl: string; // Data URL Base64 optimizada o URL
+  
+  estado: 'PENDIENTE_VERIFICACION' | 'VERIFICADO' | 'RECHAZADO';
+  verificadoPor?: string;
+  fechaVerificacion?: number;
+  
+  consumidoPremiosBs?: number; // Saldo de premios de este depósito ya consumido por canjes
+}

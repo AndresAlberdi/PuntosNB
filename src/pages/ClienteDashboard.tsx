@@ -9,6 +9,7 @@ import type { SaldoPunto, SesionQR, Transaccion, Premio, Comercio, CodigoInfluen
 import { CLIENT_AVATARS, getPaletteStyle } from '../utils/theme';
 import { generarCodigoUnicoQR } from '../utils/qr';
 import { validateCodeRedemption } from '../utils/influencers';
+import { checkComercioPrepagoStatus } from '../utils/reports';
 
 // ==========================================
 // SUB-VIEW: DASHBOARD INICIAL (BIENVENIDA)
@@ -43,22 +44,22 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Mensaje de Bienvenida */}
-      <div className="bg-white p-6 rounded-xl border border-brand-border shadow-sm flex items-center gap-4">
+      <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-sm flex items-center gap-4">
         <img 
           src={userData?.avatarUrl || CLIENT_AVATARS[0]} 
           alt="Avatar" 
           className="w-16 h-16 rounded-full border-2 border-brand-primary bg-white object-contain" 
         />
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">¡Hola, {userData?.nombre || 'Cliente'}!</h2>
-          <p className="text-sm text-gray-500">Bienvenido a tu monedero de fidelidad multi-marca. Revisa y canjea tus puntos.</p>
+          <h2 className="text-2xl font-black text-gray-800">¡Hola, {userData?.nombre || 'Cliente'}!</h2>
+          <p className="text-xs text-gray-500">Bienvenido a tu monedero de fidelidad multi-marca. Acumula y canjea premios en todos tus comercios favoritos.</p>
         </div>
       </div>
 
       {/* Tarjetas de Estadísticas */}
       <div className="grid grid-cols-2 gap-4">
         <Link to="/cliente/comercios" className="bg-gradient-to-br from-brand-primary to-brand-secondary text-white p-6 rounded-2xl shadow-sm border border-brand-border hover:shadow-md transition">
-          <span className="block text-xs uppercase font-semibold tracking-wider opacity-85">Puntos Disponibles</span>
+          <span className="block text-xs uppercase font-bold tracking-wider opacity-85">Puntos Disponibles</span>
           <span className="block text-4xl font-black mt-2">{puntosDisponibles}</span>
           <span className="block text-xs mt-1 opacity-75">En todos tus comercios</span>
         </Link>
@@ -75,29 +76,29 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
       <div className="grid sm:grid-cols-2 gap-4">
         <button
           onClick={onOpenScanner}
-          className="w-full bg-brand-primary hover:bg-brand-primary-hover text-white font-semibold py-4 rounded-xl shadow-md transition flex items-center justify-center gap-2 text-base"
+          className="w-full bg-brand-primary hover:bg-brand-primary-hover text-white font-bold py-4 rounded-xl shadow-md transition flex items-center justify-center gap-2 text-sm cursor-pointer"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
           Escanear Código para Acumular
         </button>
         <Link
           to="/cliente/comercios"
-          className="w-full bg-brand-bg-light hover:bg-opacity-80 text-brand-primary border border-brand-border font-semibold py-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-base"
+          className="w-full bg-brand-bg-light hover:bg-opacity-80 text-brand-primary border border-brand-border font-bold py-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-sm text-center"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
           Ver Todos los Comercios
         </Link>
       </div>
 
-      {/* Código de Canje */}
-      <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-xl border border-purple-100 shadow-sm">
-        <h3 className="text-lg font-bold text-purple-900 mb-2">¿Tienes un código de canje?</h3>
-        <p className="text-sm text-purple-700 mb-4">Ingresa el código para recibir puntos de regalo en tus comercios favoritos.</p>
+      {/* Código de Canje / Influencer */}
+      <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-2xl border border-purple-100 shadow-sm">
+        <h3 className="text-base font-black text-purple-900 mb-1">¿Tienes un código promocional o de influencer?</h3>
+        <p className="text-xs text-purple-700 mb-3">Ingresa el código para recibir puntos de regalo en tus comercios asociados.</p>
         <div className="flex gap-2">
           <input 
             type="text" 
             placeholder="Ej. NATGOLD" 
-            className="flex-1 border border-purple-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 font-bold uppercase tracking-wide"
+            className="flex-1 border border-purple-200 px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 font-bold uppercase tracking-wider text-sm bg-white"
             value={influencerCode}
             onChange={e => setInfluencerCode(e.target.value.toUpperCase())}
           />
@@ -109,7 +110,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
               setLoadingCanje(false);
               setInfluencerCode('');
             }}
-            className={`px-6 py-3 rounded-xl font-bold transition ${!influencerCode || loadingCanje ? 'bg-purple-200 text-purple-400 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'}`}
+            className={`px-5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer ${!influencerCode || loadingCanje ? 'bg-purple-200 text-purple-400 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'}`}
           >
             {loadingCanje ? '...' : 'Canjear'}
           </button>
@@ -117,52 +118,60 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
       </div>
 
       {/* Tus Comercios Activos */}
-      <div className="bg-white p-6 rounded-xl border border-brand-border shadow-sm">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Tus Comercios Activos</h3>
+      <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-sm">
+        <h3 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-4">Tus Comercios Activos</h3>
         {comerciosActivos.length === 0 ? (
-          <div className="text-center py-6 text-gray-500 text-sm">
+          <div className="text-center py-6 text-gray-400 text-xs">
             Aún no tienes puntos en ningún comercio. ¡Explora los comercios y empieza a acumular!
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            {comerciosActivos.map(c => (
-              <Link 
-                key={c.id} 
-                to={`/cliente/comercios/${c.id}`} 
-                className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-brand-border hover:bg-brand-bg-light transition"
-              >
-                {c.logoUrl ? (
-                  <img src={c.logoUrl} alt="Logo" className="w-12 h-12 object-contain rounded border bg-white flex-shrink-0" />
-                ) : (
-                  <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center font-bold text-gray-400 text-xs flex-shrink-0">NB</div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <h4 className="font-bold text-gray-800 text-sm truncate">{c.nombre}</h4>
-                  <span className="block text-xs font-bold text-brand-primary">{saldosMap[c.id]} Puntos</span>
-                </div>
-                <span className="text-gray-400 text-sm font-bold">➔</span>
-              </Link>
-            ))}
+            {comerciosActivos.map(c => {
+              const status = checkComercioPrepagoStatus(c);
+              return (
+                <Link 
+                  key={c.id} 
+                  to={`/cliente/comercios/${c.id}`} 
+                  className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-brand-border hover:bg-brand-bg-light transition relative"
+                >
+                  {c.logoUrl ? (
+                    <img src={c.logoUrl} alt="Logo" className="w-12 h-12 object-contain rounded-lg border bg-white flex-shrink-0" />
+                  ) : (
+                    <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center font-bold text-gray-400 text-xs flex-shrink-0">NB</div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-gray-800 text-sm truncate">{c.nombre}</h4>
+                      {!status.puedeOperar && (
+                        <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">Deshabilitado</span>
+                      )}
+                    </div>
+                    <span className="block text-xs font-black text-brand-primary">{saldosMap[c.id]} Puntos</span>
+                  </div>
+                  <span className="text-gray-400 text-xs font-bold">➔</span>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>
 
       {/* Historial Corto */}
-      <div className="bg-white p-6 rounded-xl border border-brand-border shadow-sm">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Movimientos Recientes</h3>
+      <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-sm">
+        <h3 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-4">Movimientos Recientes</h3>
         {transacciones.length === 0 ? (
-          <div className="text-center py-6 text-gray-500 text-sm">No hay transacciones registradas.</div>
+          <div className="text-center py-6 text-gray-400 text-xs">No hay transacciones registradas.</div>
         ) : (
           <ul className="divide-y divide-gray-100">
             {transacciones.slice(0, 5).map(tx => {
               const comercio = todosLosComercios.find(c => c.id === tx.comercioId);
               return (
-                <li key={tx.id} className="py-3 flex justify-between items-center text-sm">
+                <li key={tx.id} className="py-3 flex justify-between items-center text-xs">
                   <div className="min-w-0 flex-1 pr-4">
-                    <span className="font-semibold text-gray-800 block truncate">{comercio?.nombre || 'Comercio'}</span>
-                    <span className="text-xs text-gray-400 block">{new Date(tx.fechaHora).toLocaleDateString()} | {tx.tipo}</span>
+                    <span className="font-bold text-gray-800 block truncate">{comercio?.nombre || 'Comercio'}</span>
+                    <span className="text-[10px] text-gray-400 block">{new Date(tx.fechaHora).toLocaleDateString()} | {tx.tipo}</span>
                   </div>
-                  <span className={`font-bold ${tx.tipo === 'ACUMULACION' ? 'text-green-600' : 'text-red-600'}`}>
+                  <span className={`font-black text-sm ${tx.tipo === 'ACUMULACION' ? 'text-green-600' : 'text-red-600'}`}>
                     {tx.tipo === 'ACUMULACION' ? '+' : ''}{tx.puntos} pts
                   </span>
                 </li>
@@ -187,17 +196,18 @@ interface PremiosListProps {
 const PremiosList: React.FC<PremiosListProps> = ({ todosLosComercios, saldosMap, onGenerarCanje }) => {
   const [filter, setFilter] = useState<'ALL' | 'AVAILABLE'>('AVAILABLE');
   
-  // Flatten all active prizes
-  let premiosData: { comercio: Comercio, premio: Premio, saldo: number, canAfford: boolean }[] = [];
+  let premiosData: { comercio: Comercio, premio: Premio, saldo: number, canAfford: boolean, puedeOperar: boolean }[] = [];
   
   todosLosComercios.forEach(c => {
     const saldo = saldosMap[c.id] || 0;
-    c.premios.filter(p => p.activo).forEach(p => {
+    const status = checkComercioPrepagoStatus(c);
+    (c.premios || []).filter(p => p.activo).forEach(p => {
       premiosData.push({
         comercio: c,
         premio: p,
         saldo: saldo,
-        canAfford: saldo >= p.puntosRequeridos
+        canAfford: saldo >= p.puntosRequeridos,
+        puedeOperar: status.puedeOperar
       });
     });
   });
@@ -206,7 +216,6 @@ const PremiosList: React.FC<PremiosListProps> = ({ todosLosComercios, saldosMap,
     premiosData = premiosData.filter(d => d.canAfford);
   }
 
-  // Sort by affordability then by points required
   premiosData.sort((a, b) => {
     if (a.canAfford && !b.canAfford) return -1;
     if (!a.canAfford && b.canAfford) return 1;
@@ -217,19 +226,19 @@ const PremiosList: React.FC<PremiosListProps> = ({ todosLosComercios, saldosMap,
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <Link to="/cliente" className="text-sm font-semibold text-brand-primary hover:underline">← Volver al Dashboard</Link>
-          <h2 className="text-2xl font-bold text-gray-800 mt-2">Catálogo de Premios</h2>
+          <Link to="/cliente" className="text-xs font-bold text-brand-primary hover:underline">← Volver al Dashboard</Link>
+          <h2 className="text-2xl font-black text-gray-800 mt-1">Catálogo de Premios</h2>
         </div>
-        <div className="bg-gray-100 p-1 rounded-lg inline-flex">
+        <div className="bg-gray-100 p-1 rounded-xl inline-flex text-xs font-bold">
           <button 
             onClick={() => setFilter('AVAILABLE')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${filter === 'AVAILABLE' ? 'bg-white shadow-sm text-brand-primary' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-3 py-1.5 rounded-lg transition ${filter === 'AVAILABLE' ? 'bg-white shadow-sm text-brand-primary' : 'text-gray-500 hover:text-gray-700'}`}
           >
             Mis Alcanzables
           </button>
           <button 
             onClick={() => setFilter('ALL')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${filter === 'ALL' ? 'bg-white shadow-sm text-brand-primary' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-3 py-1.5 rounded-lg transition ${filter === 'ALL' ? 'bg-white shadow-sm text-brand-primary' : 'text-gray-500 hover:text-gray-700'}`}
           >
             Todos
           </button>
@@ -238,39 +247,44 @@ const PremiosList: React.FC<PremiosListProps> = ({ todosLosComercios, saldosMap,
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {premiosData.length === 0 ? (
-          <div className="col-span-full text-center py-12 text-gray-500 bg-white rounded-xl border">
+          <div className="col-span-full text-center py-12 text-gray-400 bg-white rounded-2xl border text-xs">
             No hay premios disponibles en esta categoría.
           </div>
         ) : (
           premiosData.map((d, idx) => (
-            <div key={`${d.comercio.id}_${d.premio.id}_${idx}`} className={`bg-white p-5 rounded-2xl border transition shadow-sm flex flex-col justify-between ${d.canAfford ? 'border-brand-border' : 'border-gray-100 opacity-75'}`}>
+            <div key={`${d.comercio.id}_${d.premio.id}_${idx}`} className={`bg-white p-5 rounded-2xl border transition shadow-sm flex flex-col justify-between text-xs ${d.canAfford ? 'border-brand-border' : 'border-gray-100 opacity-75'}`}>
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   {d.comercio.logoUrl ? (
-                    <img src={d.comercio.logoUrl} alt="Logo" className="w-6 h-6 object-contain rounded bg-white flex-shrink-0" />
+                    <img src={d.comercio.logoUrl} alt="Logo" className="w-7 h-7 object-contain rounded-md bg-white flex-shrink-0 border" />
                   ) : (
-                    <div className="w-6 h-6 bg-gray-100 rounded flex items-center justify-center font-bold text-gray-400 text-[10px] flex-shrink-0">NB</div>
+                    <div className="w-7 h-7 bg-brand-bg-light text-brand-primary rounded flex items-center justify-center font-bold text-[10px]">NB</div>
                   )}
-                  <span className="text-xs font-bold text-gray-500 truncate">{d.comercio.nombre}</span>
+                  <span className="font-bold text-gray-700 truncate">{d.comercio.nombre}</span>
                 </div>
-                <h3 className="font-bold text-gray-800 text-sm">{d.premio.nombre}</h3>
-                <p className="text-xs text-gray-500 mt-1 mb-3 line-clamp-2">{d.premio.descripcion}</p>
-                
-                <div className="flex items-center justify-between mt-auto">
-                  <span className={`text-sm font-black ${d.canAfford ? 'text-brand-primary' : 'text-gray-400'}`}>
-                    {d.premio.puntosRequeridos} pts
-                  </span>
-                  <span className="text-[10px] text-gray-400 font-medium">Tú tienes: {d.saldo} pts</span>
-                </div>
+                <strong className="block text-gray-800 text-sm">{d.premio.nombre}</strong>
+                <p className="text-gray-500 text-[11px] mt-1 line-clamp-2">{d.premio.descripcion}</p>
               </div>
-              <div className="mt-4 pt-4 border-t border-gray-50">
-                <button
-                  disabled={!d.canAfford}
-                  onClick={() => onGenerarCanje(d.comercio.id, d.premio)}
-                  className={`w-full py-2 rounded-lg text-sm font-bold transition ${d.canAfford ? 'bg-brand-primary text-white hover:bg-brand-primary-hover shadow-sm' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-                >
-                  {d.canAfford ? 'Canjear Premio' : 'Te faltan ' + (d.premio.puntosRequeridos - d.saldo) + ' pts'}
-                </button>
+
+              <div className="mt-4 pt-3 border-t flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-gray-400 font-bold uppercase block">Puntos</span>
+                  <span className="font-black text-brand-primary text-sm">{d.premio.puntosRequeridos} pts</span>
+                </div>
+                
+                {!d.puedeOperar ? (
+                  <span className="text-[10px] bg-red-100 text-red-700 px-2 py-1 rounded font-bold">
+                    Comercio Deshabilitado
+                  </span>
+                ) : (
+                  <button
+                    disabled={!d.canAfford}
+                    onClick={() => onGenerarCanje(d.comercio.id, d.premio)}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${d.canAfford ? 'bg-brand-primary text-white hover:bg-brand-primary-hover shadow-sm cursor-pointer' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                  >
+                    Canjear
+                  </button>
+                )}
               </div>
             </div>
           ))
@@ -281,155 +295,160 @@ const PremiosList: React.FC<PremiosListProps> = ({ todosLosComercios, saldosMap,
 };
 
 // ==========================================
-// SUB-VIEW: SELECTOR DE COMERCIOS (LISTADO)
+// SUB-VIEW: LISTA DE COMERCIOS
 // ==========================================
-interface ComerciosListProps {
-  todosLosComercios: Comercio[];
-  saldosMap: Record<string, number>;
-}
-
-const ComerciosList: React.FC<ComerciosListProps> = ({ todosLosComercios, saldosMap }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // Filtrar por búsqueda
-  const filtered = todosLosComercios.filter(c => 
-    c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.nit_rut.includes(searchQuery)
-  );
-
+const ComerciosList: React.FC<{ todosLosComercios: Comercio[], saldosMap: Record<string, number> }> = ({ todosLosComercios, saldosMap }) => {
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/cliente" className="text-sm font-semibold text-brand-primary hover:underline">← Volver al Dashboard</Link>
-          <h2 className="text-2xl font-bold text-gray-800 mt-2">Comercios Disponibles</h2>
+          <Link to="/cliente" className="text-xs font-bold text-brand-primary hover:underline">← Volver al Dashboard</Link>
+          <h2 className="text-2xl font-black text-gray-800 mt-1">Directorio de Comercios</h2>
         </div>
       </div>
 
-      {/* Buscador */}
-      <input 
-        type="text"
-        placeholder="Buscar por nombre o NIT..."
-        className="w-full border border-gray-300 px-4 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary"
-        value={searchQuery}
-        onChange={e => setSearchQuery(e.target.value)}
-      />
-
-      {/* Lista */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {filtered.length === 0 ? (
-          <div className="col-span-2 text-center py-12 text-gray-500">No se encontraron comercios.</div>
-        ) : (
-          filtered.map(c => {
-            const saldo = saldosMap[c.id] || 0;
-            return (
-              <div key={c.id} className="bg-white p-5 rounded-2xl border border-brand-border shadow-sm flex flex-col justify-between hover:shadow-md transition">
-                <div className="flex gap-4">
-                  {c.logoUrl ? (
-                    <img src={c.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded border bg-white flex-shrink-0" />
-                  ) : (
-                    <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center font-bold text-gray-400 text-lg flex-shrink-0">NB</div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-bold text-gray-800 text-base truncate">{c.nombre}</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">NIT: {c.nit_rut}</p>
-                    <p className="text-sm mt-2 font-medium text-gray-600">
-                      Saldo: <span className="font-bold text-brand-primary">{saldo} pts</span>
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-gray-50">
-                  <Link 
-                    to={`/cliente/comercios/${c.id}`}
-                    className="w-full bg-brand-primary hover:bg-brand-primary-hover text-white text-center font-medium py-2 rounded-lg block transition text-sm"
-                  >
-                    Entrar al Comercio
-                  </Link>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {todosLosComercios.map(c => {
+          const saldo = saldosMap[c.id] || 0;
+          const status = checkComercioPrepagoStatus(c);
+          return (
+            <Link
+              key={c.id}
+              to={`/cliente/comercios/${c.id}`}
+              className="bg-white p-5 rounded-2xl border border-gray-100 hover:border-brand-border shadow-sm hover:shadow-md transition flex flex-col justify-between text-xs"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                {c.logoUrl ? (
+                  <img src={c.logoUrl} alt="Logo" className="w-12 h-12 object-contain rounded-xl border bg-white flex-shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 bg-brand-bg-light text-brand-primary rounded-xl flex items-center justify-center font-black text-base border">NB</div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-bold text-gray-800 text-sm truncate">{c.nombre}</h4>
+                  <span className="text-[10px] text-gray-400">NIT: {c.nit_rut}</span>
                 </div>
               </div>
-            );
-          })
-        )}
+
+              {!status.puedeOperar && (
+                <div className="mb-2 p-1.5 bg-amber-50 text-amber-800 rounded-lg text-[10px] font-bold text-center">
+                  Comercio Deshabilitado Temporalmente
+                </div>
+              )}
+
+              <div className="pt-3 border-t flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-gray-400 font-bold uppercase block">Tu Saldo</span>
+                  <span className="text-base font-black text-brand-primary">{saldo} pts</span>
+                </div>
+                <span className="text-xs font-bold text-brand-primary">Ver Catálogo ➔</span>
+              </div>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
 };
 
 // ==========================================
-// SUB-VIEW: PÁGINA DE COMERCIO (DETALLADA)
+// SUB-VIEW: PERFIL DE UN COMERCIO
 // ==========================================
-interface ComercioDetailProps {
+const ComercioView: React.FC<{
   todosLosComercios: Comercio[];
   saldosMap: Record<string, number>;
   transacciones: Transaccion[];
   onOpenScanner: () => void;
   onGenerarCanje: (comercioId: string, premio: Premio) => void;
-}
-
-const ComercioDetail: React.FC<ComercioDetailProps> = ({
-  todosLosComercios,
-  saldosMap,
-  transacciones,
-  onOpenScanner,
-  onGenerarCanje
-}) => {
-  const { comercioId } = useParams<{ comercioId: string }>();
-  const comercio = todosLosComercios.find(c => c.id === comercioId);
+}> = ({ todosLosComercios, saldosMap, transacciones, onOpenScanner, onGenerarCanje }) => {
+  const { comercioId } = useParams();
   const navigate = useNavigate();
+  const comercio = todosLosComercios.find(c => c.id === comercioId);
 
   if (!comercio) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-500 font-semibold mb-4">Comercio no encontrado.</p>
-        <Link to="/cliente/comercios" className="text-brand-primary hover:underline">Volver a comercios</Link>
+        <p className="text-red-500 font-bold mb-4">Comercio no encontrado.</p>
+        <Link to="/cliente/comercios" className="text-brand-primary font-bold hover:underline">Volver a comercios</Link>
       </div>
     );
   }
 
-  // Filtrar saldo y transacciones de este comercio
   const saldo = saldosMap[comercio.id] || 0;
   const misTransacciones = transacciones.filter(tx => tx.comercioId === comercio.id);
-  const premiosActivos = comercio.premios.filter(p => p.activo);
+  const premiosActivos = (comercio.premios || []).filter(p => p.activo);
+  const productosCatalog = (comercio.productos || []).filter(p => p.activo);
+  const status = checkComercioPrepagoStatus(comercio);
 
   return (
-    <div style={getPaletteStyle(comercio.paletteId)} className="space-y-6 animate-fade-in">
-      {/* Cabecera del Comercio con su Palette */}
+    <div style={getPaletteStyle(comercio.paletteId)} className="space-y-6 animate-fade-in text-xs">
+      
+      {!status.puedeOperar && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-xl shadow-sm text-red-800">
+          <strong className="font-bold block">Comercio Deshabilitado Temporalmente</strong>
+          Este comercio no se encuentra habilitado para entregar puntos ni validar canjes en este momento.
+        </div>
+      )}
+
+      {/* Cabecera del Comercio */}
       <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           {comercio.logoUrl ? (
-            <img src={comercio.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded border bg-white flex-shrink-0" />
+            <img src={comercio.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded-xl border bg-white flex-shrink-0" />
           ) : (
-            <div className="w-16 h-16 bg-brand-bg-light text-brand-primary rounded flex items-center justify-center font-bold text-xl border border-brand-border flex-shrink-0">NB</div>
+            <div className="w-16 h-16 bg-brand-bg-light text-brand-primary rounded-xl flex items-center justify-center font-black text-xl border">NB</div>
           )}
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 leading-tight">{comercio.nombre}</h2>
-            <p className="text-xs text-gray-400 mt-1">NIT: {comercio.nit_rut}</p>
+            <h2 className="text-2xl font-black text-gray-800 leading-tight">{comercio.nombre}</h2>
+            <p className="text-[11px] text-gray-400 mt-0.5">NIT: {comercio.nit_rut}</p>
           </div>
         </div>
         
-        {/* Saldo de Puntos en Comercio */}
         <div className="text-right">
           <span className="block text-3xl font-black text-brand-primary">{saldo}</span>
-          <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Mis Puntos</span>
+          <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Mis Puntos</span>
         </div>
       </div>
 
-      {/* Botones de acción del comercio */}
+      {/* Botones de acción */}
       <div className="grid sm:grid-cols-2 gap-4">
         <button
           onClick={onOpenScanner}
-          className="bg-brand-primary hover:bg-brand-primary-hover text-white font-semibold py-3.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-sm"
+          disabled={!status.puedeOperar}
+          className={`font-bold py-3.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-sm ${
+            status.puedeOperar ? 'bg-brand-primary hover:bg-brand-primary-hover text-white cursor-pointer' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+          }`}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
           Acumular Puntos Aquí
         </button>
         <button
           onClick={() => navigate('/cliente/comercios')}
-          className="bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 font-medium py-3.5 rounded-xl transition text-sm text-center"
+          className="bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 font-bold py-3.5 rounded-xl transition text-sm text-center cursor-pointer"
         >
           ← Volver a Comercios
         </button>
       </div>
+
+      {/* Catálogo de Productos Especiales con Fotos */}
+      {productosCatalog.length > 0 && (
+        <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-sm space-y-3">
+          <h3 className="font-bold text-gray-800 uppercase tracking-wider text-xs border-b pb-2 text-brand-primary">
+            Productos Especiales que Suman Puntos
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {productosCatalog.map(prod => (
+              <div key={prod.id} className="p-2.5 bg-gray-50 rounded-xl border border-gray-100 flex flex-col items-center text-center">
+                {prod.imagenUrl ? (
+                  <img src={prod.imagenUrl} alt={prod.nombre} className="w-16 h-16 object-cover rounded-lg border mb-2 bg-white" />
+                ) : (
+                  <div className="w-16 h-16 bg-purple-100 text-purple-700 rounded-lg flex items-center justify-center font-bold text-xl mb-2">📦</div>
+                )}
+                <span className="font-bold text-gray-800 text-xs truncate w-full">{prod.nombre}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Catálogo y Movimientos */}
       <div className="grid md:grid-cols-2 gap-6">
@@ -437,24 +456,24 @@ const ComercioDetail: React.FC<ComercioDetailProps> = ({
         {/* Catálogo de Premios */}
         <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-sm flex flex-col justify-between">
           <div>
-            <h3 className="text-lg font-bold text-gray-800 mb-4 uppercase tracking-wider text-xs border-b pb-2 text-brand-primary border-brand-border">Premios de {comercio.nombre}</h3>
+            <h3 className="font-bold text-gray-800 mb-4 uppercase tracking-wider text-xs border-b pb-2 text-brand-primary">Premios de {comercio.nombre}</h3>
             {premiosActivos.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4 text-center">Este comercio no tiene premios disponibles por ahora.</p>
+              <p className="text-gray-400 py-4 text-center">Este comercio no tiene premios disponibles por ahora.</p>
             ) : (
               <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                 {premiosActivos.map(p => {
                   const canAfford = saldo >= p.puntosRequeridos;
                   return (
-                    <div key={p.id} className={`flex justify-between items-center p-3 rounded-lg border transition ${canAfford ? 'border-brand-border bg-brand-bg-light' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
+                    <div key={p.id} className={`flex justify-between items-center p-3 rounded-xl border transition ${canAfford ? 'border-brand-border bg-brand-bg-light' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
                       <div className="min-w-0 flex-1 pr-2">
-                        <strong className="block text-gray-800 text-sm truncate">{p.nombre}</strong>
-                        <span className="block text-xs text-gray-500 truncate">{p.descripcion}</span>
-                        <span className="block text-xs font-bold text-brand-primary mt-1">{p.puntosRequeridos} pts</span>
+                        <strong className="block text-gray-800 truncate">{p.nombre}</strong>
+                        <span className="block text-[11px] text-gray-500 truncate">{p.descripcion}</span>
+                        <span className="block text-xs font-black text-brand-primary mt-0.5">{p.puntosRequeridos} pts</span>
                       </div>
                       <button
-                        disabled={!canAfford}
+                        disabled={!canAfford || !status.puedeOperar}
                         onClick={() => onGenerarCanje(comercio.id, p)}
-                        className={`text-xs font-bold px-3 py-1.5 rounded transition ${canAfford ? 'bg-brand-primary text-white hover:bg-brand-primary-hover shadow-sm' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${canAfford && status.puedeOperar ? 'bg-brand-primary text-white hover:bg-brand-primary-hover shadow-sm cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
                       >
                         Canjear
                       </button>
@@ -468,21 +487,18 @@ const ComercioDetail: React.FC<ComercioDetailProps> = ({
 
         {/* Historial de Movimientos de este Comercio */}
         <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-sm">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 uppercase tracking-wider text-xs border-b pb-2 text-brand-primary border-brand-border">Tus Movimientos</h3>
+          <h3 className="font-bold text-gray-800 mb-4 uppercase tracking-wider text-xs border-b pb-2 text-brand-primary">Tus Movimientos</h3>
           {misTransacciones.length === 0 ? (
-            <p className="text-sm text-gray-500 py-4 text-center">No registras movimientos en este comercio.</p>
+            <p className="text-gray-400 py-4 text-center">No registras movimientos en este comercio.</p>
           ) : (
             <ul className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
               {misTransacciones.map(tx => (
-                <li key={tx.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 flex justify-between items-start text-xs">
+                <li key={tx.id} className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex justify-between items-start text-xs">
                   <div>
                     <span className="font-bold text-gray-800 block">{tx.tipo}</span>
                     <span className="text-gray-400 block mt-0.5">{new Date(tx.fechaHora).toLocaleString()}</span>
-                    {tx.tipo === 'ACUMULACION' && (tx.montoFactura || 0) > 0 && (
-                      <span className="text-gray-500 block mt-0.5">Factura: {tx.nroFactura} (${tx.montoFactura})</span>
-                    )}
                   </div>
-                  <span className={`font-bold text-sm ${tx.tipo === 'ACUMULACION' ? 'text-green-600' : 'text-red-600'}`}>
+                  <span className={`font-black ${tx.tipo === 'ACUMULACION' ? 'text-green-600' : 'text-red-600'}`}>
                     {tx.tipo === 'ACUMULACION' ? '+' : ''}{tx.puntos} pts
                   </span>
                 </li>
@@ -490,41 +506,41 @@ const ComercioDetail: React.FC<ComercioDetailProps> = ({
             </ul>
           )}
         </div>
+
       </div>
     </div>
   );
 };
 
 // ==========================================
-// COMPONENTE PRINCIPAL: CLIENTEDASHBOARD
+// MAIN COMPONENT: CLIENTE DASHBOARD
 // ==========================================
 const ClienteDashboard: React.FC = () => {
   const { userData } = useAuth();
   const navigate = useNavigate();
+
   const [todosLosComercios, setTodosLosComercios] = useState<Comercio[]>([]);
   const [saldosMap, setSaldosMap] = useState<Record<string, number>>({});
-  const [puntosUsados, setPuntosUsados] = useState(0);
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
+  const [puntosUsados, setPuntosUsados] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
-  // States para modales de QR
+  // Escaneo y canje
   const [escaneando, setEscaneando] = useState(false);
-  const [manualQrInput, setManualQrInput] = useState('');
-  const [qrCanje, setQrCanje] = useState<{ id: string, premio: string, puntos: number } | null>(null);
-  
-  // Mensajes globales
+  const [codigoManual, setCodigoManual] = useState('');
   const [mensaje, setMensaje] = useState<{ texto: string, tipo: 'success' | 'error' | 'info' } | null>(null);
+
+  // Modal QR de Canje
+  const [qrCanje, setQrCanje] = useState<{ id: string, premio: string, puntos: number } | null>(null);
 
   const cargarDatos = async () => {
     if (!userData) return;
     try {
-      // 1. Cargar todos los comercios
       const comerciosSnap = await getDocs(collection(db, 'comercios'));
       const listC: Comercio[] = [];
       comerciosSnap.forEach(d => listC.push(d.data() as Comercio));
       setTodosLosComercios(listC);
 
-      // 2. Cargar saldos del usuario
       const saldosQ = query(collection(db, 'puntos_saldos'), where('clienteId', '==', userData.uid));
       const saldosSnap = await getDocs(saldosQ);
       const sMap: Record<string, number> = {};
@@ -534,7 +550,6 @@ const ClienteDashboard: React.FC = () => {
       });
       setSaldosMap(sMap);
 
-      // 3. Cargar transacciones del usuario
       const txQ = query(collection(db, 'transacciones'), where('clienteId', '==', userData.uid));
       const txSnap = await getDocs(txQ);
       const listTx: Transaccion[] = [];
@@ -568,7 +583,7 @@ const ClienteDashboard: React.FC = () => {
     setMensaje({ texto: "Procesando código...", tipo: 'info' });
 
     try {
-      // 1. Primero verificar si es un código de canje / influencer
+      // 1. Verificar si es código de influencer
       const codRef = doc(db, 'codigos_influencer', cleanCode.toUpperCase());
       const codSnap = await getDoc(codRef);
       if (codSnap.exists()) {
@@ -576,7 +591,7 @@ const ClienteDashboard: React.FC = () => {
         return;
       }
 
-      // 2. Si no es código de influencer, procesar como sesión QR de comercio/vendedor
+      // 2. Sesión QR regular de vendedor
       const sesionRef = doc(db, 'sesiones_qr', cleanCode);
 
       await runTransaction(db, async (transaction) => {
@@ -591,6 +606,17 @@ const ClienteDashboard: React.FC = () => {
         }
         if (sesion.tipo !== 'ACUMULACION') {
           throw new Error("Este código no es para acumular puntos.");
+        }
+
+        // Verificar prepago del comercio
+        const comercioRef = doc(db, 'comercios', sesion.comercioId);
+        const comDoc = await transaction.get(comercioRef);
+        if (comDoc.exists()) {
+          const com = comDoc.data() as Comercio;
+          const status = checkComercioPrepagoStatus(com);
+          if (!status.puedeOperar) {
+            throw new Error("Comercio deshabilitado temporalmente.");
+          }
         }
 
         const saldoId = `${userData.uid}_${sesion.comercioId}`;
@@ -647,10 +673,9 @@ const ClienteDashboard: React.FC = () => {
 
   const handleCanjearCodigoInfluencer = async (codigoId: string) => {
     if (!userData) return;
-    setMensaje({ texto: "Validando código de canje...", tipo: 'info' });
+    setMensaje({ texto: "Validando código...", tipo: 'info' });
 
     try {
-      // 1. Lectura fuera de la transacción para obtener referencias
       const codRef = doc(db, 'codigos_influencer', codigoId);
       const codSnap = await getDoc(codRef);
       if (!codSnap.exists()) {
@@ -661,7 +686,17 @@ const ClienteDashboard: React.FC = () => {
         throw new Error("El código ingresado está inactivo.");
       }
 
-      // 2. Verificar canjes previos
+      // Validar prepago del comercio asociado al código
+      const comRef = doc(db, 'comercios', codigoData.comercioId);
+      const comSnap = await getDoc(comRef);
+      if (comSnap.exists()) {
+        const com = comSnap.data() as Comercio;
+        const status = checkComercioPrepagoStatus(com);
+        if (!status.puedeOperar) {
+          throw new Error("Comercio deshabilitado temporalmente.");
+        }
+      }
+
       const qCanjes = query(
         collection(db, 'canjes_codigo'), 
         where('clienteId', '==', userData.uid),
@@ -670,21 +705,17 @@ const ClienteDashboard: React.FC = () => {
       const canjesSnap = await getDocs(qCanjes);
       const canjesUsuario = canjesSnap.docs.map(d => d.data() as CanjeCodigo);
       
-      // 3. Buscar referencias
       const asignId = `${codigoData.comercioId}_${codigoData.influencerId}`;
       const asigRef = doc(db, 'asignaciones_influencer', asignId);
       const saldoId = `${userData.uid}_${codigoData.comercioId}`;
       const saldoRef = doc(db, 'puntos_saldos', saldoId);
       
-      // 4. Transacción atómica: TODOS los reads primero, luego los writes
       await runTransaction(db, async (transaction) => {
-        // --- READS (Siempre primero) ---
         const asigDoc = await transaction.get(asigRef);
         if (!asigDoc.exists()) throw new Error("La asignación del influencer no fue encontrada.");
         
         const saldoDoc = await transaction.get(saldoRef);
 
-        // --- VALIDACIONES ---
         const asigData = asigDoc.data() as AsignacionInfluencer;
         const validationResult = validateCodeRedemption(codigoData, asigData, canjesUsuario);
         if (!validationResult.success) {
@@ -693,14 +724,11 @@ const ClienteDashboard: React.FC = () => {
         
         const puntosAEntregarCliente = validationResult.puntosAEntregarCliente;
 
-        // --- WRITES (Posteriores a los reads) ---
-        // A. Actualizar Bolsa de la Asignacion
         transaction.update(asigRef, {
           puntosParaClientes: asigData.puntosParaClientes - puntosAEntregarCliente,
           updatedAt: Date.now()
         });
 
-        // B. Crear registro en canjes_codigo
         const nuevoCanjeRef = doc(collection(db, 'canjes_codigo'));
         const nuevoCanje: CanjeCodigo = {
           id: nuevoCanjeRef.id,
@@ -711,7 +739,6 @@ const ClienteDashboard: React.FC = () => {
         };
         transaction.set(nuevoCanjeRef, nuevoCanje);
 
-        // C. Crear Transaccion para historial
         const transaccionRef = doc(collection(db, 'transacciones'));
         const nuevaTransaccion: Transaccion = {
           id: transaccionRef.id,
@@ -728,7 +755,6 @@ const ClienteDashboard: React.FC = () => {
         };
         transaction.set(transaccionRef, nuevaTransaccion);
 
-        // D. Acreditar Puntos al Cliente
         if (saldoDoc.exists()) {
           const saldoActual = saldoDoc.data() as SaldoPunto;
           transaction.update(saldoRef, {
@@ -758,6 +784,15 @@ const ClienteDashboard: React.FC = () => {
   const generarQRCanje = async (comercioId: string, premio: Premio) => {
     if (!userData) return;
     try {
+      const com = todosLosComercios.find(c => c.id === comercioId);
+      if (com) {
+        const status = checkComercioPrepagoStatus(com);
+        if (!status.puedeOperar) {
+          setMensaje({ texto: "Comercio deshabilitado temporalmente.", tipo: 'error' });
+          return;
+        }
+      }
+
       setMensaje({ texto: "Generando código de canje...", tipo: 'info' });
       const codigo = await generarCodigoUnicoQR(db);
       const sesionData: Omit<SesionQR, 'id'> = {
@@ -780,29 +815,28 @@ const ClienteDashboard: React.FC = () => {
     }
   };
 
-  if (loading) return <div className="p-8 text-center">Cargando dashboard...</div>;
+  if (loading) return <div className="p-8 text-center text-gray-500">Cargando dashboard...</div>;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="w-full max-w-7xl mx-auto space-y-6 pb-12">
       
-      {/* Mensajes Globales de Notificación */}
+      {/* Mensajes Globales de Notificación en el mismo recuadro */}
       {mensaje && (
-        <div className={`p-4 rounded-xl border flex items-center justify-between shadow-sm animate-fade-in ${
-          mensaje.tipo === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 
-          mensaje.tipo === 'error' ? 'bg-red-50 text-red-800 border-red-200' : 
-          'bg-brand-bg-light text-brand-primary border-brand-border'
+        <div className={`p-4 rounded-xl border flex items-center justify-between shadow-sm text-xs font-bold ${
+          mensaje.tipo === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+          mensaje.tipo === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
+          'bg-brand-bg-light text-brand-text-dark border-brand-border'
         }`}>
-          <span className="font-medium text-sm">{mensaje.texto}</span>
-          <button className="font-bold text-xs" onClick={() => setMensaje(null)}>✕</button>
+          <span>{mensaje.texto}</span>
+          <button onClick={() => setMensaje(null)} className="font-black text-sm ml-2">✕</button>
         </div>
       )}
 
-      {/* Ruteador de Sub-vistas */}
       <Routes>
         <Route 
-          index 
+          path="/" 
           element={
-            <DashboardHome
+            <DashboardHome 
               todosLosComercios={todosLosComercios}
               saldosMap={saldosMap}
               puntosUsados={puntosUsados}
@@ -812,21 +846,29 @@ const ClienteDashboard: React.FC = () => {
             />
           } 
         />
-        
         <Route 
-          path="comercios" 
+          path="/premios" 
           element={
-            <ComerciosList
+            <PremiosList 
+              todosLosComercios={todosLosComercios}
+              saldosMap={saldosMap}
+              onGenerarCanje={generarQRCanje}
+            />
+          } 
+        />
+        <Route 
+          path="/comercios" 
+          element={
+            <ComerciosList 
               todosLosComercios={todosLosComercios}
               saldosMap={saldosMap}
             />
           } 
         />
-        
         <Route 
-          path="comercios/:comercioId" 
+          path="/comercios/:comercioId" 
           element={
-            <ComercioDetail
+            <ComercioView 
               todosLosComercios={todosLosComercios}
               saldosMap={saldosMap}
               transacciones={transacciones}
@@ -835,96 +877,76 @@ const ClienteDashboard: React.FC = () => {
             />
           } 
         />
-        <Route 
-          path="premios" 
-          element={
-            <PremiosList
-              todosLosComercios={todosLosComercios}
-              saldosMap={saldosMap}
-              onGenerarCanje={generarQRCanje}
-            />
-          } 
-        />
-
       </Routes>
 
-      {/* MODAL: CÁMARA ESCÁNER QR */}
+      {/* Modal Scanner / Introducción de Código */}
       {escaneando && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm flex flex-col items-center">
-            <h3 className="font-bold text-lg mb-4 text-gray-800">Escanear Código o QR</h3>
-            
-            <div className="w-full overflow-hidden rounded-xl border border-gray-200 relative bg-gray-50 flex items-center justify-center min-h-[250px]">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 text-center">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="font-black text-gray-800 text-sm">Escanear Código QR</h3>
+              <button onClick={() => setEscaneando(false)} className="text-gray-400 font-bold hover:text-black">✕</button>
+            </div>
+
+            <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-black shadow-inner">
               <Scanner 
                 onScan={(result) => {
                   if (result && result.length > 0) {
                     procesarQR(result[0].rawValue);
                   }
-                }}
+                }} 
               />
             </div>
-            
-            <div className="w-full mt-6 pt-4 border-t border-gray-100">
-              <p className="text-xs text-gray-500 mb-2 text-center">¿La cámara no funciona? Ingresa el código de 6 dígitos:</p>
+
+            <div className="pt-2 border-t space-y-2">
+              <span className="text-[11px] text-gray-400 font-bold uppercase block">O escribe el código numérico</span>
               <div className="flex gap-2">
                 <input 
                   type="text" 
-                  maxLength={6}
-                  placeholder="Ej. 123456" 
-                  className="flex-1 border border-gray-300 px-3 py-2 rounded-lg text-sm text-center font-bold tracking-widest focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                  value={manualQrInput}
-                  onChange={e => setManualQrInput(e.target.value)}
+                  placeholder="Ej: 492019" 
+                  value={codigoManual}
+                  onChange={(e) => setCodigoManual(e.target.value)}
+                  className="flex-1 border rounded-xl px-3 py-2 text-center font-mono font-black text-lg focus:outline-none focus:ring-2 focus:ring-brand-primary bg-white"
                 />
-                <button 
-                  onClick={() => {
-                    if (manualQrInput.trim()) {
-                      procesarQR(manualQrInput.trim());
-                      setManualQrInput('');
-                    }
-                  }}
-                  className="bg-brand-primary hover:bg-brand-primary-hover text-white px-4 py-2 rounded-lg font-medium text-sm transition"
+                <button
+                  onClick={() => procesarQR(codigoManual)}
+                  className="bg-brand-primary text-white font-bold px-4 py-2 rounded-xl text-xs hover:bg-brand-primary-hover transition cursor-pointer"
                 >
-                  Acumular
+                  Validar
                 </button>
               </div>
             </div>
-
-            <button 
-              onClick={() => setEscaneando(false)}
-              className="mt-6 text-sm font-semibold text-red-600 hover:underline"
-            >
-              Cancelar
-            </button>
           </div>
         </div>
       )}
 
-      {/* MODAL: QR DE CANJE ACTIVO */}
+      {/* Modal QR de Canje de Premio */}
       {qrCanje && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-sm w-full flex flex-col items-center">
-            <h3 className="text-xl font-bold text-gray-800 text-center mb-2">{qrCanje.premio}</h3>
-            <p className="text-gray-500 text-xs mb-6 text-center leading-relaxed">
-              Muestra este código al vendedor para descontar <strong>{qrCanje.puntos} pts</strong> y recibir tu premio.
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 text-center">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="font-black text-gray-800 text-sm">Presenta este Código</h3>
+              <button onClick={() => setQrCanje(null)} className="text-gray-400 font-bold hover:text-black">✕</button>
+            </div>
+
+            <p className="text-xs text-gray-600">
+              Muestra este código al vendedor para recibir tu premio: <strong>{qrCanje.premio}</strong> ({qrCanje.puntos} pts)
             </p>
-            
-            <div className="bg-white p-4 border border-gray-200 rounded-xl mb-4 shadow-sm">
-              <QRCodeSVG value={qrCanje.id} size={200} />
+
+            <div className="p-4 bg-white rounded-2xl shadow-md border inline-block">
+              <QRCodeSVG value={qrCanje.id} size={200} level="H" />
             </div>
 
-            <div className="bg-brand-bg-light w-full p-4 rounded-lg text-center mb-6 border border-brand-border">
-              <p className="text-xs text-brand-primary font-bold mb-2 uppercase tracking-wider">Código de Canje (6 dígitos):</p>
-              <div className="text-3xl font-black text-gray-800 tracking-widest select-all">{qrCanje.id}</div>
+            <div className="space-y-1">
+              <span className="text-[10px] text-gray-400 font-bold uppercase block">Código numérico</span>
+              <span className="text-3xl font-mono font-black text-brand-primary tracking-widest">{qrCanje.id}</span>
             </div>
 
-            <button 
-              onClick={() => {
-                setQrCanje(null);
-                cargarDatos(); // Recargar saldos al cerrar
-              }} 
-              className="bg-brand-primary hover:bg-brand-primary-hover text-white w-full py-2.5 rounded-xl font-semibold transition text-sm"
+            <button
+              onClick={() => setQrCanje(null)}
+              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
             >
-              Cerrar y Actualizar Saldo
+              Listo / Cerrar
             </button>
           </div>
         </div>
