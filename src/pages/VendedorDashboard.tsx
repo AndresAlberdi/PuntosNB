@@ -193,22 +193,32 @@ const VendedorDashboard: React.FC = () => {
   const calcularPuntos = () => {
     if (!comercio) return 0;
     
-    const reglaSel = comercio.reglas.find(r => r.id === reglaSeleccionada);
-    if (!reglaSel) return 0;
+    // 1. Puntos acumulados por productos especiales seleccionados
+    let ptsProductos = 0;
+    productos.forEach(prod => {
+      const reglaProd = comercio.reglas.find(r => r.id === prod.id);
+      if (reglaProd && reglaProd.activa) {
+        ptsProductos += prod.qty * (reglaProd.puntosAOtorgar || 0);
+      }
+    });
 
-    let pts = 0;
-    if (reglaSel.tipo === 'POR_COMPRA') {
-      const monto = Number(montoFactura) || 0;
-      pts = Math.floor(monto * (reglaSel.puntosAOtorgar || 0));
-    } else if (reglaSel.tipo === 'POR_PRODUCTO') {
-      const totalQty = productos.reduce((acc, p) => acc + p.qty, 0);
-      pts = totalQty * (reglaSel.puntosAOtorgar || 0);
-    } else if (reglaSel.tipo === 'POR_RANGO') {
-      pts = reglaSel.puntosAOtorgar || 0;
-    } else if (reglaSel.tipo === 'POR_REGISTRO') {
-      pts = reglaSel.puntosAOtorgar || 0;
+    // 2. Si hay productos agregados, sumamos los puntos de productos
+    const reglaSel = comercio.reglas.find(r => r.id === reglaSeleccionada);
+    
+    if (reglaSel) {
+      if (reglaSel.tipo === 'POR_COMPRA') {
+        const monto = Number(montoFactura) || 0;
+        return Math.floor(monto * (reglaSel.puntosAOtorgar || 0)) + ptsProductos;
+      } else if (reglaSel.tipo === 'POR_RANGO') {
+        return (reglaSel.puntosAOtorgar || 0) + ptsProductos;
+      } else if (reglaSel.tipo === 'POR_REGISTRO') {
+        return (reglaSel.puntosAOtorgar || 0) + ptsProductos;
+      } else if (reglaSel.tipo === 'POR_PRODUCTO') {
+        return ptsProductos;
+      }
     }
-    return pts;
+
+    return ptsProductos;
   };
 
   const generarQR = async (e: React.FormEvent) => {
@@ -381,7 +391,6 @@ const VendedorDashboard: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setReglaSeleccionada(r.id);
-                        if (r.tipo !== 'POR_PRODUCTO') setProductos([]);
                       }}
                       className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
                         reglaSeleccionada === r.id 
