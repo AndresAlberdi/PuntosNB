@@ -124,10 +124,14 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           <div className="bg-white/95 dark:bg-gray-900/95 border border-purple-200 dark:border-purple-800/50 shadow-2xl rounded-3xl p-6 flex flex-col items-center gap-4 max-w-[280px] w-full text-center transform scale-100 animate-scale-up">
             <div className="relative flex items-center justify-center">
               {/* Ruedita móvil animada con la paleta de Hipatia */}
-              <div className="w-14 h-14 border-4 border-purple-200 dark:border-purple-900/40 border-t-purple-600 dark:border-t-purple-400 rounded-full animate-spin"></div>
-              {/* Isotipo central */}
-              <div className="absolute w-6 h-6 flex items-center justify-center font-black text-xs text-purple-700 dark:text-purple-300">
-                H
+              <div className="w-16 h-16 border-4 border-purple-200 dark:border-purple-900/40 border-t-purple-600 dark:border-t-purple-400 rounded-full animate-spin"></div>
+              {/* Logo animado de Hipatia en el centro */}
+              <div className="absolute w-8 h-8 flex items-center justify-center">
+                <img 
+                  src="/logo-hipatia.png" 
+                  alt="Hipatia Logo" 
+                  className="w-7 h-7 object-contain animate-pulse"
+                />
               </div>
             </div>
             

@@ -75,6 +75,15 @@ describe('Consistencia de Modelos y Tipos', () => {
       activo: true
     };
 
+    const reglaRango: ReglaPunto = {
+      id: 'regla_rango_1',
+      tipo: 'POR_RANGO',
+      rangoDesde: 50,
+      rangoHasta: 200,
+      puntosAOtorgar: 20,
+      activa: true
+    };
+
     const mockComercio: Comercio = {
       id: 'comercio123',
       nombre: 'Comercio Test',
@@ -86,7 +95,7 @@ describe('Consistencia de Modelos y Tipos', () => {
       recibeFactura: true,
       mesesPagados: ['2026-08', '2026-09'],
       saldoPremiosBs: 50.0,
-      reglas: [regla],
+      reglas: [regla, reglaRango],
       premios: [premio],
       productos: [producto],
       createdAt: Date.now(),
@@ -96,6 +105,9 @@ describe('Consistencia de Modelos y Tipos', () => {
     expect(mockComercio.mesesPagados).toHaveLength(2);
     expect(mockComercio.productos?.[0].imagenUrl).toBeDefined();
     expect(mockComercio.reglas[0].imagenUrl).toBeDefined();
+    expect(mockComercio.reglas[1].tipo).toBe('POR_RANGO');
+    expect(mockComercio.reglas[1].rangoDesde).toBe(50);
+    expect(mockComercio.reglas[1].rangoHasta).toBe(200);
   });
 
   it('Debe validar la estructura de CobroPrepago para control contable', () => {
