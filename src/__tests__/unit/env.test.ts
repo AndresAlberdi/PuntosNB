@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isStaging, APP_TITLE, isSuperAdminEmail, SUPER_ADMIN_EMAILS } from '../../utils/env';
+import { isStaging, APP_TITLE, APP_VERSION, isSuperAdminEmail, SUPER_ADMIN_EMAILS } from '../../utils/env';
 
 describe('Environment Config Utility', () => {
   it('should evaluate isStaging based on project ID or mode', () => {
@@ -7,9 +7,10 @@ describe('Environment Config Utility', () => {
     expect(isStaging).toBe(expectedIsStaging);
   });
 
-  it('should return correct APP_TITLE based on isStaging', () => {
+  it('should return correct APP_TITLE and APP_VERSION based on isStaging', () => {
+    expect(APP_VERSION).toBeDefined();
     if (isStaging) {
-      expect(APP_TITLE).toBe('Hipatia (pruebas)');
+      expect(APP_TITLE).toBe(`Hipatia (pruebas v${APP_VERSION})`);
     } else {
       expect(APP_TITLE).toBe('Hipatia');
     }
