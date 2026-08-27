@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { Transaccion } from '../types';
+import type { Transaccion, Usuario } from '../types';
 import { isTransaccionInfluencer } from '../utils/reports';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { format } from 'date-fns';
@@ -12,6 +12,7 @@ interface CRMSectionProps {
 
 export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
+  const [influencersMapData, setInfluencersMapData] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [agrupacion, setAgrupacion] = useState<'dia' | 'semana' | 'mes'>('dia');
 
@@ -23,6 +24,17 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
         const data: Transaccion[] = [];
         snap.forEach(doc => data.push({ id: doc.id, ...doc.data() } as Transaccion));
         setTransacciones(data);
+
+        // Cargar nombres de influencers para mapeo
+        const qUsers = query(collection(db, 'users'), where('rol', '==', 'influencer'));
+        const snapUsers = await getDocs(qUsers);
+        const uMap: Record<string, string> = {};
+        snapUsers.forEach(d => {
+          const u = d.data() as Usuario;
+          uMap[u.uid] = u.nombre || u.emailReal || u.email.split('@')[0];
+        });
+        setInfluencersMapData(uMap);
+
       } catch (err) {
         console.error("Error cargando transacciones para CRM:", err);
       } finally {
@@ -54,7 +66,8 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
       // Separación Vendedores vs Influencers
       if (esInfluencer) {
         const infId = t.influencerId || t.vendedorId || 'inf_desconocido';
-        const infAlias = (t.vendedorAlias && t.vendedorAlias !== 'INFLUENCER') ? t.vendedorAlias : (t.influencerId ? t.influencerId.slice(0, 6) : 'Influencer');
+        const realName = influencersMapData[infId];
+        const infAlias = realName || ((t.vendedorAlias && t.vendedorAlias !== 'INFLUENCER') ? t.vendedorAlias : (t.influencerId ? t.influencerId.slice(0, 6) : 'Influencer'));
         if (!influencersMap[infId]) {
           influencersMap[infId] = { alias: infAlias, codigoId: t.codigoId, puntos: 0, canjes: 0 };
         }
