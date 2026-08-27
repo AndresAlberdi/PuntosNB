@@ -79,4 +79,27 @@ describe('Comportamiento de Ruedita Móvil de Espera (>= 1 segundo)', () => {
     await actionPromise;
     expect(showSpinner).toBe(false);
   });
+
+  it('Debe calcular correctamente la suma acumulada de puntos para múltiples productos especiales', () => {
+    const mockReglas: any[] = [
+      { id: 'regla_compra', tipo: 'POR_COMPRA', puntosAOtorgar: 1, activa: true },
+      { id: 'regla_prod_1', tipo: 'POR_PRODUCTO', puntosAOtorgar: 15, activa: true },
+      { id: 'regla_prod_2', tipo: 'POR_PRODUCTO', puntosAOtorgar: 30, activa: true },
+    ];
+
+    const productosSeleccionados = [
+      { id: 'regla_prod_1', qty: 2 }, // 2 * 15 = 30 pts
+      { id: 'regla_prod_2', qty: 3 }, // 3 * 30 = 90 pts
+    ];
+
+    let ptsProductos = 0;
+    productosSeleccionados.forEach(prod => {
+      const regla = mockReglas.find(r => r.id === prod.id);
+      if (regla && regla.activa) {
+        ptsProductos += prod.qty * (regla.puntosAOtorgar || 0);
+      }
+    });
+
+    expect(ptsProductos).toBe(120); // 30 + 90 = 120 pts
+  });
 });

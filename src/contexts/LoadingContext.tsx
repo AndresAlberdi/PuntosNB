@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 
 interface LoadingContextType {
   isGlobalLoading: boolean;
@@ -46,72 +46,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
-  // Interceptor global inteligente: cualquier clic en botones / submits
-  // iniciará una guardia visual de espera si la operación demora más de 1000ms.
-  useEffect(() => {
-    let clickTimer: any = null;
-    let isProcessingClick = false;
-
-    const handleFormSubmit = () => {
-      // Iniciar guardia de 1 segundo para envíos de formularios
-      activeOperationsRef.current += 1;
-      if (!timerRef.current && activeOperationsRef.current === 1) {
-        timerRef.current = setTimeout(() => {
-          if (activeOperationsRef.current > 0) {
-            setShowSpinner(true);
-          }
-        }, 1000);
-      }
-      
-      // Auto-limpieza tras 15 segundos si no hay recarga o error no capturado
-      setTimeout(() => {
-        if (activeOperationsRef.current > 0) {
-          activeOperationsRef.current = Math.max(0, activeOperationsRef.current - 1);
-          if (activeOperationsRef.current === 0) {
-            if (timerRef.current) {
-              clearTimeout(timerRef.current);
-              timerRef.current = null;
-            }
-            setShowSpinner(false);
-          }
-        }
-      }, 15000);
-    };
-
-    const handleButtonClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      const button = target?.closest('button, input[type="submit"], [role="button"]');
-      
-      if (!button) return;
-
-      // Si el botón está deshabilitado o ya estamos esperando, no hacer nada
-      if (button.hasAttribute('disabled') || button.getAttribute('aria-disabled') === 'true') {
-        return;
-      }
-
-      // Si no hay temporizador activo y no es un simple botón de cierre modal sin red
-      if (!isProcessingClick && activeOperationsRef.current === 0) {
-        isProcessingClick = true;
-        clickTimer = setTimeout(() => {
-          // Si tras 1 segundo hay procesos activos o fetch pendientes
-          if (activeOperationsRef.current > 0) {
-            setShowSpinner(true);
-          }
-          isProcessingClick = false;
-        }, 1000);
-      }
-    };
-
-    window.addEventListener('click', handleButtonClick, true);
-    window.addEventListener('submit', handleFormSubmit, true);
-
-    return () => {
-      window.removeEventListener('click', handleButtonClick, true);
-      window.removeEventListener('submit', handleFormSubmit, true);
-      if (clickTimer) clearTimeout(clickTimer);
-    };
-  }, []);
-
+  // Monitoreo seguro de acciones asíncronas
   return (
     <LoadingContext.Provider value={{ isGlobalLoading: showSpinner, startAsyncAction }}>
       {children}
