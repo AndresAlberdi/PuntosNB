@@ -143,11 +143,28 @@ const AdminDashboard: React.FC = () => {
     }
 
     if (nuevaRegla.tipo === 'POR_RANGO') {
-      const desde = Number(nuevaRegla.rangoDesde) || 0;
-      const hasta = Number(nuevaRegla.rangoHasta) || 0;
+      const desde = Number(nuevaRegla.rangoDesde);
+      const hasta = Number(nuevaRegla.rangoHasta);
       
+      if (isNaN(desde) || isNaN(hasta) || desde < 0 || hasta <= 0) {
+        alert("Por favor ingresa montos válidos mayores o iguales a 0.");
+        return;
+      }
+
       if (desde >= hasta) {
-        alert("El monto 'Desde' debe ser menor al monto 'Hasta'.");
+        alert("El monto 'Desde' ($" + desde + ") debe ser estrictamente menor al monto 'Hasta' ($" + hasta + ").");
+        return;
+      }
+
+      // Validar si existe solapamiento con otra regla activa por rango
+      const solapa = (comercio.reglas || []).some(r => {
+        if (!r.activa || r.tipo !== 'POR_RANGO' || r.rangoDesde === undefined || r.rangoHasta === undefined) return false;
+        // Solapamiento: (desde < r.rangoHasta) && (hasta > r.rangoDesde)
+        return (desde < r.rangoHasta && hasta > r.rangoDesde);
+      });
+
+      if (solapa) {
+        alert("El rango de montos ($" + desde + " - $" + hasta + ") se solapa con otra regla por rango ya activa.");
         return;
       }
     }
@@ -531,6 +548,41 @@ const AdminDashboard: React.FC = () => {
                       <option key={p.id} value={p.id}>{p.nombre}</option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {nuevaRegla.tipo === 'POR_RANGO' && (
+                <div className="space-y-2 bg-blue-50/60 p-3 rounded-xl border border-blue-100">
+                  <span className="text-[11px] font-extrabold text-blue-800 uppercase tracking-wide block">Rango de Monto de Compra ($)</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1 text-[11px]">Monto Desde ($)</label>
+                      <input 
+                        type="number" 
+                        required 
+                        min="0" 
+                        step="0.01" 
+                        placeholder="Ej: 50" 
+                        className="w-full border rounded-lg px-3 py-2 bg-white font-bold" 
+                        value={nuevaRegla.rangoDesde !== undefined ? nuevaRegla.rangoDesde : ''} 
+                        onChange={(e) => setNuevaRegla({...nuevaRegla, rangoDesde: parseFloat(e.target.value) || 0})} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1 text-[11px]">Monto Hasta ($)</label>
+                      <input 
+                        type="number" 
+                        required 
+                        min="0" 
+                        step="0.01" 
+                        placeholder="Ej: 200" 
+                        className="w-full border rounded-lg px-3 py-2 bg-white font-bold" 
+                        value={nuevaRegla.rangoHasta !== undefined ? nuevaRegla.rangoHasta : ''} 
+                        onChange={(e) => setNuevaRegla({...nuevaRegla, rangoHasta: parseFloat(e.target.value) || 0})} 
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-blue-600 block">El monto 'Desde' debe ser estrictamente menor al monto 'Hasta'.</span>
                 </div>
               )}
 
