@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import type { RolUsuario, Comercio } from './types';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { LoadingProvider } from './contexts/LoadingContext';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import VendedorDashboard from './pages/VendedorDashboard';
@@ -607,13 +608,15 @@ function App() {
   }
 
   return (
-    <AuthProvider>
-      <Router>
-        <Layout>
-          <AppRoutes />
-        </Layout>
-      </Router>
-    </AuthProvider>
+    <LoadingProvider>
+      <AuthProvider>
+        <Router>
+          <Layout>
+            <AppRoutes />
+          </Layout>
+        </Router>
+      </AuthProvider>
+    </LoadingProvider>
   );
 }
 
