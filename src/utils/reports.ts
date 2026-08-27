@@ -59,6 +59,8 @@ export interface ResumenComercioActividad {
   comercioId: string;
   nombreComercio: string;
   nitRut: string;
+  estado?: 'activo' | 'bloqueado';
+  plan?: 'regular' | 'premium';
   puntosOtorgados: number;
   premiosCanjeadosCount: number;
   puntosCanjeados: number;
@@ -129,7 +131,7 @@ export const isTransaccionInfluencer = (t: Transaccion): boolean => {
 /**
  * Calcula métricas y rankings Top 20 para el Administrador de Comercio.
  */
-export const calculateAdminComercioReport = (transacciones: Transaccion[]): AdminComercioReport => {
+export const calculateAdminComercioReport = (transacciones: Transaccion[], usersMap?: Record<string, string>): AdminComercioReport => {
   const clientesSet = new Set<string>();
   let puntosGenerados = 0;
   let premiosCanjeadosCount = 0;
@@ -163,11 +165,13 @@ export const calculateAdminComercioReport = (transacciones: Transaccion[]): Admi
       // Ranking Vendedores vs Influencers
       if (esInfluencer) {
         const infId = t.influencerId || t.vendedorId || 'inf_desconocido';
-        const infAlias = (t.vendedorAlias && t.vendedorAlias !== 'INFLUENCER') ? t.vendedorAlias : (t.influencerId ? t.influencerId.slice(0, 6) : 'Influencer');
+        const realName = usersMap ? usersMap[infId] : undefined;
+        const infAlias = realName || ((t.vendedorAlias && t.vendedorAlias !== 'INFLUENCER') ? t.vendedorAlias : (t.influencerId ? t.influencerId.slice(0, 6) : 'Influencer'));
         const currInf = influencerMap.get(infId) || { alias: infAlias, codigoId: t.codigoId, puntos: 0, canjes: 0 };
         currInf.puntos += t.puntos || 0;
         currInf.canjes += 1;
         if (t.codigoId) currInf.codigoId = t.codigoId;
+        if (realName) currInf.alias = realName;
         influencerMap.set(infId, currInf);
       } else if (t.vendedorId) {
         const vendAlias = t.vendedorAlias || t.vendedorId.slice(0, 6);
@@ -306,6 +310,8 @@ export const calculateSuperAdminReport = (
       comercioId: c.id,
       nombreComercio: c.nombre,
       nitRut: c.nit_rut,
+      estado: c.estado || 'activo',
+      plan: c.plan || 'regular',
       puntosOtorgados: 0,
       premiosCanjeadosCount: 0,
       puntosCanjeados: 0,
@@ -332,6 +338,8 @@ export const calculateSuperAdminReport = (
         comercioId: t.comercioId,
         nombreComercio: `Comercio (${t.comercioId.slice(0, 6)})`,
         nitRut: '-',
+        estado: 'activo',
+        plan: 'regular',
         puntosOtorgados: 0,
         premiosCanjeadosCount: 0,
         puntosCanjeados: 0,
@@ -384,12 +392,16 @@ export const calculateSuperAdminReport = (
   }
 
   const comerciosActividad = Array.from(comerciosMap.values()).sort((a, b) => {
+    // Primero comercios no bloqueados
+    if (a.estado === 'bloqueado' && b.estado !== 'bloqueado') return 1;
+    if (a.estado !== 'bloqueado' && b.estado === 'bloqueado') return -1;
     if (a.tieneActividad && !b.tieneActividad) return -1;
     if (!a.tieneActividad && b.tieneActividad) return 1;
     return b.puntosOtorgados - a.puntosOtorgados;
   });
 
-  const totalComerciosActivos = comerciosActividad.filter(c => c.tieneActividad).length;
+  // Comercios activos = No bloqueados y con estado activo
+  const totalComerciosActivos = comerciosActividad.filter(c => c.estado !== 'bloqueado').length;
 
   const topUsuariosConsumoGlobal: TopUsuarioConsumo[] = Array.from(consumoMapGlobal.entries())
     .map(([clienteId, data]) => ({

@@ -5,7 +5,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { QRCodeSVG } from 'qrcode.react';
-import type { SaldoPunto, SesionQR, Transaccion, Premio, Comercio, CodigoInfluencer, AsignacionInfluencer, CanjeCodigo } from '../types';
+import type { SaldoPunto, SesionQR, Transaccion, Premio, Comercio, CodigoInfluencer, AsignacionInfluencer, CanjeCodigo, Usuario } from '../types';
 import { CLIENT_AVATARS, getPaletteStyle } from '../utils/theme';
 import { generarCodigoUnicoQR } from '../utils/qr';
 import { validateCodeRedemption } from '../utils/influencers';
@@ -739,6 +739,11 @@ const ClienteDashboard: React.FC = () => {
         };
         transaction.set(nuevoCanjeRef, nuevoCanje);
 
+        // Obtener nombre del influencer
+        const infDoc = await transaction.get(doc(db, 'users', codigoData.influencerId));
+        const infData = infDoc.exists() ? (infDoc.data() as Usuario) : null;
+        const nombreInfluencer = infData?.nombre || infData?.email?.split('@')[0] || 'Influencer';
+
         const transaccionRef = doc(collection(db, 'transacciones'));
         const nuevaTransaccion: Transaccion = {
           id: transaccionRef.id,
@@ -747,9 +752,11 @@ const ClienteDashboard: React.FC = () => {
           clienteAlias: userData.email?.split('@')[0] || 'Cliente',
           comercioId: asigData.comercioId,
           vendedorId: codigoData.influencerId,
-          vendedorAlias: 'INFLUENCER',
+          vendedorAlias: nombreInfluencer,
+          influencerId: codigoData.influencerId,
+          codigoId: codigoId,
           montoFactura: 0,
-          nroFactura: 'CÓDIGO INF',
+          nroFactura: `CÓDIGO ${codigoId}`,
           puntos: puntosAEntregarCliente,
           tipo: 'ACUMULACION',
         };

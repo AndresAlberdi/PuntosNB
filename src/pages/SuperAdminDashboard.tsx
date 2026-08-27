@@ -808,7 +808,13 @@ const SuperAdminDashboard: React.FC = () => {
                     <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center font-bold text-gray-400 text-sm flex-shrink-0">NB</div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <strong className="block truncate text-[var(--text-main)] text-base">{c.nombre} {c.estado === 'bloqueado' && <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded ml-2">BLOQUEADO</span>}</strong>
+                    <strong className="block truncate text-[var(--text-main)] text-base">
+                      {c.nombre} 
+                      <span className={`text-xs px-2 py-0.5 rounded ml-2 font-bold uppercase ${c.plan === 'premium' ? 'bg-purple-100 text-purple-800 border border-purple-300' : 'bg-gray-100 text-gray-700 border border-gray-200'}`}>
+                        {c.plan === 'premium' ? '★ Premium' : 'Regular'}
+                      </span>
+                      {c.estado === 'bloqueado' && <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded ml-2 font-bold">BLOQUEADO</span>}
+                    </strong>
                     <span className="text-xs text-[var(--text-muted)] block truncate">
                       Dominio: <span className="font-mono text-brand-primary">{c.dominio || '-'}</span> | NIT: {c.nit_rut} | Modalidad: <span className="font-bold uppercase text-emerald-600">{c.modalidadPago || 'PILOTO'}</span>
                     </span>
@@ -837,12 +843,22 @@ const SuperAdminDashboard: React.FC = () => {
                     
                     <div className="grid grid-cols-2 gap-2">
                       <div>
+                        <label className="sa-label">Categoría / Plan del Comercio</label>
+                        <select className="sa-input font-bold" value={editComercioPlan} onChange={e=>setEditComercioPlan(e.target.value as any)}>
+                          <option value="regular">Regular</option>
+                          <option value="premium">Premium</option>
+                        </select>
+                      </div>
+                      <div>
                         <label className="sa-label">Modalidad Comercial</label>
                         <select className="sa-input" value={editModalidadPago} onChange={e=>setEditModalidadPago(e.target.value as any)}>
                           <option value="PILOTO">Piloto</option>
                           <option value="PREPAGO">Prepago</option>
                         </select>
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="sa-label">Emisión de Factura</label>
                         <select className="sa-input" value={editRecibeFactura ? 'SI' : 'NO'} onChange={e=>setEditRecibeFactura(e.target.value === 'SI')}>
@@ -850,19 +866,17 @@ const SuperAdminDashboard: React.FC = () => {
                           <option value="NO">No recibe</option>
                         </select>
                       </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="sa-label">Mensualidad (Bs)</label>
                         <input type="text" inputMode="decimal" className="sa-input" value={editMensualidadBs} onChange={e=>setEditMensualidadBs(e.target.value)} placeholder="Ej: 25.00 o 25,00" />
                         <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma</span>
                       </div>
-                      <div>
-                        <label className="sa-label">Costo por Premio (Bs)</label>
-                        <input type="text" inputMode="decimal" className="sa-input" value={editCostoPorPremioBs} onChange={e=>setEditCostoPorPremioBs(e.target.value)} placeholder="Ej: 1.25 o 1,25" />
-                        <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma</span>
-                      </div>
+                    </div>
+
+                    <div>
+                      <label className="sa-label">Costo por Premio (Bs)</label>
+                      <input type="text" inputMode="decimal" className="sa-input" value={editCostoPorPremioBs} onChange={e=>setEditCostoPorPremioBs(e.target.value)} placeholder="Ej: 1.25 o 1,25" />
+                      <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma</span>
                     </div>
 
                     <div className="flex gap-2 pt-2">

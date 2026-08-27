@@ -5,6 +5,7 @@ import {
   getDateRangeBetween,
   filterTransactionsByTimeRange,
   calculateAdminComercioReport,
+  calculateSuperAdminReport,
   checkComercioPrepagoStatus,
 } from '../../utils/reports';
 
@@ -158,16 +159,30 @@ describe('Pruebas del Módulo de Reportes', () => {
     };
 
     // Caso: Mes actual pagado
-    const fechaAgosto = new Date(2026, 7, 15); // Agosto 15, 2026
-    const statusAgosto = checkComercioPrepagoStatus(comPrepago, fechaAgosto);
-    expect(statusAgosto.puedeOperar).toBe(true);
-    expect(statusAgosto.puedeCanjearPremios).toBe(true);
-    expect(statusAgosto.premiosDisponibles).toBe(20);
+    const statusPrepago = checkComercioPrepagoStatus(comPrepago, new Date(2026, 7, 15)); // Agosto 2026
+    expect(statusPrepago.puedeOperar).toBe(true);
+    expect(statusPrepago.puedeCanjearPremios).toBe(true);
+    expect(statusPrepago.premiosDisponibles).toBe(20);
 
     // Caso: Mes siguiente impago
     const fechaSept = new Date(2026, 8, 1); // Sept 1, 2026
     const statusSept = checkComercioPrepagoStatus(comPrepago, fechaSept);
     expect(statusSept.puedeOperar).toBe(false);
     expect(statusSept.alertaRojaMensualidad).toBe(true);
+  });
+
+  it('Debe calcular correctamente totalComerciosActivos excluyendo comercios bloqueados en SuperAdminReport', () => {
+    const comerciosList: Comercio[] = [
+      { id: 'com1', nombre: 'Comercio 1', nit_rut: '111', estado: 'activo', reglas: [], premios: [], createdAt: 0 },
+      { id: 'com2', nombre: 'Comercio 2', nit_rut: '222', estado: 'bloqueado', reglas: [], premios: [], createdAt: 0 },
+      { id: 'com3', nombre: 'Comercio 3', nit_rut: '333', estado: 'activo', reglas: [], premios: [], createdAt: 0 },
+    ];
+
+    const report = calculateSuperAdminReport(mockTransacciones, comerciosList);
+    expect(report.totalComercios).toBe(3);
+    expect(report.totalComerciosActivos).toBe(2); // com1 y com3 (excluye com2 bloqueado)
+    
+    const com2Report = report.comerciosActividad.find(c => c.comercioId === 'com2');
+    expect(com2Report?.estado).toBe('bloqueado');
   });
 });

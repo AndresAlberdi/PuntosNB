@@ -57,11 +57,22 @@ const Reportes: React.FC = () => {
     return [current - 2, current - 1, current, current + 1];
   }, []);
 
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({});
+
   useEffect(() => {
     const fetchData = async () => {
       if (!userData) return;
       setLoading(true);
       try {
+        // Cargar nombres de usuarios / influencers
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const uMap: Record<string, string> = {};
+        usersSnap.forEach(d => {
+          const u = d.data() as any;
+          uMap[u.uid] = u.nombre || u.emailReal || u.email?.split('@')[0];
+        });
+        setUsersMap(uMap);
+
         if (userData.rol === 'superadmin') {
           const comSnap = await getDocs(collection(db, 'comercios'));
           const comsData: Comercio[] = comSnap.docs.map(doc => doc.data() as Comercio);
@@ -116,8 +127,8 @@ const Reportes: React.FC = () => {
   }, [transaccionesRaw, tipoFiltro, selectedYear, selectedMonth, fechaInicioStr, fechaFinStr]);
 
   const adminReport = useMemo(() => {
-    return calculateAdminComercioReport(transaccionesFiltradas);
-  }, [transaccionesFiltradas]);
+    return calculateAdminComercioReport(transaccionesFiltradas, usersMap);
+  }, [transaccionesFiltradas, usersMap]);
 
   const vendedorReport = useMemo(() => {
     return calculateVendedorReport(transaccionesFiltradas, userData?.uid || '');
@@ -637,10 +648,15 @@ const Reportes: React.FC = () => {
                   {superAdminReport.comerciosActividad.map((ca) => (
                     <tr key={ca.comercioId} className="hover:bg-gray-50 transition">
                       <td className="px-4 py-3 font-bold text-gray-800 flex items-center gap-2">
-                        {ca.nombreComercio}
-                        {!ca.tieneActividad && (
+                        <span>{ca.nombreComercio}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${ca.plan === 'premium' ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-gray-100 text-gray-700 border border-gray-200'}`}>
+                          {ca.plan === 'premium' ? 'Premium' : 'Regular'}
+                        </span>
+                        {ca.estado === 'bloqueado' ? (
+                          <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-bold">BLOQUEADO</span>
+                        ) : !ca.tieneActividad ? (
                           <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded font-normal">Sin actividad</span>
-                        )}
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 font-mono text-gray-500">{ca.nitRut}</td>
                       <td className="px-4 py-3 text-center font-bold text-gray-700">{ca.usuariosUnicos}</td>
