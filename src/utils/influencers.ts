@@ -30,7 +30,9 @@ export function validateCodeRedemption(
     };
   }
   
-  const puntosAEntregarCliente = asigData.ratio.cliente || 10;
+  const puntosAEntregarCliente = (codigoData.puntosPorCanje && codigoData.puntosPorCanje > 0) 
+    ? codigoData.puntosPorCanje 
+    : (asigData.ratio?.cliente || 10);
   
   if (asigData.puntosParaClientes < puntosAEntregarCliente) {
     return { 

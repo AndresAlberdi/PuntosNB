@@ -3,7 +3,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Transaccion, Usuario } from '../types';
 import { isTransaccionInfluencer } from '../utils/reports';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+import { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { format } from 'date-fns';
 
 interface CRMSectionProps {
@@ -237,7 +237,10 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
       {/* Chart */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-base font-bold text-gray-800">📈 Actividad del Comercio</h3>
+          <div>
+            <h3 className="text-base font-bold text-gray-800">📈 Actividad del Comercio</h3>
+            <p className="text-xs text-gray-400">Puntos emitidos (Barras) y Canjes de Premios (Línea)</p>
+          </div>
           <select 
             className="border-gray-300 rounded-md text-xs font-semibold border p-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
             value={agrupacion}
@@ -256,14 +259,15 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
+              <ComposedChart data={chartData}>
                 <XAxis dataKey="label" fontSize={12} tickLine={false} />
-                <YAxis fontSize={12} tickLine={false} />
+                <YAxis yAxisId="left" fontSize={12} tickLine={false} />
+                <YAxis yAxisId="right" orientation="right" fontSize={12} tickLine={false} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="Puntos" fill="#3B82F6" radius={[4, 4, 0, 0]} name="Puntos Emitidos" />
-                <Bar dataKey="Canjes" fill="#EAB308" radius={[4, 4, 0, 0]} name="Canjes de Premios" />
-              </BarChart>
+                <Bar yAxisId="left" dataKey="Puntos" fill="#3B82F6" radius={[4, 4, 0, 0]} name="Puntos Emitidos" />
+                <Line yAxisId="right" type="monotone" dataKey="Canjes" stroke="#EAB308" strokeWidth={3} dot={{ fill: '#EAB308', r: 4 }} activeDot={{ r: 6 }} name="Canjes de Premios" />
+              </ComposedChart>
             </ResponsiveContainer>
           )}
         </div>
