@@ -257,7 +257,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                 <input 
                   type="number" 
                   required 
-                  min="1" 
+                  min="0" 
                   className="w-24 border border-gray-300 rounded px-3 py-2 bg-white" 
                   value={ratioInfluencer} 
                   onChange={e => setRatioInfluencer(Number(e.target.value))} 
@@ -555,7 +555,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                   <input 
                     type="number" 
                     required 
-                    min="1" 
+                    min="0" 
                     className="w-full border border-gray-300 rounded px-3 py-2" 
                     value={acceptRatioInf} 
                     onChange={e => setAcceptRatioInf(Number(e.target.value))} 

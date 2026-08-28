@@ -85,9 +85,23 @@ describe('Pruebas del Módulo de Influencers', () => {
     expect(resInf.errorMsg).toContain('no está activa');
   });
 
-  it('Debe rechazar el canje si no quedan puntos en la campaña', () => {
-    const asigSinPuntos: AsignacionInfluencer = { ...baseAsig, puntosParaClientes: 5 }; // ratio exige 10
-    const result = validateCodeRedemption(baseCodigo, asigSinPuntos, []);
+  it('Debe respetar los puntos definidos por el influencer en el código sobre el ratio de la alianza', () => {
+    const codigoPersonalizado: CodigoInfluencer = {
+      ...baseCodigo,
+      puntosPorCanje: 25
+    };
+    const result = validateCodeRedemption(codigoPersonalizado, baseAsig, []);
+    expect(result.success).toBe(true);
+    expect(result.puntosAEntregarCliente).toBe(25);
+    expect(result.puntosRestantesCampaña).toBe(75);
+  });
+
+  it('Debe rechazar el canje si los puntos personalizados superan la bolsa restante', () => {
+    const codigoPersonalizado: CodigoInfluencer = {
+      ...baseCodigo,
+      puntosPorCanje: 150
+    };
+    const result = validateCodeRedemption(codigoPersonalizado, baseAsig, []);
     expect(result.success).toBe(false);
     expect(result.errorMsg).toContain('superado su límite de puntos');
   });

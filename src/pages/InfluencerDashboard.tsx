@@ -101,66 +101,90 @@ export const InfluencerDashboard: React.FC = () => {
     }
   };
 
-  // Crear o editar código con validación de prefijo y no duplicidad vigente
-  const handleCrearOEditarCodigo = async (asig: AsignacionInfluencer) => {
+  // Modal para Crear/Editar Código de Campaña
+  const [modalConfigCodigo, setModalConfigCodigo] = useState<{
+    asig: AsignacionInfluencer;
+    sufijo: string;
+    puntosSeguidor: number;
+    codigoExistenteId?: string;
+  } | null>(null);
+
+  const abrirModalCodigo = (asig: AsignacionInfluencer) => {
+    const comercioNombre = comerciosMap[asig.comercioId]?.nombre || 'COMERCIO';
+    const cleanComercioName = comercioNombre.replace(/\s+/g, '').toUpperCase().substring(0, 5);
+    const prefijo = userData?.prefijoCodigo ? userData.prefijoCodigo.trim().toUpperCase() : 'INF';
+    
+    const codigoExistente = codigos.find(c => c.comercioId === asig.comercioId);
+    let sufijoInicial = cleanComercioName;
+    if (codigoExistente && codigoExistente.id.startsWith(prefijo)) {
+      sufijoInicial = codigoExistente.id.substring(prefijo.length);
+    }
+
+    setModalConfigCodigo({
+      asig,
+      sufijo: sufijoInicial,
+      puntosSeguidor: codigoExistente?.puntosPorCanje || asig.ratio?.cliente || 10,
+      codigoExistenteId: codigoExistente?.id
+    });
+  };
+
+  const handleGuardarCodigoModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalConfigCodigo || !userData) return;
+
     try {
-      const prefijo = userData?.prefijoCodigo ? userData.prefijoCodigo.trim().toUpperCase() : 'INF';
-      const comercioNombre = comerciosMap[asig.comercioId]?.nombre || 'COMERCIO';
-      const cleanComercioName = comercioNombre.replace(/\s+/g, '').toUpperCase().substring(0, 5);
-      const codigoSugerido = `${prefijo}${cleanComercioName}`;
-      
-      const codigoExistente = codigos.find(c => c.comercioId === asig.comercioId);
-      
-      const codigoId = window.prompt(
-        codigoExistente 
-          ? `Modifica tu código único de campaña para ${comercioNombre} (Debe iniciar con "${prefijo}"):` 
-          : `Ingresa el código que deseas usar para la campaña en ${comercioNombre} (Debe iniciar con "${prefijo}", Ej. ${codigoSugerido}):`, 
-        codigoExistente ? codigoExistente.id : codigoSugerido
-      );
-      if (!codigoId) return;
-
-      const cleanCode = codigoId.trim().toUpperCase();
-
-      // 1. Validación de Prefijo Obligatorio
-      if (!cleanCode.startsWith(prefijo)) {
-        alert(`❌ ERROR: Tu código de campaña debe comenzar estrictamente con tu prefijo oficial "${prefijo}". Ejemplo válido: ${prefijo}PROMO`);
+      const prefijo = userData.prefijoCodigo ? userData.prefijoCodigo.trim().toUpperCase() : 'INF';
+      const cleanSufijo = modalConfigCodigo.sufijo.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!cleanSufijo) {
+        alert("Debes ingresar un nombre o sufijo para tu código.");
         return;
       }
 
-      // 2. Validación de duplicidad / código no vencido en otros influencers o activo
-      const checkSnap = await getDocs(query(collection(db, 'codigos_influencer'), where('id', '==', cleanCode)));
+      const fullCode = `${prefijo}${cleanSufijo}`;
+      const pts = Number(modalConfigCodigo.puntosSeguidor);
+      if (isNaN(pts) || pts <= 0) {
+        alert("Los puntos para el seguidor deben ser un número mayor a 0.");
+        return;
+      }
+
+      if (pts > modalConfigCodigo.asig.puntosParaClientes) {
+        alert(`No puedes asignar ${pts} pts por canje porque tu bolsa restante en este comercio es de ${modalConfigCodigo.asig.puntosParaClientes} pts.`);
+        return;
+      }
+
+      // Validación de duplicidad / código no vencido en otros influencers o activo
+      const checkSnap = await getDocs(query(collection(db, 'codigos_influencer'), where('id', '==', fullCode)));
       if (!checkSnap.empty) {
         const docEncontrado = checkSnap.docs[0].data() as CodigoInfluencer;
-        if (docEncontrado.influencerId !== userData?.uid) {
-          alert("Este código ya está en uso por otro influencer. Por favor, elige otro.");
+        if (docEncontrado.influencerId !== userData.uid) {
+          alert("Este código ya está en uso por otro influencer. Por favor, elige otra combinación.");
           return;
-        } else if (docEncontrado.comercioId !== asig.comercioId) {
-          // Ya lo tiene en otro comercio y no ha vencido
+        } else if (docEncontrado.comercioId !== modalConfigCodigo.asig.comercioId) {
           const tiempoUso = Date.now() - (docEncontrado.fechaUltimaRenovacion || docEncontrado.createdAt);
           if (tiempoUso < THIRTY_DAYS_MS) {
-            alert(`No puedes reasignar el código "${cleanCode}" porque está activo en otra campaña y aún no ha vencido.`);
+            alert(`No puedes reasignar el código "${fullCode}" porque está activo en otra campaña y aún no ha vencido.`);
             return;
           }
         }
       }
 
-      if (codigoExistente && codigoExistente.id !== cleanCode) {
-        await deleteDoc(doc(db, 'codigos_influencer', codigoExistente.id));
+      if (modalConfigCodigo.codigoExistenteId && modalConfigCodigo.codigoExistenteId !== fullCode) {
+        await deleteDoc(doc(db, 'codigos_influencer', modalConfigCodigo.codigoExistenteId));
       }
 
-      // Guardar nuevo código
       const nuevoCodigo: CodigoInfluencer = {
-        id: cleanCode,
-        influencerId: userData!.uid,
-        comercioId: asig.comercioId,
-        puntosPorCanje: asig.ratio?.cliente || 10,
+        id: fullCode,
+        influencerId: userData.uid,
+        comercioId: modalConfigCodigo.asig.comercioId,
+        puntosPorCanje: pts,
         estado: 'ACTIVO',
-        createdAt: codigoExistente ? codigoExistente.createdAt : Date.now(),
+        createdAt: Date.now(),
         fechaUltimaRenovacion: Date.now(),
       };
 
-      await setDoc(doc(db, 'codigos_influencer', cleanCode), nuevoCodigo);
-      alert(`¡Código "${cleanCode}" configurado con éxito!`);
+      await setDoc(doc(db, 'codigos_influencer', fullCode), nuevoCodigo);
+      alert(`¡Código "${fullCode}" configurado con éxito con ${pts} puntos para tus seguidores!`);
+      setModalConfigCodigo(null);
       fetchData();
     } catch (err) {
       console.error(err);
@@ -451,7 +475,7 @@ export const InfluencerDashboard: React.FC = () => {
                         </div>
                       ) : (
                         <button 
-                          onClick={() => handleCrearOEditarCodigo(asig)}
+                          onClick={() => abrirModalCodigo(asig)}
                           className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer"
                         >
                           Generar Código
@@ -478,10 +502,10 @@ export const InfluencerDashboard: React.FC = () => {
 
                   <div className="p-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
                     <button 
-                      onClick={() => handleCrearOEditarCodigo(asig)}
+                      onClick={() => abrirModalCodigo(asig)}
                       className="text-xs text-blue-600 hover:text-blue-800 font-bold cursor-pointer"
                     >
-                      ✏️ Cambiar Código
+                      ✏️ Configurar Código / Puntos
                     </button>
                     <button 
                       onClick={() => handleEliminarAlianza(asig)}
@@ -591,6 +615,102 @@ export const InfluencerDashboard: React.FC = () => {
                 Cerrar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Configurar Código y Puntos de Campaña */}
+      {modalConfigCodigo && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 text-xs">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div>
+                <h3 className="font-black text-gray-800 dark:text-white text-base">Configurar Código de Campaña</h3>
+                <p className="text-gray-400 text-[11px]">{comerciosMap[modalConfigCodigo.asig.comercioId]?.nombre || 'Comercio'}</p>
+              </div>
+              <button onClick={() => setModalConfigCodigo(null)} className="text-gray-400 font-bold hover:text-black">✕</button>
+            </div>
+
+            <form onSubmit={handleGuardarCodigoModal} className="space-y-4">
+              {/* Prefijo Inmutable + Sufijo */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Código de Campaña (Prefijo Oficial Fijo)
+                </label>
+                <div className="flex rounded-xl overflow-hidden border border-purple-300 dark:border-purple-700 focus-within:ring-2 focus-within:ring-purple-500">
+                  <span className="bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 font-mono font-black px-3 py-2.5 flex items-center select-none text-sm border-r border-purple-200 dark:border-purple-800">
+                    {userData?.prefijoCodigo || 'INF'}
+                  </span>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="PROMO26" 
+                    value={modalConfigCodigo.sufijo} 
+                    onChange={e => setModalConfigCodigo({
+                      ...modalConfigCodigo,
+                      sufijo: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+                    })}
+                    className="flex-1 px-3 py-2.5 font-mono font-black text-sm uppercase bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none"
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Código final: <strong className="font-mono text-purple-700 dark:text-purple-300">{userData?.prefijoCodigo || 'INF'}{modalConfigCodigo.sufijo || '...'}</strong> (El prefijo oficial es asignado por SuperAdmin y no puede ser alterado).
+                </p>
+              </div>
+
+              {/* Puntos para el usuario seguidor */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Puntos a Entregar al Seguidor por Canje
+                </label>
+                <input 
+                  type="number" 
+                  required 
+                  min="1" 
+                  max={modalConfigCodigo.asig.puntosParaClientes}
+                  value={modalConfigCodigo.puntosSeguidor} 
+                  onChange={e => setModalConfigCodigo({
+                    ...modalConfigCodigo,
+                    puntosSeguidor: Number(e.target.value)
+                  })}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-3 py-2 text-sm font-black text-purple-700 dark:text-purple-300 bg-white dark:bg-gray-700"
+                />
+                <span className="text-[10px] text-gray-400 block mt-0.5">
+                  Bolsa disponible en este comercio: {modalConfigCodigo.asig.puntosParaClientes} pts.
+                </span>
+              </div>
+
+              {/* Cálculo automático de puntos para el influencer */}
+              <div className="bg-purple-50 dark:bg-purple-950/40 p-3.5 rounded-xl border border-purple-100 dark:border-purple-800 space-y-1">
+                <span className="text-[10px] font-bold text-purple-800 dark:text-purple-300 uppercase block">Rendimiento Estimado por Canje:</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600 dark:text-gray-300">Puntos para el Seguidor:</span>
+                  <strong className="text-purple-700 dark:text-purple-300 font-black">+{modalConfigCodigo.puntosSeguidor || 0} pts</strong>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600 dark:text-gray-300">Tus Puntos Ganados (Ratio {modalConfigCodigo.asig.ratio.cliente}:{modalConfigCodigo.asig.ratio.influencer}):</span>
+                  <strong className="text-green-600 dark:text-green-400 font-black">
+                    +{modalConfigCodigo.asig.ratio.cliente > 0 ? Math.floor((modalConfigCodigo.puntosSeguidor || 0) * (modalConfigCodigo.asig.ratio.influencer / modalConfigCodigo.asig.ratio.cliente)) : 0} pts
+                  </strong>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t">
+                <button 
+                  type="button" 
+                  onClick={() => setModalConfigCodigo(null)} 
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 rounded-xl transition cursor-pointer shadow"
+                >
+                  Guardar y Activar
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
