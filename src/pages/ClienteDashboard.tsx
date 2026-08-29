@@ -3,6 +3,7 @@ import { collection, query, where, getDocs, doc, runTransaction, setDoc, getDoc 
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useGlobalLoading } from '../contexts/LoadingContext';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { QRCodeSVG } from 'qrcode.react';
 import type { SaldoPunto, SesionQR, Transaccion, Premio, Comercio, AsignacionInfluencer, CanjeCodigo, Usuario } from '../types';
@@ -20,7 +21,7 @@ interface DashboardHomeProps {
   puntosUsados: number;
   transacciones: Transaccion[];
   onOpenScanner: () => void;
-  onCanjearCodigoInfluencer: (codigo: string) => Promise<void>;
+  onCanjearCodigoInfluencer: (codigo: string) => Promise<{ ok: boolean; msg: string }>;
 }
 
 const DashboardHome: React.FC<DashboardHomeProps> = ({
@@ -34,6 +35,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   const { userData } = useAuth();
   const [influencerCode, setInfluencerCode] = useState('');
   const [loadingCanje, setLoadingCanje] = useState(false);
+  const [canjeFeedback, setCanjeFeedback] = useState<{ texto: string; tipo: 'success' | 'error' } | null>(null);
   
   // Calcular puntos disponibles totales
   const puntosDisponibles = Object.values(saldosMap).reduce((a, b) => a + b, 0);
@@ -91,30 +93,50 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
       </div>
 
       {/* Código de Canje / Influencer */}
-      <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-2xl border border-purple-100 shadow-sm">
-        <h3 className="text-base font-black text-purple-900 mb-1">¿Tienes un código promocional o de influencer?</h3>
-        <p className="text-xs text-purple-700 mb-3">Ingresa el código para recibir puntos de regalo en tus comercios asociados.</p>
+      <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-2xl border border-purple-100 shadow-sm space-y-3">
+        <div>
+          <h3 className="text-base font-black text-purple-900 mb-1">¿Tienes un código promocional o de influencer?</h3>
+          <p className="text-xs text-purple-700">Ingresa el código para recibir puntos de regalo en tus comercios asociados.</p>
+        </div>
         <div className="flex gap-2">
           <input 
             type="text" 
             placeholder="Ej. NATGOLD" 
             className="flex-1 border border-purple-200 px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 font-bold uppercase tracking-wider text-sm bg-white"
             value={influencerCode}
-            onChange={e => setInfluencerCode(e.target.value.toUpperCase())}
+            onChange={e => {
+              setInfluencerCode(e.target.value.toUpperCase());
+              setCanjeFeedback(null);
+            }}
           />
           <button 
             disabled={!influencerCode || loadingCanje}
             onClick={async () => {
               setLoadingCanje(true);
-              await onCanjearCodigoInfluencer(influencerCode);
+              setCanjeFeedback(null);
+              const res = await onCanjearCodigoInfluencer(influencerCode);
               setLoadingCanje(false);
-              setInfluencerCode('');
+              setCanjeFeedback({ texto: res.msg, tipo: res.ok ? 'success' : 'error' });
+              if (res.ok) {
+                setInfluencerCode('');
+              }
             }}
             className={`px-5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer ${!influencerCode || loadingCanje ? 'bg-purple-200 text-purple-400 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'}`}
           >
             {loadingCanje ? '...' : 'Canjear'}
           </button>
         </div>
+        
+        {/* Mensaje adyacente al botón de canje */}
+        {canjeFeedback && (
+          <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold animate-fade-in ${
+            canjeFeedback.tipo === 'success' ? 'bg-green-100 text-green-800 border-green-300' :
+            'bg-red-100 text-red-800 border-red-300'
+          }`}>
+            <span>{canjeFeedback.texto}</span>
+            <button onClick={() => setCanjeFeedback(null)} className="font-black text-sm ml-2">✕</button>
+          </div>
+        )}
       </div>
 
       {/* Tus Comercios Activos */}
@@ -517,6 +539,7 @@ const ComercioView: React.FC<{
 // ==========================================
 const ClienteDashboard: React.FC = () => {
   const { userData } = useAuth();
+  const { startAsyncAction } = useGlobalLoading();
   const navigate = useNavigate();
 
   const [todosLosComercios, setTodosLosComercios] = useState<Comercio[]>([]);
@@ -528,7 +551,7 @@ const ClienteDashboard: React.FC = () => {
   // Escaneo y canje
   const [escaneando, setEscaneando] = useState(false);
   const [codigoManual, setCodigoManual] = useState('');
-  const [mensaje, setMensaje] = useState<{ texto: string, tipo: 'success' | 'error' | 'info' } | null>(null);
+  const [scannerMsg, setScannerMsg] = useState<{ texto: string, tipo: 'success' | 'error' } | null>(null);
 
   // Modal QR de Canje
   const [qrCanje, setQrCanje] = useState<{ id: string, premio: string, puntos: number } | null>(null);
@@ -579,290 +602,297 @@ const ClienteDashboard: React.FC = () => {
     const cleanCode = rawCode.trim();
     if (!cleanCode) return;
 
-    setEscaneando(false);
-    setMensaje({ texto: "Procesando código...", tipo: 'info' });
+    setScannerMsg(null);
 
-    try {
-      // 1. Verificar si es código de influencer
-      const codRef = doc(db, 'codigos_influencer', cleanCode.toUpperCase());
-      const codSnap = await getDoc(codRef);
-      if (codSnap.exists()) {
-        await handleCanjearCodigoInfluencer(cleanCode.toUpperCase());
-        return;
-      }
-
-      // 2. Sesión QR regular de vendedor
-      const sesionRef = doc(db, 'sesiones_qr', cleanCode);
-
-      await runTransaction(db, async (transaction) => {
-        const sesionDoc = await transaction.get(sesionRef);
-        if (!sesionDoc.exists()) {
-          throw new Error("El código QR o de canje no es válido o no existe.");
-        }
-
-        const sesion = sesionDoc.data() as SesionQR;
-        if (sesion.estado !== 'PENDIENTE') {
-          throw new Error("Este código QR ya fue utilizado o ha expirado.");
-        }
-        if (sesion.tipo !== 'ACUMULACION') {
-          throw new Error("Este código no es para acumular puntos.");
-        }
-
-        // Verificar prepago del comercio
-        const comercioRef = doc(db, 'comercios', sesion.comercioId);
-        const comDoc = await transaction.get(comercioRef);
-        if (comDoc.exists()) {
-          const com = comDoc.data() as Comercio;
-          const status = checkComercioPrepagoStatus(com);
-          if (!status.puedeOperar) {
-            throw new Error("Comercio deshabilitado temporalmente.");
+    await startAsyncAction(async () => {
+      try {
+        // 1. Verificar si es código de influencer
+        const codRef = doc(db, 'codigos_influencer', cleanCode.toUpperCase());
+        const codSnap = await getDoc(codRef);
+        if (codSnap.exists()) {
+          const res = await handleCanjearCodigoInfluencer(cleanCode.toUpperCase());
+          if (res.ok) {
+            setEscaneando(false);
+          } else {
+            setScannerMsg({ texto: res.msg, tipo: 'error' });
           }
+          return;
         }
 
-        const saldoId = `${userData.uid}_${sesion.comercioId}`;
-        const saldoRef = doc(db, 'puntos_saldos', saldoId);
-        const saldoDoc = await transaction.get(saldoRef);
+        // 2. Sesión QR regular de vendedor
+        const sesionRef = doc(db, 'sesiones_qr', cleanCode);
 
-        const puntos = sesion.puntosCalculados || 0;
+        await runTransaction(db, async (transaction) => {
+          const sesionDoc = await transaction.get(sesionRef);
+          if (!sesionDoc.exists()) {
+            throw new Error("El código QR o de canje no es válido o no existe.");
+          }
 
-        transaction.update(sesionRef, { estado: 'USADO' });
+          const sesion = sesionDoc.data() as SesionQR;
+          if (sesion.estado !== 'PENDIENTE') {
+            throw new Error("Este código QR ya fue utilizado o ha expirado.");
+          }
+          if (sesion.tipo !== 'ACUMULACION') {
+            throw new Error("Este código no es para acumular puntos.");
+          }
 
-        const transaccionRef = doc(collection(db, 'transacciones'));
-        const nuevaTransaccion: Transaccion = {
-          id: transaccionRef.id,
-          fechaHora: Date.now(),
-          clienteId: userData.uid,
-          clienteAlias: userData.email?.split('@')[0] || 'Cliente',
-          comercioId: sesion.comercioId,
-          vendedorId: sesion.creadorId,
-          vendedorAlias: sesion.creadorAlias || 'Vendedor',
-          montoFactura: sesion.montoFactura || 0,
-          nroFactura: sesion.nroFactura || '',
-          puntos: puntos,
-          tipo: 'ACUMULACION',
-          ...(sesion.reglaAplicadaId ? { reglaAplicadaId: sesion.reglaAplicadaId } : {})
-        };
-        transaction.set(transaccionRef, nuevaTransaccion);
+          // Verificar prepago del comercio
+          const comercioRef = doc(db, 'comercios', sesion.comercioId);
+          const comDoc = await transaction.get(comercioRef);
+          if (comDoc.exists()) {
+            const com = comDoc.data() as Comercio;
+            const status = checkComercioPrepagoStatus(com);
+            if (!status.puedeOperar) {
+              throw new Error("Comercio deshabilitado temporalmente.");
+            }
+          }
 
-        if (saldoDoc.exists()) {
-          const saldoActual = saldoDoc.data() as SaldoPunto;
-          transaction.update(saldoRef, {
-            saldoTotal: saldoActual.saldoTotal + puntos,
-            updatedAt: Date.now()
-          });
-        } else {
-          const nuevoSaldo: SaldoPunto = {
-            id: saldoId,
+          const saldoId = `${userData.uid}_${sesion.comercioId}`;
+          const saldoRef = doc(db, 'puntos_saldos', saldoId);
+          const saldoDoc = await transaction.get(saldoRef);
+
+          const puntos = sesion.puntosCalculados || 0;
+
+          transaction.update(sesionRef, { estado: 'USADO' });
+
+          const transaccionRef = doc(collection(db, 'transacciones'));
+          const nuevaTransaccion: Transaccion = {
+            id: transaccionRef.id,
+            fechaHora: Date.now(),
             clienteId: userData.uid,
+            clienteAlias: userData.email?.split('@')[0] || 'Cliente',
             comercioId: sesion.comercioId,
-            saldoTotal: puntos,
-            updatedAt: Date.now()
+            vendedorId: sesion.creadorId,
+            vendedorAlias: sesion.creadorAlias || 'Vendedor',
+            montoFactura: sesion.montoFactura || 0,
+            nroFactura: sesion.nroFactura || '',
+            puntos: puntos,
+            tipo: 'ACUMULACION',
+            ...(sesion.reglaAplicadaId ? { reglaAplicadaId: sesion.reglaAplicadaId } : {})
           };
-          transaction.set(saldoRef, nuevoSaldo);
-        }
-      });
+          transaction.set(transaccionRef, nuevaTransaccion);
 
-      setMensaje({ texto: "¡Puntos acumulados exitosamente!", tipo: 'success' });
-      cargarDatos();
-      navigate('/cliente');
-    } catch (error: any) {
-      console.error(error);
-      setMensaje({ texto: error.message || "Error al procesar el código.", tipo: 'error' });
-    }
+          if (saldoDoc.exists()) {
+            const saldoActual = saldoDoc.data() as SaldoPunto;
+            transaction.update(saldoRef, {
+              saldoTotal: saldoActual.saldoTotal + puntos,
+              updatedAt: Date.now()
+            });
+          } else {
+            const nuevoSaldo: SaldoPunto = {
+              id: saldoId,
+              clienteId: userData.uid,
+              comercioId: sesion.comercioId,
+              saldoTotal: puntos,
+              updatedAt: Date.now()
+            };
+            transaction.set(saldoRef, nuevoSaldo);
+          }
+        });
+
+        setEscaneando(false);
+        await cargarDatos();
+        navigate('/cliente');
+      } catch (error: any) {
+        console.error(error);
+        setScannerMsg({ texto: error.message || "Error al procesar el código.", tipo: 'error' });
+      }
+    });
   };
 
-  const handleCanjearCodigoInfluencer = async (codigoId: string) => {
-    if (!userData) return;
-    setMensaje({ texto: "Validando código...", tipo: 'info' });
+  const handleCanjearCodigoInfluencer = async (codigoId: string): Promise<{ ok: boolean; msg: string }> => {
+    if (!userData) return { ok: false, msg: "Usuario no autenticado." };
 
-    try {
-      let isCommerceCode = false;
-      let codigoData: any = null;
-      
-      const codInfRef = doc(db, 'codigos_influencer', codigoId);
-      const codInfSnap = await getDoc(codInfRef);
-      if (codInfSnap.exists()) {
-        codigoData = codInfSnap.data();
-      } else {
-        const codComRef = doc(db, 'codigos_comercio', codigoId);
-        const codComSnap = await getDoc(codComRef);
-        if (codComSnap.exists()) {
-          codigoData = codComSnap.data();
-          isCommerceCode = true;
-        }
-      }
-
-      if (!codigoData) {
-        throw new Error("El código ingresado no existe.");
-      }
-
-      if (codigoData.estado !== 'ACTIVO') {
-        throw new Error("El código ingresado está inactivo.");
-      }
-
-      if (isCommerceCode) {
-        const now = Date.now();
-        if (now < codigoData.fechaInicio) {
-          throw new Error("Este código promocional aún no está vigente.");
-        }
-        if (now > codigoData.fechaFin) {
-          throw new Error("Este código promocional ya expiró.");
-        }
-      }
-
-      // Validar prepago del comercio asociado al código
-      const comRef = doc(db, 'comercios', codigoData.comercioId);
-      const comSnap = await getDoc(comRef);
-      let nombreComercio = 'Comercio';
-      if (comSnap.exists()) {
-        const com = comSnap.data() as Comercio;
-        nombreComercio = com.nombre || nombreComercio;
-        const status = checkComercioPrepagoStatus(com);
-        if (!status.puedeOperar) {
-          throw new Error("Comercio deshabilitado temporalmente.");
-        }
-      }
-
-      const qCanjes = query(
-        collection(db, 'canjes_codigo'), 
-        where('clienteId', '==', userData.uid),
-        where('codigoId', '==', codigoId)
-      );
-      const canjesSnap = await getDocs(qCanjes);
-      const canjesUsuario = canjesSnap.docs.map(d => d.data() as CanjeCodigo);
-      
-      if (isCommerceCode && canjesUsuario.length > 0) {
-        throw new Error("Ya canjeaste este código anteriormente.");
-      }
-      
-      const saldoId = `${userData.uid}_${codigoData.comercioId}`;
-      const saldoRef = doc(db, 'puntos_saldos', saldoId);
-      
-      await runTransaction(db, async (transaction) => {
-        let puntosAEntregarCliente = 0;
-        let vendedorId = '';
-        let vendedorAlias = '';
-        let influencerId: string | undefined = undefined;
-
-        if (!isCommerceCode) {
-          const asignId = `${codigoData.comercioId}_${codigoData.influencerId}`;
-          const asigRef = doc(db, 'asignaciones_influencer', asignId);
-          const asigDoc = await transaction.get(asigRef);
-          if (!asigDoc.exists()) throw new Error("La asignación del influencer no fue encontrada.");
-          
-          const asigData = asigDoc.data() as AsignacionInfluencer;
-          const validationResult = validateCodeRedemption(codigoData, asigData, canjesUsuario);
-          if (!validationResult.success) {
-            throw new Error(validationResult.errorMsg);
-          }
-          
-          puntosAEntregarCliente = validationResult.puntosAEntregarCliente;
-          
-          transaction.update(asigRef, {
-            puntosParaClientes: asigData.puntosParaClientes - puntosAEntregarCliente,
-            updatedAt: Date.now()
-          });
-
-          // Obtener nombre del influencer
-          const infDoc = await transaction.get(doc(db, 'users', codigoData.influencerId));
-          const infData = infDoc.exists() ? (infDoc.data() as Usuario) : null;
-          vendedorAlias = infData?.nombre || infData?.email?.split('@')[0] || 'Influencer';
-          vendedorId = codigoData.influencerId;
-          influencerId = codigoData.influencerId;
+    return await startAsyncAction(async () => {
+      try {
+        let isCommerceCode = false;
+        let codigoData: any = null;
+        
+        const codInfRef = doc(db, 'codigos_influencer', codigoId);
+        const codInfSnap = await getDoc(codInfRef);
+        if (codInfSnap.exists()) {
+          codigoData = codInfSnap.data();
         } else {
-          puntosAEntregarCliente = codigoData.puntosPorCanje;
-          vendedorId = codigoData.comercioId;
-          vendedorAlias = nombreComercio;
+          const codComRef = doc(db, 'codigos_comercio', codigoId);
+          const codComSnap = await getDoc(codComRef);
+          if (codComSnap.exists()) {
+            codigoData = codComSnap.data();
+            isCommerceCode = true;
+          }
+        }
+
+        if (!codigoData) {
+          return { ok: false, msg: "El código ingresado no existe." };
+        }
+
+        if (codigoData.estado !== 'ACTIVO') {
+          return { ok: false, msg: "El código ingresado está inactivo." };
+        }
+
+        if (isCommerceCode) {
+          const now = Date.now();
+          if (now < codigoData.fechaInicio) {
+            return { ok: false, msg: "Este código promocional aún no está vigente." };
+          }
+          if (now > codigoData.fechaFin) {
+            return { ok: false, msg: "Este código promocional ya expiró." };
+          }
+        }
+
+        // Validar prepago del comercio asociado al código
+        const comRef = doc(db, 'comercios', codigoData.comercioId);
+        const comSnap = await getDoc(comRef);
+        let nombreComercio = 'Comercio';
+        if (comSnap.exists()) {
+          const com = comSnap.data() as Comercio;
+          nombreComercio = com.nombre || nombreComercio;
+          const status = checkComercioPrepagoStatus(com);
+          if (!status.puedeOperar) {
+            return { ok: false, msg: "Comercio deshabilitado temporalmente." };
+          }
+        }
+
+        const qCanjes = query(
+          collection(db, 'canjes_codigo'), 
+          where('clienteId', '==', userData.uid),
+          where('codigoId', '==', codigoId)
+        );
+        const canjesSnap = await getDocs(qCanjes);
+        const canjesUsuario = canjesSnap.docs.map(d => d.data() as CanjeCodigo);
+        
+        if (isCommerceCode && canjesUsuario.length > 0) {
+          return { ok: false, msg: "Ya canjeaste este código anteriormente." };
         }
         
-        const saldoDoc = await transaction.get(saldoRef);
+        const saldoId = `${userData.uid}_${codigoData.comercioId}`;
+        const saldoRef = doc(db, 'puntos_saldos', saldoId);
+        
+        await runTransaction(db, async (transaction) => {
+          let puntosAEntregarCliente = 0;
+          let vendedorId = '';
+          let vendedorAlias = '';
+          let influencerId: string | undefined = undefined;
 
-        const nuevoCanjeRef = doc(collection(db, 'canjes_codigo'));
-        const nuevoCanje: CanjeCodigo = {
-          id: nuevoCanjeRef.id,
-          clienteId: userData.uid,
-          codigoId: codigoId,
-          comercioId: codigoData.comercioId,
-          fechaCanje: Date.now()
-        };
-        transaction.set(nuevoCanjeRef, nuevoCanje);
+          if (!isCommerceCode) {
+            const asignId = `${codigoData.comercioId}_${codigoData.influencerId}`;
+            const asigRef = doc(db, 'asignaciones_influencer', asignId);
+            const asigDoc = await transaction.get(asigRef);
+            if (!asigDoc.exists()) throw new Error("La asignación del influencer no fue encontrada.");
+            
+            const asigData = asigDoc.data() as AsignacionInfluencer;
+            const validationResult = validateCodeRedemption(codigoData, asigData, canjesUsuario);
+            if (!validationResult.success) {
+              throw new Error(validationResult.errorMsg);
+            }
+            
+            puntosAEntregarCliente = validationResult.puntosAEntregarCliente;
+            
+            transaction.update(asigRef, {
+              puntosParaClientes: asigData.puntosParaClientes - puntosAEntregarCliente,
+              updatedAt: Date.now()
+            });
 
-        const transaccionRef = doc(collection(db, 'transacciones'));
-        const nuevaTransaccion: Transaccion = {
-          id: transaccionRef.id,
-          fechaHora: Date.now(),
-          clienteId: userData.uid,
-          clienteAlias: userData.email?.split('@')[0] || 'Cliente',
-          comercioId: codigoData.comercioId,
-          vendedorId,
-          vendedorAlias,
-          ...(influencerId ? { influencerId } : {}),
-          codigoId: codigoId,
-          montoFactura: 0,
-          nroFactura: `CÓDIGO ${codigoId}`,
-          puntos: puntosAEntregarCliente,
-          tipo: 'ACUMULACION',
-        };
-        transaction.set(transaccionRef, nuevaTransaccion);
+            // Obtener nombre del influencer
+            const infDoc = await transaction.get(doc(db, 'users', codigoData.influencerId));
+            const infData = infDoc.exists() ? (infDoc.data() as Usuario) : null;
+            vendedorAlias = infData?.nombre || infData?.email?.split('@')[0] || 'Influencer';
+            vendedorId = codigoData.influencerId;
+            influencerId = codigoData.influencerId;
+          } else {
+            puntosAEntregarCliente = codigoData.puntosPorCanje;
+            vendedorId = codigoData.comercioId;
+            vendedorAlias = nombreComercio;
+          }
+          
+          const saldoDoc = await transaction.get(saldoRef);
 
-        if (saldoDoc.exists()) {
-          const saldoActual = saldoDoc.data() as SaldoPunto;
-          transaction.update(saldoRef, {
-            saldoTotal: saldoActual.saldoTotal + puntosAEntregarCliente,
-            updatedAt: Date.now()
-          });
-        } else {
-          transaction.set(saldoRef, {
-            id: saldoId,
+          const nuevoCanjeRef = doc(collection(db, 'canjes_codigo'));
+          const nuevoCanje: CanjeCodigo = {
+            id: nuevoCanjeRef.id,
             clienteId: userData.uid,
+            codigoId: codigoId,
             comercioId: codigoData.comercioId,
-            saldoTotal: puntosAEntregarCliente,
-            updatedAt: Date.now()
-          });
-        }
-      });
+            fechaCanje: Date.now()
+          };
+          transaction.set(nuevoCanjeRef, nuevoCanje);
 
-      setMensaje({ texto: "¡Código canjeado con éxito! Puntos acreditados a tu cuenta.", tipo: 'success' });
-      cargarDatos();
+          const transaccionRef = doc(collection(db, 'transacciones'));
+          const nuevaTransaccion: Transaccion = {
+            id: transaccionRef.id,
+            fechaHora: Date.now(),
+            clienteId: userData.uid,
+            clienteAlias: userData.email?.split('@')[0] || 'Cliente',
+            comercioId: codigoData.comercioId,
+            vendedorId,
+            vendedorAlias,
+            ...(influencerId ? { influencerId } : {}),
+            codigoId: codigoId,
+            montoFactura: 0,
+            nroFactura: `CÓDIGO ${codigoId}`,
+            puntos: puntosAEntregarCliente,
+            tipo: 'ACUMULACION',
+          };
+          transaction.set(transaccionRef, nuevaTransaccion);
 
-    } catch (error: any) {
-      console.error(error);
-      setMensaje({ texto: error.message || "Error al procesar el código.", tipo: 'error' });
-    }
+          if (saldoDoc.exists()) {
+            const saldoActual = saldoDoc.data() as SaldoPunto;
+            transaction.update(saldoRef, {
+              saldoTotal: saldoActual.saldoTotal + puntosAEntregarCliente,
+              updatedAt: Date.now()
+            });
+          } else {
+            transaction.set(saldoRef, {
+              id: saldoId,
+              clienteId: userData.uid,
+              comercioId: codigoData.comercioId,
+              saldoTotal: puntosAEntregarCliente,
+              updatedAt: Date.now()
+            });
+          }
+        });
+
+        await cargarDatos();
+        return { ok: true, msg: `¡Código ${codigoId} canjeado con éxito! Puntos acreditados a tu cuenta.` };
+
+      } catch (error: any) {
+        console.error(error);
+        return { ok: false, msg: error.message || "Error al procesar el código." };
+      }
+    });
   };
 
   const generarQRCanje = async (comercioId: string, premio: Premio) => {
     if (!userData) return;
-    try {
-      const com = todosLosComercios.find(c => c.id === comercioId);
-      if (com) {
-        const status = checkComercioPrepagoStatus(com);
-        if (!status.puedeOperar) {
-          setMensaje({ texto: "Comercio deshabilitado temporalmente.", tipo: 'error' });
-          return;
+    await startAsyncAction(async () => {
+      try {
+        const com = todosLosComercios.find(c => c.id === comercioId);
+        if (com) {
+          const status = checkComercioPrepagoStatus(com);
+          if (!status.puedeOperar) {
+            alert("Comercio deshabilitado temporalmente.");
+            return;
+          }
         }
+
+        const codigo = await generarCodigoUnicoQR(db);
+        const sesionData: Omit<SesionQR, 'id'> = {
+          tipo: 'CANJE',
+          creadorId: userData.uid,
+          creadorAlias: userData.email?.split('@')[0] || 'Cliente',
+          comercioId: comercioId,
+          estado: 'PENDIENTE',
+          createdAt: Date.now(),
+          puntosCalculados: premio.puntosRequeridos,
+          premioId: premio.id
+        };
+
+        await setDoc(doc(db, 'sesiones_qr', codigo), sesionData);
+        setQrCanje({ id: codigo, premio: premio.nombre, puntos: premio.puntosRequeridos });
+      } catch (error: any) {
+        console.error("Error al generar código de canje:", error);
+        alert(error.message || "Error al generar el código.");
       }
-
-      setMensaje({ texto: "Generando código de canje...", tipo: 'info' });
-      const codigo = await generarCodigoUnicoQR(db);
-      const sesionData: Omit<SesionQR, 'id'> = {
-        tipo: 'CANJE',
-        creadorId: userData.uid,
-        creadorAlias: userData.email?.split('@')[0] || 'Cliente',
-        comercioId: comercioId,
-        estado: 'PENDIENTE',
-        createdAt: Date.now(),
-        puntosCalculados: premio.puntosRequeridos,
-        premioId: premio.id
-      };
-
-      await setDoc(doc(db, 'sesiones_qr', codigo), sesionData);
-      setQrCanje({ id: codigo, premio: premio.nombre, puntos: premio.puntosRequeridos });
-      setMensaje(null);
-    } catch (error) {
-      console.error("Error al generar código de canje:", error);
-      setMensaje({ texto: "Error al generar el código.", tipo: 'error' });
-    }
+    });
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando dashboard...</div>;
@@ -870,18 +900,6 @@ const ClienteDashboard: React.FC = () => {
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6 pb-12">
       
-      {/* Mensajes Globales de Notificación en el mismo recuadro */}
-      {mensaje && (
-        <div className={`p-4 rounded-xl border flex items-center justify-between shadow-sm text-xs font-bold ${
-          mensaje.tipo === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
-          mensaje.tipo === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
-          'bg-brand-bg-light text-brand-text-dark border-brand-border'
-        }`}>
-          <span>{mensaje.texto}</span>
-          <button onClick={() => setMensaje(null)} className="font-black text-sm ml-2">✕</button>
-        </div>
-      )}
-
       <Routes>
         <Route 
           path="/" 
@@ -891,7 +909,7 @@ const ClienteDashboard: React.FC = () => {
               saldosMap={saldosMap}
               puntosUsados={puntosUsados}
               transacciones={transacciones}
-              onOpenScanner={() => setEscaneando(true)}
+              onOpenScanner={() => { setEscaneando(true); setScannerMsg(null); }}
               onCanjearCodigoInfluencer={handleCanjearCodigoInfluencer}
             />
           } 
@@ -922,7 +940,7 @@ const ClienteDashboard: React.FC = () => {
               todosLosComercios={todosLosComercios}
               saldosMap={saldosMap}
               transacciones={transacciones}
-              onOpenScanner={() => setEscaneando(true)}
+              onOpenScanner={() => { setEscaneando(true); setScannerMsg(null); }}
               onGenerarCanje={generarQRCanje}
             />
           } 
@@ -955,7 +973,7 @@ const ClienteDashboard: React.FC = () => {
                   type="text" 
                   placeholder="Ej: 492019" 
                   value={codigoManual}
-                  onChange={(e) => setCodigoManual(e.target.value)}
+                  onChange={(e) => { setCodigoManual(e.target.value); setScannerMsg(null); }}
                   className="flex-1 border rounded-xl px-3 py-2 text-center font-mono font-black text-lg focus:outline-none focus:ring-2 focus:ring-brand-primary bg-white"
                 />
                 <button
@@ -965,6 +983,16 @@ const ClienteDashboard: React.FC = () => {
                   Validar
                 </button>
               </div>
+
+              {/* Mensaje de error adyacente dentro del modal */}
+              {scannerMsg && (
+                <div className={`p-2.5 rounded-xl border text-xs font-bold text-left animate-fade-in ${
+                  scannerMsg.tipo === 'success' ? 'bg-green-50 text-green-800 border-green-200' :
+                  'bg-red-50 text-red-800 border-red-200'
+                }`}>
+                  {scannerMsg.texto}
+                </div>
+              )}
             </div>
           </div>
         </div>
