@@ -79,6 +79,7 @@ export interface Comercio {
   modalidadPago?: ModalidadPagoComercio; // 'PREPAGO' | 'PILOTO' (default: PILOTO)
   mensualidadBs?: number; // Ej: 25.00
   costoPorPremioBs?: number; // Ej: 1.25
+  costoPorCodigoComercio?: number; // Costo (Bs) para que el comercio cree un código promocional por 30 días
   recibeFactura?: boolean; // Booleano
   mesesPagados?: string[]; // Meses pagados en formato 'YYYY-MM' (ej: ['2026-08', '2026-09'])
   saldoPremiosBs?: number; // Saldo prepagado disponible para premios (ej: 60.00)
@@ -92,7 +93,7 @@ export interface SaldoPunto {
   updatedAt: number;
 }
 
-export type TipoTransaccion = 'ACUMULACION' | 'CANJE' | 'CODIGO_INFLUENCER';
+export type TipoTransaccion = 'ACUMULACION' | 'CANJE' | 'CODIGO_INFLUENCER' | 'CODIGO_COMERCIO';
 
 export interface Transaccion {
   id: string;
@@ -157,6 +158,16 @@ export interface CodigoInfluencer {
   estado: 'ACTIVO' | 'INACTIVO';
   createdAt: number;
   fechaUltimaRenovacion: number;
+}
+
+export interface CodigoComercio {
+  id: string; // ej: ANIVERSARIO2026
+  comercioId: string;
+  puntosPorCanje: number;
+  fechaInicio: number;
+  fechaFin: number; // fechaInicio + 30 días
+  estado: 'ACTIVO' | 'INACTIVO';
+  createdAt: number;
 }
 
 export interface CanjeCodigo {

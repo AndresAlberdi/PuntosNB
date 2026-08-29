@@ -28,6 +28,7 @@ const SuperAdminDashboard: React.FC = () => {
   const [modalidadPago, setModalidadPago] = useState<ModalidadPagoComercio>('PILOTO');
   const [mensualidadBs, setMensualidadBs] = useState<string>('25.00');
   const [costoPorPremioBs, setCostoPorPremioBs] = useState<string>('1.25');
+  const [costoPorCodigoComercio, setCostoPorCodigoComercio] = useState<string>('10.00');
   const [recibeFactura, setRecibeFactura] = useState<boolean>(true);
   
   // States for new User
@@ -65,6 +66,7 @@ const SuperAdminDashboard: React.FC = () => {
   const [editModalidadPago, setEditModalidadPago] = useState<ModalidadPagoComercio>('PILOTO');
   const [editMensualidadBs, setEditMensualidadBs] = useState('25.00');
   const [editCostoPorPremioBs, setEditCostoPorPremioBs] = useState('1.25');
+  const [editCostoPorCodigoComercio, setEditCostoPorCodigoComercio] = useState('10.00');
   const [editRecibeFactura, setEditRecibeFactura] = useState(true);
 
   // States for Influencer ABM
@@ -220,6 +222,7 @@ const SuperAdminDashboard: React.FC = () => {
         modalidadPago: modalidadPago,
         mensualidadBs: parseDecimal(mensualidadBs, 25.00),
         costoPorPremioBs: parseDecimal(costoPorPremioBs, 1.25),
+        costoPorCodigoComercio: parseDecimal(costoPorCodigoComercio, 10.00),
         recibeFactura: recibeFactura,
         mesesPagados: modalidadPago === 'PREPAGO' ? [] : undefined,
         saldoPremiosBs: 0
@@ -236,6 +239,7 @@ const SuperAdminDashboard: React.FC = () => {
       setModalidadPago('PILOTO');
       setMensualidadBs('25.00');
       setCostoPorPremioBs('1.25');
+      setCostoPorCodigoComercio('10.00');
       setRecibeFactura(true);
       const fileInput = document.getElementById('comercio-logo-file') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
@@ -277,6 +281,7 @@ const SuperAdminDashboard: React.FC = () => {
         modalidadPago: editModalidadPago,
         mensualidadBs: parseDecimal(editMensualidadBs, 25.00),
         costoPorPremioBs: parseDecimal(editCostoPorPremioBs, 1.25),
+        costoPorCodigoComercio: parseDecimal(editCostoPorCodigoComercio, 10.00),
         recibeFactura: editRecibeFactura
       };
 
@@ -987,6 +992,13 @@ const SuperAdminDashboard: React.FC = () => {
                   <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma</span>
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div>
+                  <label className="sa-label">Costo x Código Promocional (Bs)</label>
+                  <input type="text" inputMode="decimal" className="sa-input" value={costoPorCodigoComercio} onChange={e => setCostoPorCodigoComercio(e.target.value)} placeholder="Ej: 10.00 o 10,00" />
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Usa punto o coma</span>
+                </div>
+              </div>
             </div>
 
             {/* Identidad Visual */}
@@ -1143,6 +1155,12 @@ const SuperAdminDashboard: React.FC = () => {
                           <input type="text" inputMode="decimal" className="sa-input" value={editCostoPorPremioBs} onChange={e=>setEditCostoPorPremioBs(e.target.value)} />
                         </div>
                       </div>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <div>
+                          <label className="sa-label">Costo x Código Prom. (Bs)</label>
+                          <input type="text" inputMode="decimal" className="sa-input" value={editCostoPorCodigoComercio} onChange={e=>setEditCostoPorCodigoComercio(e.target.value)} />
+                        </div>
+                      </div>
 
                       <div className="flex gap-2 pt-2">
                         <button type="submit" className="sa-btn-primary text-xs flex-1">Guardar Cambios</button>
@@ -1161,6 +1179,7 @@ const SuperAdminDashboard: React.FC = () => {
                         setEditModalidadPago(c.modalidadPago || 'PILOTO');
                         setEditMensualidadBs((c.mensualidadBs || 25).toString());
                         setEditCostoPorPremioBs((c.costoPorPremioBs || 1.25).toString());
+                        setEditCostoPorCodigoComercio((c.costoPorCodigoComercio || 10.00).toString());
                         setEditRecibeFactura(c.recibeFactura ?? true);
                       }} className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white font-bold px-3 py-1.5 rounded hover:bg-gray-300 transition cursor-pointer">
                         ✏️ Editar

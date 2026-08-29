@@ -5,7 +5,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { QRCodeSVG } from 'qrcode.react';
-import type { SaldoPunto, SesionQR, Transaccion, Premio, Comercio, CodigoInfluencer, AsignacionInfluencer, CanjeCodigo, Usuario } from '../types';
+import type { SaldoPunto, SesionQR, Transaccion, Premio, Comercio, AsignacionInfluencer, CanjeCodigo, Usuario } from '../types';
 import { CLIENT_AVATARS, getPaletteStyle } from '../utils/theme';
 import { generarCodigoUnicoQR } from '../utils/qr';
 import { validateCodeRedemption } from '../utils/influencers';
@@ -676,21 +676,47 @@ const ClienteDashboard: React.FC = () => {
     setMensaje({ texto: "Validando código...", tipo: 'info' });
 
     try {
-      const codRef = doc(db, 'codigos_influencer', codigoId);
-      const codSnap = await getDoc(codRef);
-      if (!codSnap.exists()) {
+      let isCommerceCode = false;
+      let codigoData: any = null;
+      
+      const codInfRef = doc(db, 'codigos_influencer', codigoId);
+      const codInfSnap = await getDoc(codInfRef);
+      if (codInfSnap.exists()) {
+        codigoData = codInfSnap.data();
+      } else {
+        const codComRef = doc(db, 'codigos_comercio', codigoId);
+        const codComSnap = await getDoc(codComRef);
+        if (codComSnap.exists()) {
+          codigoData = codComSnap.data();
+          isCommerceCode = true;
+        }
+      }
+
+      if (!codigoData) {
         throw new Error("El código ingresado no existe.");
       }
-      const codigoData = codSnap.data() as CodigoInfluencer;
+
       if (codigoData.estado !== 'ACTIVO') {
         throw new Error("El código ingresado está inactivo.");
+      }
+
+      if (isCommerceCode) {
+        const now = Date.now();
+        if (now < codigoData.fechaInicio) {
+          throw new Error("Este código promocional aún no está vigente.");
+        }
+        if (now > codigoData.fechaFin) {
+          throw new Error("Este código promocional ya expiró.");
+        }
       }
 
       // Validar prepago del comercio asociado al código
       const comRef = doc(db, 'comercios', codigoData.comercioId);
       const comSnap = await getDoc(comRef);
+      let nombreComercio = 'Comercio';
       if (comSnap.exists()) {
         const com = comSnap.data() as Comercio;
+        nombreComercio = com.nombre || nombreComercio;
         const status = checkComercioPrepagoStatus(com);
         if (!status.puedeOperar) {
           throw new Error("Comercio deshabilitado temporalmente.");
@@ -705,44 +731,61 @@ const ClienteDashboard: React.FC = () => {
       const canjesSnap = await getDocs(qCanjes);
       const canjesUsuario = canjesSnap.docs.map(d => d.data() as CanjeCodigo);
       
-      const asignId = `${codigoData.comercioId}_${codigoData.influencerId}`;
-      const asigRef = doc(db, 'asignaciones_influencer', asignId);
+      if (isCommerceCode && canjesUsuario.length > 0) {
+        throw new Error("Ya canjeaste este código anteriormente.");
+      }
+      
       const saldoId = `${userData.uid}_${codigoData.comercioId}`;
       const saldoRef = doc(db, 'puntos_saldos', saldoId);
       
       await runTransaction(db, async (transaction) => {
-        const asigDoc = await transaction.get(asigRef);
-        if (!asigDoc.exists()) throw new Error("La asignación del influencer no fue encontrada.");
-        
-        const saldoDoc = await transaction.get(saldoRef);
+        let puntosAEntregarCliente = 0;
+        let vendedorId = '';
+        let vendedorAlias = '';
+        let influencerId: string | undefined = undefined;
 
-        const asigData = asigDoc.data() as AsignacionInfluencer;
-        const validationResult = validateCodeRedemption(codigoData, asigData, canjesUsuario);
-        if (!validationResult.success) {
-          throw new Error(validationResult.errorMsg);
+        if (!isCommerceCode) {
+          const asignId = `${codigoData.comercioId}_${codigoData.influencerId}`;
+          const asigRef = doc(db, 'asignaciones_influencer', asignId);
+          const asigDoc = await transaction.get(asigRef);
+          if (!asigDoc.exists()) throw new Error("La asignación del influencer no fue encontrada.");
+          
+          const asigData = asigDoc.data() as AsignacionInfluencer;
+          const validationResult = validateCodeRedemption(codigoData, asigData, canjesUsuario);
+          if (!validationResult.success) {
+            throw new Error(validationResult.errorMsg);
+          }
+          
+          puntosAEntregarCliente = validationResult.puntosAEntregarCliente;
+          
+          transaction.update(asigRef, {
+            puntosParaClientes: asigData.puntosParaClientes - puntosAEntregarCliente,
+            updatedAt: Date.now()
+          });
+
+          // Obtener nombre del influencer
+          const infDoc = await transaction.get(doc(db, 'users', codigoData.influencerId));
+          const infData = infDoc.exists() ? (infDoc.data() as Usuario) : null;
+          vendedorAlias = infData?.nombre || infData?.email?.split('@')[0] || 'Influencer';
+          vendedorId = codigoData.influencerId;
+          influencerId = codigoData.influencerId;
+        } else {
+          puntosAEntregarCliente = codigoData.puntosPorCanje;
+          vendedorId = codigoData.comercioId;
+          vendedorAlias = nombreComercio;
         }
         
-        const puntosAEntregarCliente = validationResult.puntosAEntregarCliente;
-
-        transaction.update(asigRef, {
-          puntosParaClientes: asigData.puntosParaClientes - puntosAEntregarCliente,
-          updatedAt: Date.now()
-        });
+        const saldoDoc = await transaction.get(saldoRef);
 
         const nuevoCanjeRef = doc(collection(db, 'canjes_codigo'));
         const nuevoCanje: CanjeCodigo = {
           id: nuevoCanjeRef.id,
           clienteId: userData.uid,
           codigoId: codigoId,
-          comercioId: asigData.comercioId,
+          comercioId: codigoData.comercioId,
           fechaCanje: Date.now()
         };
         transaction.set(nuevoCanjeRef, nuevoCanje);
-
-        // Obtener nombre del influencer
-        const infDoc = await transaction.get(doc(db, 'users', codigoData.influencerId));
-        const infData = infDoc.exists() ? (infDoc.data() as Usuario) : null;
-        const nombreInfluencer = infData?.nombre || infData?.email?.split('@')[0] || 'Influencer';
 
         const transaccionRef = doc(collection(db, 'transacciones'));
         const nuevaTransaccion: Transaccion = {
@@ -750,10 +793,10 @@ const ClienteDashboard: React.FC = () => {
           fechaHora: Date.now(),
           clienteId: userData.uid,
           clienteAlias: userData.email?.split('@')[0] || 'Cliente',
-          comercioId: asigData.comercioId,
-          vendedorId: codigoData.influencerId,
-          vendedorAlias: nombreInfluencer,
-          influencerId: codigoData.influencerId,
+          comercioId: codigoData.comercioId,
+          vendedorId,
+          vendedorAlias,
+          influencerId,
           codigoId: codigoId,
           montoFactura: 0,
           nroFactura: `CÓDIGO ${codigoId}`,
@@ -772,7 +815,7 @@ const ClienteDashboard: React.FC = () => {
           transaction.set(saldoRef, {
             id: saldoId,
             clienteId: userData.uid,
-            comercioId: asigData.comercioId,
+            comercioId: codigoData.comercioId,
             saldoTotal: puntosAEntregarCliente,
             updatedAt: Date.now()
           });

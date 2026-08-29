@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Comercio, ReglaPunto, Premio, ProductoCatalogo, CobroPrepago } from '../types';
 import { CRMSection } from '../components/CRMSection';
 import { AdminInfluencers } from '../components/AdminInfluencers';
+import { AdminCodigosComercio } from '../components/AdminCodigosComercio';
 import { checkComercioPrepagoStatus } from '../utils/reports';
 import { optimizeImage } from '../utils/imageOptimizer';
 
@@ -12,7 +13,7 @@ const AdminDashboard: React.FC = () => {
   const { userData } = useAuth();
   const [comercio, setComercio] = useState<Comercio | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'config' | 'influencers' | 'prepago'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'influencers' | 'prepago' | 'codigos'>('config');
 
   // Modals state
   const [showReglaModal, setShowReglaModal] = useState(false);
@@ -329,6 +330,12 @@ const AdminDashboard: React.FC = () => {
             Alianzas Influencers
           </button>
           <button 
+            onClick={() => setActiveTab('codigos')} 
+            className={`px-4 py-2 rounded-lg transition-colors cursor-pointer ${activeTab === 'codigos' ? 'bg-white dark:bg-gray-800 shadow text-blue-600' : 'text-gray-500 hover:text-gray-700 dark:text-gray-300'}`}
+          >
+            Códigos Promocionales
+          </button>
+          <button 
             onClick={() => setActiveTab('prepago')} 
             className={`px-4 py-2 rounded-lg transition-colors cursor-pointer ${activeTab === 'prepago' ? 'bg-white dark:bg-gray-800 shadow text-emerald-600' : 'text-gray-500 hover:text-gray-700 dark:text-gray-300'}`}
           >
@@ -339,6 +346,10 @@ const AdminDashboard: React.FC = () => {
 
       {activeTab === 'influencers' && (
         <AdminInfluencers comercio={comercio} />
+      )}
+
+      {activeTab === 'codigos' && (
+        <AdminCodigosComercio comercio={comercio} />
       )}
 
       {activeTab === 'prepago' && (
