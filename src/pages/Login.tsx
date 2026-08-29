@@ -32,7 +32,7 @@ const Login: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (userData && userData.telefono) {
+    if (userData && (userData.telefono || userData.rol !== 'cliente')) {
       navigate('/');
     }
   }, [userData, navigate]);
@@ -56,7 +56,7 @@ const Login: React.FC = () => {
     );
   }
 
-  if (currentUser && userData && !userData.telefono) {
+  if (currentUser && userData && !userData.telefono && userData.rol === 'cliente') {
     const handleSaveWelcomePhone = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!welcomePhone) {
