@@ -9,10 +9,10 @@ if [ "$ENV" = "staging" ] || [ "$ENV" = "puntosnb" ]; then
   COMMIT_TAG="(en pruebas)"
   echo "=== MODO DE DESPLIEGUE: PRUEBAS / STAGING (puntosnb) ==="
 else
-  PROJECT_ID="hipatia-puntos"
+  PROJECT_ID="pretso-database"
   BUILD_CMD="npm run build:prod"
   COMMIT_TAG="(en producción)"
-  echo "=== MODO DE DESPLIEGUE: PRODUCCIÓN (hipatia-puntos) ==="
+  echo "=== MODO DE DESPLIEGUE: PRODUCCIÓN (pretso-database) ==="
 fi
 
 echo "=== [1/4] Ejecutando pruebas unitarias locales ==="

@@ -57,14 +57,21 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
   }
 
   if (userData.estado === 'bloqueado' || commerceBlocked) {
+    const isUserBlocked = userData.estado === 'bloqueado';
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
         <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center border-t-4 border-red-500">
           <div className="w-16 h-16 mx-auto bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Comercio Deshabilitado Temporalmente</h2>
-          <p className="text-gray-600 mb-6">Comercio deshabilitado temporalmente por falta de pago o bloqueo administrativo.</p>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+            {isUserBlocked ? 'Acceso Denegado' : 'Comercio Deshabilitado'}
+          </h2>
+          <p className="text-gray-600 mb-6">
+            {isUserBlocked 
+              ? 'Tu usuario ha sido bloqueado administrativamente por la plataforma.' 
+              : 'El comercio ha sido deshabilitado temporalmente por un bloqueo administrativo.'}
+          </p>
           <button 
             onClick={() => logout()}
             className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition"
