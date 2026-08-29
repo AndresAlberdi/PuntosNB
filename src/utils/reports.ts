@@ -475,9 +475,24 @@ export const checkComercioPrepagoStatus = (
   const mesesPagados = comercio.mesesPagados || [];
   const mesPagado = mesesPagados.includes(mesActualKey);
 
-  // Calcular días restantes en el mes actual
-  const finDeMes = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
-  const diasRestantesMes = Math.max(0, finDeMes.getDate() - currentDate.getDate());
+  // Calcular el último mes consecutivo cubierto
+  let ultimoMesDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+  if (mesPagado) {
+    while (true) {
+      const nextDate = new Date(ultimoMesDate.getFullYear(), ultimoMesDate.getMonth() + 1, 1);
+      const nextKey = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+      if (mesesPagados.includes(nextKey)) {
+        ultimoMesDate = nextDate;
+      } else {
+        break;
+      }
+    }
+  }
+
+  // Fin del periodo prepagado
+  const finPeriodoPagado = new Date(ultimoMesDate.getFullYear(), ultimoMesDate.getMonth() + 1, 0, 23, 59, 59);
+  const diffMs = finPeriodoPagado.getTime() - currentDate.getTime();
+  const diasRestantesMes = mesPagado ? Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24))) : 0;
 
   // Mensualidad
   const puedeOperar = mesPagado;
