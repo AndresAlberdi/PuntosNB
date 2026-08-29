@@ -124,8 +124,7 @@ export const isTransaccionInfluencer = (t: Transaccion): boolean => {
     t.tipo === 'CODIGO_INFLUENCER' ||
     t.vendedorAlias === 'INFLUENCER' ||
     t.nroFactura === 'CÓDIGO INF' ||
-    Boolean(t.influencerId) ||
-    Boolean(t.codigoId)
+    Boolean(t.influencerId)
   );
 };
 
