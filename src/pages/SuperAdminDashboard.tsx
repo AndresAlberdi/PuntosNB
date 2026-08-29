@@ -68,6 +68,8 @@ const SuperAdminDashboard: React.FC = () => {
   const [editCostoPorPremioBs, setEditCostoPorPremioBs] = useState('1.25');
   const [editCostoPorCodigoComercio, setEditCostoPorCodigoComercio] = useState('10.00');
   const [editRecibeFactura, setEditRecibeFactura] = useState(true);
+  const [editComercioMsg, setEditComercioMsg] = useState<{ texto: string; tipo: 'success' | 'error' } | null>(null);
+  const [guardandoEditComercio, setGuardandoEditComercio] = useState(false);
 
   // States for Influencer ABM
   const [editingInfluencer, setEditingInfluencer] = useState<Usuario | null>(null);
@@ -253,21 +255,26 @@ const SuperAdminDashboard: React.FC = () => {
   const handleGuardarEdicionComercio = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingComercio) return;
+    setEditComercioMsg(null);
+    setGuardandoEditComercio(true);
 
     const cleanDominio = editComercioDominio.trim().toLowerCase().replace(/^@+/, '');
     const isReserved = RESERVED_DOMAINS.some(res => cleanDominio === res || cleanDominio.startsWith(res + '.'));
     if (isReserved) {
-      setMsgCard1({ texto: `El dominio "${cleanDominio}" está reservado por el sistema.`, tipo: 'error' });
+      setEditComercioMsg({ texto: `El dominio "${cleanDominio}" está reservado por el sistema.`, tipo: 'error' });
+      setGuardandoEditComercio(false);
       return;
     }
     if (!cleanDominio.includes('.')) {
-      setMsgCard1({ texto: 'El dominio asignado debe tener una extensión válida (ej: mitienda.io).', tipo: 'error' });
+      setEditComercioMsg({ texto: 'El dominio asignado debe tener una extensión válida (ej: mitienda.io).', tipo: 'error' });
+      setGuardandoEditComercio(false);
       return;
     }
 
     const dominioRepetido = comercios.some(c => c.id !== editingComercio.id && c.dominio?.toLowerCase() === cleanDominio);
     if (dominioRepetido) {
-      setMsgCard1({ texto: `El dominio "${cleanDominio}" ya pertenece a otro comercio registrado.`, tipo: 'error' });
+      setEditComercioMsg({ texto: `El dominio "${cleanDominio}" ya pertenece a otro comercio registrado.`, tipo: 'error' });
+      setGuardandoEditComercio(false);
       return;
     }
 
@@ -286,11 +293,17 @@ const SuperAdminDashboard: React.FC = () => {
       };
 
       await updateDoc(doc(db, 'comercios', editingComercio.id), updates);
-      setEditingComercio(null);
-      setMsgCard1({ texto: 'Comercio actualizado correctamente.', tipo: 'success' });
-      cargarComercios();
+      setEditComercioMsg({ texto: '✓ ¡Cambios guardados con éxito!', tipo: 'success' });
+      await cargarComercios();
+      setTimeout(() => {
+        setEditingComercio(null);
+        setEditComercioMsg(null);
+      }, 1500);
     } catch (err: any) {
-      setMsgCard1({ texto: 'Error al actualizar comercio: ' + err.message, tipo: 'error' });
+      console.error(err);
+      setEditComercioMsg({ texto: 'Error al actualizar comercio: ' + err.message, tipo: 'error' });
+    } finally {
+      setGuardandoEditComercio(false);
     }
   };
 
@@ -1162,15 +1175,38 @@ const SuperAdminDashboard: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="flex gap-2 pt-2">
-                        <button type="submit" className="sa-btn-primary text-xs flex-1">Guardar Cambios</button>
-                        <button type="button" onClick={() => setEditingComercio(null)} className="sa-btn-secondary text-xs flex-1">Cancelar</button>
+                      <div className="space-y-2 pt-2">
+                        <div className="flex gap-2 items-center">
+                          <button type="submit" disabled={guardandoEditComercio} className="sa-btn-primary text-xs flex-1 cursor-pointer">
+                            {guardandoEditComercio ? 'Guardando...' : 'Guardar Cambios'}
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => { 
+                              setEditingComercio(null); 
+                              setEditComercioMsg(null); 
+                            }} 
+                            className="sa-btn-secondary text-xs flex-1 cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+
+                        {/* Mensaje adyacente a los botones de acción */}
+                        {editComercioMsg && (
+                          <div className={`p-2.5 rounded-xl border text-xs font-bold animate-fade-in ${
+                            editComercioMsg.tipo === 'success' ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300'
+                          }`}>
+                            {editComercioMsg.texto}
+                          </div>
+                        )}
                       </div>
                     </form>
                   ) : (
                     <div className="flex flex-wrap gap-2 border-t pt-3">
                       <button onClick={() => { 
                         setEditingComercio(c); 
+                        setEditComercioMsg(null);
                         setEditComercioNombre(c.nombre); 
                         setEditComercioRazonSocial(c.razonSocial || '');
                         setEditComercioDominio(c.dominio || ''); 
