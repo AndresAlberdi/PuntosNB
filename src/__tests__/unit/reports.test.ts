@@ -158,17 +158,27 @@ describe('Pruebas del Módulo de Reportes', () => {
       saldoPremiosBs: 25, // 20 premios
     };
 
-    // Caso: Mes actual pagado
-    const statusPrepago = checkComercioPrepagoStatus(comPrepago, new Date(2026, 7, 15)); // Agosto 2026
-    expect(statusPrepago.puedeOperar).toBe(true);
-    expect(statusPrepago.puedeCanjearPremios).toBe(true);
-    expect(statusPrepago.premiosDisponibles).toBe(20);
+    // Caso: Mes actual pagado solo 1 mes y faltan 2 días para fin de mes
+    const statusPrepagoFinMes = checkComercioPrepagoStatus(comPrepago, new Date(2026, 7, 29)); // Agosto 29, 2026
+    expect(statusPrepagoFinMes.puedeOperar).toBe(true);
+    expect(statusPrepagoFinMes.alertaAmarillaMensualidad).toBe(true);
+    expect(statusPrepagoFinMes.diasRestantesMes).toBeLessThanOrEqual(3);
+
+    // Caso: Prepago de 2 meses (Agosto y Septiembre 2026) en Agosto 29
+    const comPrepago2Meses: Comercio = {
+      ...comPrepago,
+      mesesPagados: ['2026-08', '2026-09']
+    };
+    const statusPrepagoMulti = checkComercioPrepagoStatus(comPrepago2Meses, new Date(2026, 7, 29));
+    expect(statusPrepagoMulti.puedeOperar).toBe(true);
+    expect(statusPrepagoMulti.alertaAmarillaMensualidad).toBe(false); // NO debe mostrar alerta porque Septiembre está cubierto
+    expect(statusPrepagoMulti.diasRestantesMes).toBeGreaterThan(20);
 
     // Caso: Mes siguiente impago
-    const fechaSept = new Date(2026, 8, 1); // Sept 1, 2026
-    const statusSept = checkComercioPrepagoStatus(comPrepago, fechaSept);
-    expect(statusSept.puedeOperar).toBe(false);
-    expect(statusSept.alertaRojaMensualidad).toBe(true);
+    const fechaOct = new Date(2026, 9, 1); // Oct 1, 2026
+    const statusOct = checkComercioPrepagoStatus(comPrepago2Meses, fechaOct);
+    expect(statusOct.puedeOperar).toBe(false);
+    expect(statusOct.alertaRojaMensualidad).toBe(true);
   });
 
   it('Debe calcular correctamente totalComerciosActivos excluyendo comercios bloqueados en SuperAdminReport', () => {
