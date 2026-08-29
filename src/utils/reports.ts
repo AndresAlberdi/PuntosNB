@@ -119,6 +119,7 @@ export const filterTransactionsByTimeRange = (
  * Determina si una transacción proviene de un código de influencer.
  */
 export const isTransaccionInfluencer = (t: Transaccion): boolean => {
+  if (t.tipo === 'CODIGO_COMERCIO') return false;
   return (
     t.tipo === 'CODIGO_INFLUENCER' ||
     t.vendedorAlias === 'INFLUENCER' ||
