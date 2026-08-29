@@ -20,13 +20,13 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const startAsyncAction = useCallback(async <T,>(action: Promise<T> | (() => Promise<T>)): Promise<T> => {
     activeOperationsRef.current += 1;
 
-    // Si es la primera operación activa, programamos el temporizador de 1 segundo
+    // Si es la primera operación activa, programamos el temporizador de 250ms
     if (!timerRef.current && activeOperationsRef.current === 1) {
       timerRef.current = setTimeout(() => {
         if (activeOperationsRef.current > 0) {
           setShowSpinner(true);
         }
-      }, 1000);
+      }, 250);
     }
 
     try {
