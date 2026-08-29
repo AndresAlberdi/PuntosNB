@@ -14,15 +14,20 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
 
   // Form states for new invitation
   const [selectedInfluencer, setSelectedInfluencer] = useState('');
-  const [puntosAsignar, setPuntosAsignar] = useState(100);
-  const [ratioCliente, setRatioCliente] = useState(10);
-  const [ratioInfluencer, setRatioInfluencer] = useState(5);
+  const [puntosAsignar, setPuntosAsignar] = useState<string>('100');
+  const [ratioCliente, setRatioCliente] = useState<string>('10');
+  const [ratioInfluencer, setRatioInfluencer] = useState<string>('5');
 
   // Modal state for accepting proposal from influencer
   const [acceptingAsig, setAcceptingAsig] = useState<AsignacionInfluencer | null>(null);
-  const [acceptPuntos, setAcceptPuntos] = useState(100);
-  const [acceptRatioCli, setAcceptRatioCli] = useState(10);
-  const [acceptRatioInf, setAcceptRatioInf] = useState(5);
+  const [acceptPuntos, setAcceptPuntos] = useState<string>('100');
+  const [acceptRatioCli, setAcceptRatioCli] = useState<string>('10');
+  const [acceptRatioInf, setAcceptRatioInf] = useState<string>('5');
+
+  // Modal state for editing ratio of active alliance
+  const [editingRatioAsig, setEditingRatioAsig] = useState<AsignacionInfluencer | null>(null);
+  const [editRatioCli, setEditRatioCli] = useState<string>('10');
+  const [editRatioInf, setEditRatioInf] = useState<string>('5');
 
   const fetchData = async () => {
     if (!comercio) return;
@@ -67,10 +72,10 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
         id: asignId,
         comercioId: comercio.id,
         influencerId: selectedInfluencer,
-        puntosParaClientes: Number(puntosAsignar),
+        puntosParaClientes: Number(puntosAsignar) || 100,
         ratio: {
-          cliente: Number(ratioCliente),
-          influencer: Number(ratioInfluencer)
+          cliente: Number(ratioCliente) || 10,
+          influencer: Number(ratioInfluencer) || 0
         },
         estado: 'PENDIENTE',
         iniciadoPor: 'COMERCIO',
@@ -95,10 +100,10 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
 
     try {
       await updateDoc(doc(db, 'asignaciones_influencer', acceptingAsig.id), {
-        puntosParaClientes: Number(acceptPuntos),
+        puntosParaClientes: Number(acceptPuntos) || 100,
         ratio: {
-          cliente: Number(acceptRatioCli),
-          influencer: Number(acceptRatioInf)
+          cliente: Number(acceptRatioCli) || 10,
+          influencer: Number(acceptRatioInf) || 0
         },
         estado: 'ACEPTADO',
         updatedAt: Date.now()
@@ -109,6 +114,33 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
     } catch (err) {
       console.error(err);
       alert("Error al aceptar la propuesta.");
+    }
+  };
+
+  const handleAbrirEditarRatio = (asig: AsignacionInfluencer) => {
+    setEditingRatioAsig(asig);
+    setEditRatioCli(String(asig.ratio?.cliente ?? 10));
+    setEditRatioInf(String(asig.ratio?.influencer ?? 5));
+  };
+
+  const handleGuardarEditarRatio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRatioAsig) return;
+
+    try {
+      await updateDoc(doc(db, 'asignaciones_influencer', editingRatioAsig.id), {
+        ratio: {
+          cliente: Number(editRatioCli) || 1,
+          influencer: Number(editRatioInf) || 0
+        },
+        updatedAt: Date.now()
+      });
+      alert("Ratio actualizado con éxito. Tiene efecto inmediato sobre los canjes.");
+      setEditingRatioAsig(null);
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      alert("Error al actualizar el ratio.");
     }
   };
 
@@ -236,7 +268,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                 min="1" 
                 className="w-36 border border-gray-300 rounded px-3 py-2 bg-white" 
                 value={puntosAsignar} 
-                onChange={e => setPuntosAsignar(Number(e.target.value))} 
+                onChange={e => setPuntosAsignar(e.target.value)} 
               />
             </div>
             <div className="flex gap-2">
@@ -248,7 +280,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                   min="1" 
                   className="w-24 border border-gray-300 rounded px-3 py-2 bg-white" 
                   value={ratioCliente} 
-                  onChange={e => setRatioCliente(Number(e.target.value))} 
+                  onChange={e => setRatioCliente(e.target.value)} 
                 />
               </div>
               <div className="flex items-end pb-2 font-bold text-gray-400">:</div>
@@ -260,7 +292,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                   min="0" 
                   className="w-24 border border-gray-300 rounded px-3 py-2 bg-white" 
                   value={ratioInfluencer} 
-                  onChange={e => setRatioInfluencer(Number(e.target.value))} 
+                  onChange={e => setRatioInfluencer(e.target.value)} 
                 />
               </div>
             </div>
@@ -318,17 +350,17 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                           <button 
                             onClick={() => {
                               setAcceptingAsig(asig);
-                              setAcceptPuntos(100);
-                              setAcceptRatioCli(10);
-                              setAcceptRatioInf(5);
+                              setAcceptPuntos('100');
+                              setAcceptRatioCli(String(asig.ratio?.cliente || 10));
+                              setAcceptRatioInf(String(asig.ratio?.influencer || 5));
                             }} 
-                            className="text-xs bg-green-600 hover:bg-green-700 text-white font-bold px-3 py-1.5 rounded transition cursor-pointer"
+                            className="text-xs bg-green-600 hover:bg-green-700 text-white font-bold px-3 py-1.5 rounded transition cursor-pointer shadow-sm"
                           >
-                            Aceptar Alianza
+                            Aceptar Propuesta
                           </button>
                           <button 
                             onClick={() => handleRechazarPropuesta(asig)} 
-                            className="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-3 py-1.5 rounded transition cursor-pointer"
+                            className="text-xs bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded transition cursor-pointer shadow-sm"
                           >
                             Rechazar
                           </button>
@@ -394,6 +426,13 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                       </td>
                       <td className="p-3 border-b">
                         <div className="flex flex-wrap gap-2">
+                          <button 
+                            onClick={() => handleAbrirEditarRatio(asig)} 
+                            className="text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold px-2.5 py-1 rounded border border-purple-200 transition cursor-pointer"
+                            title="Modificar ratio de puntos para cliente e influencer"
+                          >
+                            Editar Ratio
+                          </button>
                           <button 
                             onClick={() => handleAumentarPuntos(asig)} 
                             className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-2.5 py-1 rounded border border-blue-200 transition cursor-pointer"
@@ -516,6 +555,74 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
         </div>
       )}
 
+      {/* Modal para Editar Ratio de Influencer */}
+      {editingRatioAsig && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-gray-800 text-lg">
+                Editar Ratio de Alianza
+              </h3>
+              <button onClick={() => setEditingRatioAsig(null)} className="text-gray-400 font-bold hover:text-black">✕</button>
+            </div>
+
+            <p className="text-xs text-gray-600">
+              Influencer: <span className="font-bold text-gray-800">{influencers.find(i => i.uid === editingRatioAsig.influencerId)?.nombre || editingRatioAsig.influencerId}</span>
+            </p>
+
+            <form onSubmit={handleGuardarEditarRatio} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Ratio de Puntos (Cliente : Influencer)</label>
+                <div className="flex gap-2 items-center">
+                  <div className="flex-1">
+                    <span className="text-[10px] text-gray-500 block mb-1">Pts. para el Cliente</span>
+                    <input 
+                      type="number" 
+                      required 
+                      min="1" 
+                      className="w-full border rounded-lg px-3 py-2 text-sm bg-white" 
+                      value={editRatioCli} 
+                      onChange={e => setEditRatioCli(e.target.value)} 
+                    />
+                  </div>
+                  <div className="font-bold text-gray-400 pt-4">:</div>
+                  <div className="flex-1">
+                    <span className="text-[10px] text-gray-500 block mb-1">Pts. para el Influencer</span>
+                    <input 
+                      type="number" 
+                      required 
+                      min="0" 
+                      className="w-full border rounded-lg px-3 py-2 text-sm bg-white" 
+                      value={editRatioInf} 
+                      onChange={e => setEditRatioInf(e.target.value)} 
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">
+                  Por cada canje con el código de este influencer, el cliente recibirá {editRatioCli} puntos y el influencer recibirá {editRatioInf} puntos.
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t">
+                <button
+                  type="button"
+                  onClick={() => setEditingRatioAsig(null)}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2 rounded-xl text-xs transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-brand-primary hover:bg-brand-primary-hover text-white font-bold py-2 rounded-xl text-xs transition cursor-pointer shadow"
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal para Aceptar Solicitud de Influencer */}
       {acceptingAsig && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -534,7 +641,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                   min="1" 
                   className="w-full border border-gray-300 rounded px-3 py-2" 
                   value={acceptPuntos} 
-                  onChange={e => setAcceptPuntos(Number(e.target.value))} 
+                  onChange={e => setAcceptPuntos(e.target.value)} 
                 />
               </div>
 
@@ -547,7 +654,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                     min="1" 
                     className="w-full border border-gray-300 rounded px-3 py-2" 
                     value={acceptRatioCli} 
-                    onChange={e => setAcceptRatioCli(Number(e.target.value))} 
+                    onChange={e => setAcceptRatioCli(e.target.value)} 
                   />
                 </div>
                 <div>
@@ -558,7 +665,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
                     min="0" 
                     className="w-full border border-gray-300 rounded px-3 py-2" 
                     value={acceptRatioInf} 
-                    onChange={e => setAcceptRatioInf(Number(e.target.value))} 
+                    onChange={e => setAcceptRatioInf(e.target.value)} 
                   />
                 </div>
               </div>
