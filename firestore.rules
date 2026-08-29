@@ -42,12 +42,18 @@ service cloud.firestore {
       // Los usuarios pueden leer su propio documento, superadmins todo, admins pueden ver a los influencers y usuarios de su comercio
       allow read: if isAuth() && (
         request.auth.uid == userId || 
+        (resource.data.email != null && request.auth.token.email != null && resource.data.email == request.auth.token.email) ||
         isSuperAdmin() || 
         isContador() ||
         resource.data.rol == 'influencer' ||
         (isAdminComercio() && resource.data.comercioId == getUserData().comercioId)
       );
-      allow write: if isAuth() && (request.auth.uid == userId || isSuperAdmin() || isAdminComercio());
+      allow write: if isAuth() && (
+        request.auth.uid == userId || 
+        (resource.data.email != null && request.auth.token.email != null && resource.data.email == request.auth.token.email) ||
+        isSuperAdmin() || 
+        isAdminComercio()
+      );
     }
 
     match /comercios/{comercioId} {
