@@ -640,7 +640,7 @@ const ClienteDashboard: React.FC = () => {
           nroFactura: sesion.nroFactura || '',
           puntos: puntos,
           tipo: 'ACUMULACION',
-          reglaAplicadaId: sesion.reglaAplicadaId
+          ...(sesion.reglaAplicadaId ? { reglaAplicadaId: sesion.reglaAplicadaId } : {})
         };
         transaction.set(transaccionRef, nuevaTransaccion);
 
@@ -796,7 +796,7 @@ const ClienteDashboard: React.FC = () => {
           comercioId: codigoData.comercioId,
           vendedorId,
           vendedorAlias,
-          influencerId,
+          ...(influencerId ? { influencerId } : {}),
           codigoId: codigoId,
           montoFactura: 0,
           nroFactura: `CÓDIGO ${codigoId}`,
