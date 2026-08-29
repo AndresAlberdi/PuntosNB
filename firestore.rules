@@ -161,6 +161,13 @@ service cloud.firestore {
       allow update, delete: if isSuperAdmin();
     }
 
+    match /codigos_comercio/{codigoId} {
+      allow read: if isAuth();
+      // Admins del comercio respectivo y Superadmins pueden crear, editar y eliminar códigos de su comercio
+      allow create: if isAuth() && (isSuperAdmin() || (isAdminComercio() && getUserData().comercioId == request.resource.data.comercioId));
+      allow update, delete: if isAuth() && (isSuperAdmin() || (isAdminComercio() && getUserData().comercioId == resource.data.comercioId));
+    }
+
     match /canjes_codigos/{canjeId} {
       allow read: if isAuth();
       // Clientes pueden registrar el canje
