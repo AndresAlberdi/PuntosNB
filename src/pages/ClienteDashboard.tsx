@@ -92,16 +92,16 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
         </Link>
       </div>
 
-      {/* Código de Canje / Influencer */}
+      {/* Código de Canje / Promocional */}
       <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-2xl border border-purple-100 shadow-sm space-y-3">
         <div>
-          <h3 className="text-base font-black text-purple-900 mb-1">¿Tienes un código promocional o de influencer?</h3>
-          <p className="text-xs text-purple-700">Ingresa el código para recibir puntos de regalo en tus comercios asociados.</p>
+          <h3 className="text-base font-black text-purple-900 mb-1">¿Tienes un Código Promocional?</h3>
+          <p className="text-xs text-purple-700">Ingresa tu código para recibir puntos de regalo en tus comercios asociados.</p>
         </div>
         <div className="flex gap-2">
           <input 
             type="text" 
-            placeholder="Ej. NATGOLD" 
+            placeholder="Ej. PREMIO10" 
             className="flex-1 border border-purple-200 px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 font-bold uppercase tracking-wider text-sm bg-white"
             value={influencerCode}
             onChange={e => {
