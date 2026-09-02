@@ -15,7 +15,7 @@
   "dependencies": {
     "@yudiel/react-qr-scanner": "^2.6.0",
     "date-fns": "^4.4.0",
-    "firebase": "^12.14.0",
+    "firebase": "^12.18.0",
     "lucide-react": "^1.18.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.6",
