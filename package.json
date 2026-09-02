@@ -25,7 +25,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@firebase/rules-unit-testing": "^5.0.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/postcss": "^4.3.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
