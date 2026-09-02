@@ -1,0 +1,21 @@
+# Generado desde el estándar DevSecOps (02-pipelines/config/dependabot.yml).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/La_Paz
+    open-pull-requests-limit: 5
+    labels: [dependencias, github-actions, seguridad]
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/La_Paz
+    open-pull-requests-limit: 10
+    labels: [dependencias, npm]
