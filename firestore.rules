@@ -108,6 +108,14 @@ service cloud.firestore {
       allow update: if isAdminComercio() && miComercio() == comercioId
         && cambia(['reglas', 'premios', 'productos', 'logoUrl', 'paletteId']);
 
+      // Consumo del saldo de premios al aprobar un canje: el comercio solo puede bajarlo,
+      // nunca subirlo. Conserva la capacidad que tenía antes del parche sin permitir la
+      // autoacreditación, que es el riesgo real de H-07. En la Fase 1 este descuento pasa a
+      // calcularse en el servidor.
+      allow update: if isAdminComercio() && miComercio() == comercioId
+        && cambia(['saldoPremiosBs'])
+        && request.resource.data.saldoPremiosBs < resource.data.saldoPremiosBs;
+
       // El contador solo acredita cobros.
       allow update: if isContador()
         && cambia(['saldoPremiosBs', 'mesesPagados', 'modalidadPago']);

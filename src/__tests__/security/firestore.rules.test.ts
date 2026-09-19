@@ -265,6 +265,104 @@ describe('H-07 · Campos de facturación del comercio', () => {
   });
 });
 
+describe('H-07 · Consumo del saldo de premios al canjear', () => {
+  it('un admin_comercio SÍ puede descontar el saldo de premios de su comercio', async () => {
+    const db = como(UID_ADMIN);
+    await assertSucceeds(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 188.75 }));
+  });
+
+  it('un admin_comercio NO puede subir el saldo de premios ni un céntimo', async () => {
+    const db = como(UID_ADMIN);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 190.01 }));
+  });
+
+  it('un admin_comercio NO puede descontar el saldo de un comercio ajeno', async () => {
+    const db = como(UID_ADMIN_OTRO);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 100 }));
+  });
+
+  it('un vendedor NO puede tocar el saldo de premios (H-26: rompe el canje en PREPAGO)', async () => {
+    const db = como(UID_VENDEDOR);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 188.75 }));
+  });
+});
+
+describe('Flujos críticos del negocio (siguen operando)', () => {
+  it('acumulación: el vendedor crea la sesión y el cliente la reclama', async () => {
+    const vendedor = como(UID_VENDEDOR);
+    await assertSucceeds(setDoc(doc(vendedor, 'sesiones_qr', 'sesion_acum'), {
+      id: 'sesion_acum', tipo: 'ACUMULACION', creadorId: UID_VENDEDOR, comercioId: COMERCIO,
+      estado: 'PENDIENTE', createdAt: Date.now(), montoFactura: 100, puntosCalculados: 10,
+    }));
+
+    const cliente = como(UID_CLIENTE);
+    await assertSucceeds(updateDoc(doc(cliente, 'sesiones_qr', 'sesion_acum'), { estado: 'USADO' }));
+    await assertSucceeds(setDoc(doc(cliente, 'transacciones', 'tx_acum'), {
+      id: 'tx_acum', fechaHora: Date.now(), clienteId: UID_CLIENTE, comercioId: COMERCIO,
+      vendedorId: UID_VENDEDOR, puntos: 10, tipo: 'ACUMULACION',
+    }));
+    await assertSucceeds(setDoc(doc(cliente, 'puntos_saldos', `${UID_CLIENTE}_${COMERCIO}`), {
+      id: `${UID_CLIENTE}_${COMERCIO}`, clienteId: UID_CLIENTE, comercioId: COMERCIO,
+      saldoTotal: 10, updatedAt: Date.now(),
+    }));
+  });
+
+  it('canje: el cliente crea la sesión y el vendedor la aprueba', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'puntos_saldos', `${UID_CLIENTE}_${COMERCIO}`), {
+        id: `${UID_CLIENTE}_${COMERCIO}`, clienteId: UID_CLIENTE, comercioId: COMERCIO,
+        saldoTotal: 100, updatedAt: 1,
+      });
+    });
+
+    const cliente = como(UID_CLIENTE);
+    await assertSucceeds(setDoc(doc(cliente, 'sesiones_qr', 'sesion_canje'), {
+      id: 'sesion_canje', tipo: 'CANJE', creadorId: UID_CLIENTE, comercioId: COMERCIO,
+      estado: 'PENDIENTE', createdAt: Date.now(), premioId: 'p1', puntosCalculados: 50,
+    }));
+
+    const vendedor = como(UID_VENDEDOR);
+    await assertSucceeds(updateDoc(doc(vendedor, 'sesiones_qr', 'sesion_canje'), { estado: 'USADO' }));
+    await assertSucceeds(setDoc(doc(vendedor, 'transacciones', 'tx_canje'), {
+      id: 'tx_canje', fechaHora: Date.now(), clienteId: UID_CLIENTE, comercioId: COMERCIO,
+      vendedorId: UID_VENDEDOR, puntos: -50, tipo: 'CANJE',
+    }));
+    await assertSucceeds(updateDoc(doc(vendedor, 'puntos_saldos', `${UID_CLIENTE}_${COMERCIO}`), {
+      saldoTotal: 50, updatedAt: Date.now(),
+    }));
+  });
+
+  it('código promocional del comercio: el admin lo crea y el cliente lo canjea', async () => {
+    const admin = como(UID_ADMIN);
+    await assertSucceeds(setDoc(doc(admin, 'codigos_comercio', 'ANIVERSARIO'), {
+      id: 'ANIVERSARIO', comercioId: COMERCIO, puntosPorCanje: 20,
+      fechaInicio: Date.now(), fechaFin: Date.now() + 86400000, estado: 'ACTIVO', createdAt: Date.now(),
+    }));
+
+    const cliente = como(UID_CLIENTE);
+    await assertSucceeds(setDoc(doc(cliente, 'canjes_codigos', 'canje_1'), {
+      id: 'canje_1', clienteId: UID_CLIENTE, comercioId: COMERCIO, codigoId: 'ANIVERSARIO', fechaHora: Date.now(),
+    }));
+    await assertSucceeds(setDoc(doc(cliente, 'transacciones', 'tx_codigo'), {
+      id: 'tx_codigo', fechaHora: Date.now(), clienteId: UID_CLIENTE, comercioId: COMERCIO,
+      puntos: 20, tipo: 'CODIGO_COMERCIO',
+    }));
+  });
+
+  it('cobro de prepago: el contador lo registra y acredita el saldo', async () => {
+    const contador = como(UID_CONTADOR);
+    await assertSucceeds(setDoc(doc(contador, 'cobros_prepago', 'cobro_1'), {
+      id: 'cobro_1', comercioId: COMERCIO, nombreComercio: 'Epico', nitRut: '123', recibeFactura: false,
+      contadorId: UID_CONTADOR, contadorAlias: 'contador', fechaHora: Date.now(),
+      montoTotal: 75, montoMensualidad: 25, mesesPagados: ['2026-10'], montoPremios: 50,
+      cantidadPremiosEquivalentes: 40, codigoDeposito: 'D-1', comprobanteUrl: '',
+    }));
+    await assertSucceeds(updateDoc(doc(contador, 'comercios', COMERCIO), {
+      saldoPremiosBs: 240, mesesPagados: ['2026-09', '2026-10'], modalidadPago: 'PREPAGO',
+    }));
+  });
+});
+
 describe('Superadministrador', () => {
   it('SÍ puede asignar roles y comercios', async () => {
     const db = como(UID_SUPER);
