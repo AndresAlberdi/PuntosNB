@@ -237,8 +237,31 @@ No hay una segunda base de datos donde pudieran estar los datos de producción. 
 es el habitual —`puntosnb` primero, `hipatia-puntos` después—, con la salvedad de que el entorno de
 pruebas es, hoy, el único que contiene datos que duele perder: de ahí el respaldo y H-21.
 
+### Despliegue del parche a `puntosnb` — hecho
+
+Autorizado por Andrés el 19-sep-2026. `firebase deploy --only firestore:rules --project puntosnb`.
+Ruleset `19f63a5e…` y, tras el ajuste de H-26, el ruleset vigente. Verificado descargando las reglas
+en vivo y comparándolas con `firestore.rules`: **idénticas**. La lectura anónima sigue devolviendo 403.
+
+Pendiente: `hipatia-puntos` (producción), a la espera de autorización.
+
+#### Hallazgo H-26 (alta) — el canje en comercios PREPAGO está roto desde antes del hardening
+
+`VendedorDashboard` descuenta `comercios.saldoPremiosBs` dentro de la transacción de canje cuando el
+comercio es PREPAGO. Se revisaron **las doce versiones de reglas desplegadas en `puntosnb`** desde
+junio: ninguna permitió nunca al rol `vendedor` escribir en `comercios`. Como la escritura va dentro
+de una transacción, el canje completo falla. Los ocho canjes registrados son todos anteriores a que
+esos comercios pasaran a PREPAGO, y los registró siempre un `vendedor`.
+
+Decisión tomada: el parche conserva para `admin_comercio` el descuento que ya tenía, pero **solo
+hacia abajo** (`saldoPremiosBs` puede bajar, nunca subir), de modo que el hardening no agrava el
+problema y la autoacreditación —el riesgo real de H-07— sigue cerrada. La corrección de fondo
+(recalcular el consumo en el servidor, bloquear el canje sin saldo y llevar `consumidoPremiosBs`)
+es de la Fase 1, tal como ya estaba previsto en el plan.
+
 ### Pendientes inmediatos
 
-- Despliegue del parche de contención (punto 2 de arriba).
+- Despliegue del parche a `hipatia-puntos` (producción), con autorización.
+- Alerta de presupuesto en ambos proyectos (el plan Blaze ya está activo en los dos).
 - Al abrir la Fase 1: corregir H-22 (alta de vendedores que no pueden entrar) y planificar la
   consolidación de los `users` duplicados (H-23).
