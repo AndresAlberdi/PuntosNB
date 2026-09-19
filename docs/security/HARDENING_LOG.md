@@ -208,8 +208,37 @@ sesión de vendedor sin identidad (H-04), los canjes de códigos sin validación
 enforcement (H-10). Ninguno permite hoy tomar el control de la plataforma; sí permiten fraude de
 puntos dentro de un comercio. La Fase 1 (backend de confianza) los cierra.
 
+### Respaldo previo (Fase 0, paso 3) — hecho
+
+Autorizado por Andrés el 19-sep-2026. Exportación completa de Firestore de `puntosnb`:
+
+- Bucket: `gs://puntosnb-respaldos-firestore` (us-central1, acceso uniforme), creado para esto.
+- Volcado: `gs://puntosnb-respaldos-firestore/fase0-20260919-1913/` — 239 KB, metadatos de
+  exportación y tres archivos de salida, todas las colecciones.
+- Ambos proyectos ya están en plan Blaze (facturación habilitada), de modo que el punto 3 de la
+  sección 5 del plan queda cubierto salvo por la alerta de presupuesto, que sigue pendiente.
+
+### Verificación de la relación entre los dos proyectos
+
+A pedido de Andrés se contrastó la afirmación «`puntosnb` es la versión de pruebas de
+`hipatia-puntos`». Es correcta como arquitectura, y los datos añaden un matiz que importa para el
+plan: en producción no ha ocurrido nunca una operación real.
+
+| | `hipatia-puntos` (producción) | `puntosnb` (pruebas) |
+|---|---|---|
+| Cuentas en Firebase Auth | 8 | 33 |
+| Último inicio de sesión | 22-jul-2026 | 25-ago-2026 |
+| Comercios | 0 | 4 |
+| Transacciones | 0 | 36 (la última, 29-ago-2026) |
+| Sesiones QR | 0 | 56 |
+| Bases de datos Firestore | solo `(default)`, nam5 | solo `(default)`, us-central1 |
+
+No hay una segunda base de datos donde pudieran estar los datos de producción. El orden de trabajo
+es el habitual —`puntosnb` primero, `hipatia-puntos` después—, con la salvedad de que el entorno de
+pruebas es, hoy, el único que contiene datos que duele perder: de ahí el respaldo y H-21.
+
 ### Pendientes inmediatos
 
-- Respaldo de `puntosnb` y despliegue del parche (puntos 1 y 2 de arriba).
+- Despliegue del parche de contención (punto 2 de arriba).
 - Al abrir la Fase 1: corregir H-22 (alta de vendedores que no pueden entrar) y planificar la
   consolidación de los `users` duplicados (H-23).
