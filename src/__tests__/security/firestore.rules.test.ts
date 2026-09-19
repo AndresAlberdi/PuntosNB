@@ -1,197 +1,278 @@
-import { describe, it, beforeAll, afterAll, beforeEach, expect } from 'vitest';
-import { initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
+/**
+ * Pruebas de las reglas de Firestore (Fase 0 del hardening).
+ *
+ * Requieren el emulador de Firestore: se ejecutan con `npm run test:rules`,
+ * que levanta el emulador con `firebase emulators:exec`. Si el emulador no
+ * está disponible, las pruebas FALLAN; nunca se omiten (H-15).
+ */
+import { describe, it, beforeAll, afterAll, beforeEach } from 'vitest';
+import {
+  initializeTestEnvironment,
+  assertFails,
+  assertSucceeds,
+  type RulesTestEnvironment,
+} from '@firebase/rules-unit-testing';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-let testEnv: RulesTestEnvironment | undefined;
+const aquí = dirname(fileURLToPath(import.meta.url));
+const REGLAS = readFileSync(resolve(aquí, '../../../firestore.rules'), 'utf8');
 
-describe('Reglas de Seguridad Firestore', () => {
-  beforeAll(async () => {
-    const rulesPath = resolve(__dirname, '../../../firestore.rules');
-    
-    let rulesStr = '';
-    try {
-      rulesStr = readFileSync(rulesPath, 'utf8');
-    } catch(e) {
-      console.warn("No se pudo cargar el archivo original de reglas para pruebas.");
-    }
+const HOST = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
+const [host, puerto] = HOST.split(':');
 
-    try {
-      testEnv = await initializeTestEnvironment({
-        projectId: 'hipatia-puntos',
-        firestore: {
-          host: '127.0.0.1',
-          port: 8080,
-          rules: rulesStr || `
-            rules_version = '2';
-            service cloud.firestore {
-              match /databases/{database}/documents {
-                match /{document=**} {
-                  allow read, write: if false;
-                }
-              }
-            }
-          `,
-        },
-      });
-    } catch (e) {
-      console.warn("No se pudo conectar al emulador de Firestore en 127.0.0.1:8080.");
-    }
+let testEnv: RulesTestEnvironment;
+
+// Identidades de prueba
+const UID_CLIENTE = 'cliente_1';
+const UID_CLIENTE_2 = 'cliente_2';
+const UID_ADMIN = 'admin_epico';
+const UID_ADMIN_OTRO = 'admin_pizza';
+const UID_CONTADOR = 'contador_1';
+const UID_SUPER = 'super_1';
+const UID_VENDEDOR = 'vendedor_epico';
+const COMERCIO = 'comercio_epico';
+const COMERCIO_OTRO = 'comercio_pizza';
+
+const como = (uid: string, token: Record<string, unknown> = {}) =>
+  testEnv.authenticatedContext(uid, token).firestore();
+
+beforeAll(async () => {
+  testEnv = await initializeTestEnvironment({
+    projectId: 'demo-hipatia-reglas',
+    firestore: { host, port: Number(puerto), rules: REGLAS },
   });
+});
 
-  afterAll(async () => {
-    if (testEnv) {
-      await testEnv.cleanup();
-    }
-  });
+afterAll(async () => {
+  await testEnv.cleanup();
+});
 
-  beforeEach(async () => {
-    if (testEnv) {
-      await testEnv.clearFirestore();
-    }
-  });
-
-  it('No debería permitir acceso a usuarios no autenticados', async (ctx) => {
-    if (!testEnv) {
-      ctx.skip();
-      return;
-    }
-    const unauthedDb = testEnv.unauthenticatedContext().firestore();
-    await expect(
-      unauthedDb.collection('users').doc('user1').get()
-    ).rejects.toThrow();
-  });
-
-  it('Un cliente autenticado debería poder leer su propio documento', async (ctx) => {
-    if (!testEnv) {
-      ctx.skip();
-      return;
-    }
-    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
-    await expect(
-      authedDb.collection('users').doc('cliente1').get()
-    ).resolves.not.toThrow();
-  });
-
-  it('Un cliente NO debería poder leer el documento de otro usuario', async (ctx) => {
-    if (!testEnv) {
-      ctx.skip();
-      return;
-    }
-    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
-    await expect(
-      authedDb.collection('users').doc('cliente2').get()
-    ).rejects.toThrow();
-  });
-
-  it('Un cliente debería poder registrar una transacción propia de acumulación', async (ctx) => {
-    if (!testEnv) {
-      ctx.skip();
-      return;
-    }
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      const db = context.firestore();
-      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
+beforeEach(async () => {
+  await testEnv.clearFirestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'users', UID_CLIENTE), {
+      uid: UID_CLIENTE, email: 'ana@gmail.com', nombre: 'Ana', rol: 'cliente', createdAt: 1,
     });
+    await setDoc(doc(db, 'users', UID_CLIENTE_2), {
+      uid: UID_CLIENTE_2, email: 'beto@gmail.com', nombre: 'Beto', rol: 'cliente', createdAt: 1,
+    });
+    await setDoc(doc(db, 'users', UID_ADMIN), {
+      uid: UID_ADMIN, email: 'admin@epico.com', nombre: 'Admin Épico', rol: 'admin_comercio',
+      comercioId: COMERCIO, createdAt: 1,
+    });
+    await setDoc(doc(db, 'users', UID_ADMIN_OTRO), {
+      uid: UID_ADMIN_OTRO, email: 'admin@pizza.com', nombre: 'Admin Pizza', rol: 'admin_comercio',
+      comercioId: COMERCIO_OTRO, createdAt: 1,
+    });
+    await setDoc(doc(db, 'users', UID_CONTADOR), {
+      uid: UID_CONTADOR, email: 'contador@hipatia.io', nombre: 'Contador', rol: 'contador', createdAt: 1,
+    });
+    await setDoc(doc(db, 'users', UID_SUPER), {
+      uid: UID_SUPER, email: 'super@hipatia.io', nombre: 'Super', rol: 'superadmin', createdAt: 1,
+    });
+    await setDoc(doc(db, 'users', UID_VENDEDOR), {
+      uid: UID_VENDEDOR, email: 'ventas@epico.com', nombre: 'Ventas', rol: 'vendedor',
+      comercioId: COMERCIO, estado: 'activo', createdAt: 1,
+    });
+    await setDoc(doc(db, 'comercios', COMERCIO), {
+      nombre: 'Epico', nit_rut: '123', reglas: [], premios: [], productos: [],
+      modalidadPago: 'PREPAGO', plan: 'regular', saldoPremiosBs: 190, mensualidadBs: 25,
+      costoPorPremioBs: 1.25, mesesPagados: ['2026-09'], estado: 'activo', createdAt: 1,
+    });
+    await setDoc(doc(db, 'comercios', COMERCIO_OTRO), {
+      nombre: 'Pizza NB', nit_rut: '456', reglas: [], premios: [], productos: [],
+      modalidadPago: 'PILOTO', plan: 'regular', saldoPremiosBs: 0, createdAt: 1,
+    });
+  });
+});
 
-    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
-    await expect(
-      authedDb.collection('transacciones').add({
-        clienteId: 'cliente1',
-        tipo: 'ACUMULACION',
-        puntos: 10
-      })
-    ).resolves.not.toThrow();
+describe('Acceso anónimo', () => {
+  it('rechaza leer usuarios sin autenticación (flujo de PIN del vendedor, H-04)', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, 'users', UID_VENDEDOR)));
   });
 
-  it('Un cliente NO debería poder registrar una transacción ajena', async (ctx) => {
-    if (!testEnv) {
-      ctx.skip();
-      return;
-    }
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      const db = context.firestore();
-      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
-    });
+  it('rechaza leer comercios sin autenticación', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, 'comercios', COMERCIO)));
+  });
+});
 
-    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
-    await expect(
-      authedDb.collection('transacciones').add({
-        clienteId: 'cliente2',
-        tipo: 'ACUMULACION',
-        puntos: 10
-      })
-    ).rejects.toThrow();
+describe('H-01 · Autoescalada de rol', () => {
+  it('un cliente NO puede convertirse en superadmin', async () => {
+    const db = como(UID_CLIENTE);
+    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE), { rol: 'superadmin' }));
   });
 
-  it('Un cliente debería poder crear y actualizar su propio saldo de puntos', async (ctx) => {
-    if (!testEnv) {
-      ctx.skip();
-      return;
-    }
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      const db = context.firestore();
-      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
-    });
-
-    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
-    const docRef = authedDb.collection('puntos_saldos').doc('cliente1_comercioA');
-    
-    // Crear propio saldo
-    await expect(
-      docRef.set({
-        clienteId: 'cliente1',
-        comercioId: 'comercioA',
-        saldoTotal: 10
-      })
-    ).resolves.not.toThrow();
-
-    // Actualizar propio saldo
-    await expect(
-      docRef.update({
-        saldoTotal: 20
-      })
-    ).resolves.not.toThrow();
+  it('un cliente NO puede asignarse un comercio', async () => {
+    const db = como(UID_CLIENTE);
+    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE), { comercioId: COMERCIO }));
   });
 
-  it('Un cliente NO debería poder modificar el saldo de puntos de otro usuario', async (ctx) => {
-    if (!testEnv) {
-      ctx.skip();
-      return;
-    }
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      const db = context.firestore();
-      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
-      await db.collection('puntos_saldos').doc('cliente2_comercioA').set({
-        clienteId: 'cliente2',
-        comercioId: 'comercioA',
-        saldoTotal: 50
-      });
-    });
-
-    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
-    const docRef = authedDb.collection('puntos_saldos').doc('cliente2_comercioA');
-
-    await expect(
-      docRef.update({
-        saldoTotal: 100
-      })
-    ).rejects.toThrow();
+  it('un cliente NO puede desbloquearse a sí mismo', async () => {
+    const db = como(UID_CLIENTE);
+    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE), { estado: 'activo' }));
   });
 
-  it('Un cliente debería poder leer un saldo de puntos inexistente', async (ctx) => {
-    if (!testEnv) {
-      ctx.skip();
-      return;
-    }
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      const db = context.firestore();
-      await db.collection('users').doc('cliente1').set({ rol: 'cliente' });
-    });
+  it('un cliente NO puede ponerse un PIN de vendedor', async () => {
+    const db = como(UID_CLIENTE);
+    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE), { pin: '123456' }));
+  });
 
-    const authedDb = testEnv.authenticatedContext('cliente1', { email: 'cliente@test.com' }).firestore();
-    await expect(
-      authedDb.collection('puntos_saldos').doc('cliente1_comercioA').get()
-    ).resolves.not.toThrow();
+  it('un cliente SÍ puede editar su nombre y su teléfono', async () => {
+    const db = como(UID_CLIENTE);
+    await assertSucceeds(updateDoc(doc(db, 'users', UID_CLIENTE), { nombre: 'Ana María', telefono: '+59170000000' }));
+  });
+
+  it('un cliente NO puede modificar el documento de otro usuario', async () => {
+    const db = como(UID_CLIENTE);
+    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE_2), { nombre: 'Secuestrado' }));
+  });
+
+  it('un admin_comercio NO puede escribir usuarios de otro comercio', async () => {
+    const db = como(UID_ADMIN_OTRO);
+    await assertFails(updateDoc(doc(db, 'users', UID_VENDEDOR), { nombre: 'Ajeno' }));
+  });
+
+  it('un admin_comercio NO puede cambiar el rol de su vendedor', async () => {
+    const db = como(UID_ADMIN);
+    await assertFails(updateDoc(doc(db, 'users', UID_VENDEDOR), { rol: 'superadmin' }));
+  });
+
+  it('un admin_comercio SÍ puede bloquear a su propio vendedor', async () => {
+    const db = como(UID_ADMIN);
+    await assertSucceeds(updateDoc(doc(db, 'users', UID_VENDEDOR), { estado: 'bloqueado' }));
+  });
+});
+
+describe('H-02 · Toma de cuenta por coincidencia de correo', () => {
+  it('un usuario con el mismo correo NO puede leer el documento ajeno', async () => {
+    const db = como('uid_nuevo', { email: 'admin@epico.com', email_verified: true });
+    await assertFails(getDoc(doc(db, 'users', UID_ADMIN)));
+  });
+
+  it('un usuario con el mismo correo NO puede escribir el documento ajeno', async () => {
+    const db = como('uid_nuevo', { email: 'admin@epico.com', email_verified: true });
+    await assertFails(updateDoc(doc(db, 'users', UID_ADMIN), { nombre: 'Heredado' }));
+  });
+});
+
+describe('H-03 · Autoaprovisionamiento y alta propia', () => {
+  it('un usuario nuevo SÍ puede crearse a sí mismo como cliente', async () => {
+    const db = como('uid_nuevo', { email: 'nuevo@gmail.com' });
+    await assertSucceeds(setDoc(doc(db, 'users', 'uid_nuevo'), {
+      uid: 'uid_nuevo', email: 'nuevo@gmail.com', nombre: 'Nuevo', rol: 'cliente',
+      termsAccepted: true, termsAcceptedAt: 2, createdAt: 2,
+    }));
+  });
+
+  it('un usuario nuevo NO puede crearse como admin_comercio', async () => {
+    const db = como('uid_nuevo', { email: 'admin@epico-falso.com' });
+    await assertFails(setDoc(doc(db, 'users', 'uid_nuevo'), {
+      uid: 'uid_nuevo', email: 'admin@epico-falso.com', nombre: 'Falso', rol: 'admin_comercio',
+      comercioId: COMERCIO, createdAt: 2,
+    }));
+  });
+
+  it('un usuario nuevo NO puede crearse como vendedor de un comercio', async () => {
+    const db = como('uid_nuevo', { email: 'ventas@epico.com' });
+    await assertFails(setDoc(doc(db, 'users', 'uid_nuevo'), {
+      uid: 'uid_nuevo', email: 'ventas@epico.com', nombre: 'Falso', rol: 'vendedor',
+      comercioId: COMERCIO, createdAt: 2,
+    }));
+  });
+
+  it('un usuario nuevo NO puede crearse como superadmin', async () => {
+    const db = como('uid_nuevo', { email: 'quiensea@gmail.com' });
+    await assertFails(setDoc(doc(db, 'users', 'uid_nuevo'), {
+      uid: 'uid_nuevo', email: 'quiensea@gmail.com', nombre: 'Falso', rol: 'superadmin', createdAt: 2,
+    }));
+  });
+
+  it('un cliente NO puede borrar su documento para recrearlo con otro rol', async () => {
+    const db = como(UID_CLIENTE);
+    await assertFails(deleteDoc(doc(db, 'users', UID_CLIENTE)));
+  });
+});
+
+describe('H-07 · Campos de facturación del comercio', () => {
+  it('un admin_comercio NO puede acreditarse saldo de premios', async () => {
+    const db = como(UID_ADMIN);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 99999 }));
+  });
+
+  it('un admin_comercio NO puede pasarse a plan premium', async () => {
+    const db = como(UID_ADMIN);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { plan: 'premium' }));
+  });
+
+  it('un admin_comercio NO puede cambiar su modalidad de pago a PILOTO', async () => {
+    const db = como(UID_ADMIN);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { modalidadPago: 'PILOTO' }));
+  });
+
+  it('un admin_comercio NO puede marcarse meses como pagados', async () => {
+    const db = como(UID_ADMIN);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { mesesPagados: ['2026-01', '2026-02'] }));
+  });
+
+  it('un admin_comercio NO puede desbloquear su comercio', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'comercios', COMERCIO), { estado: 'bloqueado' });
+    });
+    const db = como(UID_ADMIN);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { estado: 'activo' }));
+  });
+
+  it('un admin_comercio SÍ puede editar sus reglas, premios y productos', async () => {
+    const db = como(UID_ADMIN);
+    await assertSucceeds(updateDoc(doc(db, 'comercios', COMERCIO), {
+      reglas: [{ id: 'r1', tipo: 'POR_COMPRA', puntosAOtorgar: 10, activa: true }],
+      premios: [{ id: 'p1', nombre: 'Café', descripcion: '', puntosRequeridos: 100, activo: true }],
+    }));
+  });
+
+  it('un admin_comercio NO puede tocar el comercio ajeno', async () => {
+    const db = como(UID_ADMIN_OTRO);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { reglas: [] }));
+  });
+
+  it('un cliente NO puede modificar ningún comercio', async () => {
+    const db = como(UID_CLIENTE);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 1000 }));
+  });
+
+  it('un contador SÍ puede acreditar un cobro de prepago', async () => {
+    const db = como(UID_CONTADOR);
+    await assertSucceeds(updateDoc(doc(db, 'comercios', COMERCIO), {
+      saldoPremiosBs: 250, mesesPagados: ['2026-09', '2026-10'], modalidadPago: 'PREPAGO',
+    }));
+  });
+
+  it('un contador NO puede cambiar el plan ni la mensualidad', async () => {
+    const db = como(UID_CONTADOR);
+    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { plan: 'premium', mensualidadBs: 0 }));
+  });
+
+  it('un contador NO puede crear ni borrar comercios', async () => {
+    const db = como(UID_CONTADOR);
+    await assertFails(setDoc(doc(db, 'comercios', 'comercio_nuevo'), { nombre: 'Nuevo', nit_rut: '1', reglas: [], premios: [], createdAt: 1 }));
+    await assertFails(deleteDoc(doc(db, 'comercios', COMERCIO_OTRO)));
+  });
+});
+
+describe('Superadministrador', () => {
+  it('SÍ puede asignar roles y comercios', async () => {
+    const db = como(UID_SUPER);
+    await assertSucceeds(updateDoc(doc(db, 'users', UID_CLIENTE), { rol: 'contador' }));
+  });
+
+  it('SÍ puede acreditar saldo y cambiar el plan de un comercio', async () => {
+    const db = como(UID_SUPER);
+    await assertSucceeds(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 500, plan: 'premium' }));
   });
 });

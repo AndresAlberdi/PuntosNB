@@ -1,10 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
-import { doc, onSnapshot, getDocs, collection, query, where, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import type { Usuario, Comercio, RolUsuario } from '../types';
-import { isSuperAdminEmail } from '../utils/env';
+import type { Usuario } from '../types';
 
 const VENDEDOR_STORAGE_KEY = 'hipatia_vendedor_session';
 
@@ -56,88 +55,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Limpiar sesión local de vendedor si entra un usuario de Firebase Auth
         localStorage.removeItem(VENDEDOR_STORAGE_KEY);
 
-        unsubUserDoc = onSnapshot(doc(db, 'users', user.uid), async (userDoc) => {
+        unsubUserDoc = onSnapshot(doc(db, 'users', user.uid), (userDoc) => {
           if (userDoc.exists()) {
             setUserData(userDoc.data() as Usuario);
-            setLoading(false);
           } else {
-            // Auto-recuperación: Si el documento por UID no existe, buscar por email o aprovisionar por comercio
-            const userEmail = user.email ? user.email.toLowerCase().trim() : '';
-            if (userEmail) {
-              try {
-                // 1. Buscar en users por campo email
-                const qEmail = query(collection(db, 'users'), where('email', '==', userEmail));
-                const snapEmail = await getDocs(qEmail);
-                if (!snapEmail.empty) {
-                  const existingDoc = snapEmail.docs[0];
-                  const existingData = existingDoc.data() as Usuario;
-                  const syncedData: Usuario = {
-                    ...existingData,
-                    uid: user.uid,
-                    email: userEmail
-                  };
-                  await setDoc(doc(db, 'users', user.uid), syncedData, { merge: true });
-                  setUserData(syncedData);
-                  setLoading(false);
-                  return;
-                }
-
-                // 2. Si no existe, verificar si es SuperAdmin por variable de entorno
-                if (isSuperAdminEmail(userEmail)) {
-                  const superAdminData: Usuario = {
-                    uid: user.uid,
-                    email: userEmail,
-                    usuario: userEmail,
-                    nombre: 'Super Administrador',
-                    rol: 'superadmin',
-                    createdAt: Date.now()
-                  };
-                  await setDoc(doc(db, 'users', user.uid), superAdminData, { merge: true });
-                  setUserData(superAdminData);
-                  setLoading(false);
-                  return;
-                }
-
-                // 3. Auto-aprovisionar basándose en el dominio o nombre del comercio registrado
-                const domain = userEmail.split('@')[1];
-                if (domain) {
-                  const cleanDomainName = domain.split('.')[0].toLowerCase();
-                  const allComerciosSnap = await getDocs(collection(db, 'comercios'));
-                  const match = allComerciosSnap.docs.find(c => {
-                    const comData = c.data() as Comercio;
-                    return (
-                      (comData.dominio && comData.dominio.toLowerCase().trim() === domain) ||
-                      (comData.nombre && comData.nombre.toLowerCase().trim() === cleanDomainName) ||
-                      (comData.nombre && cleanDomainName.includes(comData.nombre.toLowerCase().trim()))
-                    );
-                  });
-
-                  if (match) {
-                    const prefix = userEmail.split('@')[0].toLowerCase();
-                    const rol: RolUsuario = prefix.startsWith('admin') ? 'admin_comercio' : 'vendedor';
-                    const autoUserData: Usuario = {
-                      uid: user.uid,
-                      email: userEmail,
-                      usuario: userEmail,
-                      nombre: prefix.charAt(0).toUpperCase() + prefix.slice(1),
-                      rol,
-                      comercioId: match.id,
-                      createdAt: Date.now()
-                    };
-                    await setDoc(doc(db, 'users', user.uid), autoUserData, { merge: true });
-                    setUserData(autoUserData);
-                    setLoading(false);
-                    return;
-                  }
-                }
-              } catch (recovErr) {
-                console.error("Error en auto-recuperación de usuario:", recovErr);
-              }
-            }
-
+            // Sin documento de perfil no hay rol. El perfil de cliente se crea al aceptar los
+            // términos en el inicio de sesión; los roles administrativos los asigna el servidor.
+            // Se eliminaron la auto-recuperación por correo (H-02), el autoaprovisionamiento por
+            // dominio (H-03) y la asignación de superadmin desde el cliente (H-09).
             setUserData(null);
-            setLoading(false);
           }
+          setLoading(false);
         }, (error) => {
           console.error("Error fetching user data:", error);
           setUserData(null);

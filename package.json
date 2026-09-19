@@ -10,7 +10,9 @@
     "build:staging": "tsc -b && vite build --mode staging",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-hipatia-reglas \"vitest run --config vitest.rules.config.ts\"",
+    "test:all": "npm run test && npm run test:rules"
   },
   "dependencies": {
     "@yudiel/react-qr-scanner": "^2.6.0",
@@ -38,6 +40,7 @@
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "firebase-admin": "^14.4.0",
     "globals": "^17.6.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.15",
