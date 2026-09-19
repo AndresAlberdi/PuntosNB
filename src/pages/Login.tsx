@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, fetchSignInMethodsForEmail } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { signInWithEmailAndPassword, signInWithCustomToken, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, fetchSignInMethodsForEmail } from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { isStaging, APP_VERSION } from '../utils/env';
 import { initRecaptcha, executeRecaptcha } from '../utils/recaptcha';
-import type { Usuario } from '../types';
+import { invocar, type RespuestaLoginVendedor } from '../utils/backend';
 
 const Login: React.FC = () => {
   const [usuario, setUsuario] = useState('');
@@ -21,7 +21,7 @@ const Login: React.FC = () => {
   const [showTerminosModal, setShowTerminosModal] = useState(false);
   const [pendingGoogleUser, setPendingGoogleUser] = useState<any>(null);
   const navigate = useNavigate();
-  const { currentUser, userData, loading: authLoading, loginVendedor, logout } = useAuth();
+  const { currentUser, userData, loading: authLoading, logout } = useAuth();
 
   const [welcomePhone, setWelcomePhone] = useState('');
   const [welcomeCountryCode, setWelcomeCountryCode] = useState('+591');
@@ -156,30 +156,24 @@ const Login: React.FC = () => {
       const userInput = usuario.trim().toLowerCase();
       const passOrPin = passwordOrPin.trim();
 
-      // 2. Verificar si es un Vendedor (acceso por PIN de 6 dígitos sin Firebase Auth para 0 MAU)
+      // 2. Vendedor: el PIN se valida en el servidor, que devuelve un custom token con su rol
+      // y su comercio. El navegador ya no compara PIN ni guarda una "sesión" en localStorage (H-04).
       if (/^\d{6}$/.test(passOrPin)) {
-        const qVendedor = query(
-          collection(db, 'users'),
-          where('rol', '==', 'vendedor'),
-          where('email', '==', userInput)
-        );
-        const vendedorSnap = await getDocs(qVendedor);
-
-        if (!vendedorSnap.empty) {
-          const vDoc = vendedorSnap.docs[0].data() as Usuario;
-          if (vDoc.estado === 'bloqueado') {
-            setError('Tu cuenta de vendedor ha sido bloqueada. Contacta al administrador.');
-            setLoading(false);
-            return;
-          }
-
-          if (vDoc.pin === passOrPin) {
-            loginVendedor(vDoc);
-            navigate('/');
-            setLoading(false);
-            return;
-          } else {
-            setError('El PIN de 6 dígitos ingresado es incorrecto.');
+        try {
+          const respuesta = await invocar<{ usuario: string; pin: string }, RespuestaLoginVendedor>(
+            'loginVendedor',
+            { usuario: userInput, pin: passOrPin },
+          );
+          await signInWithCustomToken(auth, respuesta.token);
+          navigate('/');
+          setLoading(false);
+          return;
+        } catch (errVendedor) {
+          // Si el identificador no corresponde a un vendedor, se sigue con el acceso por
+          // contraseña: hay administradores cuya contraseña también es de seis dígitos.
+          const mensaje = errVendedor instanceof Error ? errVendedor.message : '';
+          if (!mensaje.includes('Usuario o PIN incorrectos')) {
+            setError(mensaje || 'No se pudo iniciar sesión.');
             setLoading(false);
             return;
           }

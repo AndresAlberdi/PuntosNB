@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { doc, getDoc, collection, setDoc, onSnapshot, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import type { Comercio, SesionQR, Transaccion, SaldoPunto } from '../types';
+import type { Comercio, SesionQR } from '../types';
 import { getPaletteStyle } from '../utils/theme';
 import { checkComercioPrepagoStatus } from '../utils/reports';
+import { invocar, mensajeDeError } from '../utils/backend';
 
 const VendedorDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -75,99 +76,25 @@ const VendedorDashboard: React.FC = () => {
   }, [qrData]);
 
   // Procesar canje de premio introducido por el cliente (6 dígitos o QR)
+  // Procesar canje de premio introducido por el cliente (6 dígitos o QR).
+  // El servidor valida el código, el saldo de puntos y el saldo prepagado del comercio, y
+  // registra el asiento: el navegador ya no escribe en el libro mayor.
   const handleProcesarCodigoPremio = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!codigoManual || !comercio || !userData) return;
     setMensaje(null);
 
-    // Verificar prepago antes de canjear
-    const prepagoStatus = checkComercioPrepagoStatus(comercio);
-    if (!prepagoStatus.puedeOperar) {
-      setMensaje({ texto: "Comercio deshabilitado temporalmente por falta de pago.", tipo: 'error' });
-      return;
-    }
-
     try {
-      await runTransaction(db, async (transaction) => {
-        const sesionRef = doc(db, 'sesiones_qr', codigoManual.trim());
-        const sesionDoc = await transaction.get(sesionRef);
-
-        if (!sesionDoc.exists()) {
-          throw new Error("El código no es válido o no existe.");
-        }
-
-        const sesion = sesionDoc.data() as SesionQR;
-        if (sesion.estado !== 'PENDIENTE') {
-          throw new Error("Este código ya fue procesado o ha expirado.");
-        }
-        if (sesion.tipo !== 'CANJE') {
-          throw new Error("Este código no es un código de canje de premio.");
-        }
-        if (sesion.comercioId !== comercio.id) {
-          throw new Error("Este código pertenece a otro comercio.");
-        }
-
-        const saldoId = `${sesion.creadorId}_${comercio.id}`;
-        const saldoRef = doc(db, 'puntos_saldos', saldoId);
-        const saldoDoc = await transaction.get(saldoRef);
-
-        if (!saldoDoc.exists()) {
-          throw new Error("El cliente no tiene saldo en este comercio.");
-        }
-
-        const saldoActual = saldoDoc.data() as SaldoPunto;
-        const puntosARestar = sesion.puntosCalculados || 0;
-
-        if (saldoActual.saldoTotal < puntosARestar) {
-          throw new Error(`Saldo insuficiente. El cliente tiene ${saldoActual.saldoTotal} pts y requiere ${puntosARestar} pts.`);
-        }
-
-        // Si es prepago, verificar y deducir costo por premio del saldo del comercio
-        const comercioRef = doc(db, 'comercios', comercio.id);
-        const comDoc = await transaction.get(comercioRef);
-        if (comDoc.exists()) {
-          const comFresh = comDoc.data() as Comercio;
-          if (comFresh.modalidadPago === 'PREPAGO') {
-            const costo = comFresh.costoPorPremioBs || 1.25;
-            const nuevoSaldo = Math.max(0, (comFresh.saldoPremiosBs || 0) - costo);
-            transaction.update(comercioRef, { saldoPremiosBs: nuevoSaldo });
-          }
-        }
-
-        // 1. Marcar sesión como usada
-        transaction.update(sesionRef, { estado: 'USADO' });
-
-        // 2. Registrar transacción
-        const transaccionRef = doc(collection(db, 'transacciones'));
-        const nuevaTransaccion: Transaccion = {
-          id: transaccionRef.id,
-          fechaHora: Date.now(),
-          clienteId: sesion.creadorId,
-          clienteAlias: sesion.creadorAlias || 'Cliente',
-          comercioId: comercio.id,
-          vendedorId: userData.uid,
-          vendedorAlias: userData.email?.split('@')[0] || 'Vendedor',
-          montoFactura: 0,
-          nroFactura: 'CANJE PREMIO',
-          puntos: -puntosARestar,
-          tipo: 'CANJE'
-        };
-        transaction.set(transaccionRef, nuevaTransaccion);
-
-        // 3. Actualizar saldo cliente
-        transaction.update(saldoRef, {
-          saldoTotal: saldoActual.saldoTotal - puntosARestar,
-          updatedAt: Date.now()
-        });
+      await invocar<{ codigo: string }, { puntos: number; costoBs: number }>('confirmarCanje', {
+        codigo: codigoManual.trim(),
       });
-
       setMensaje({ texto: "¡Canje aprobado y procesado exitosamente! Entrega el premio al cliente.", tipo: 'success' });
       setCodigoManual('');
-    } catch (error: any) {
-      console.error(error);
-      setMensaje({ texto: error.message || "Error al procesar el código.", tipo: 'error' });
+    } catch (error) {
+      setMensaje({ texto: mensajeDeError(error), tipo: 'error' });
     }
   };
+
 
   const handleAddProduct = (reglaId: string) => {
     setReglaSeleccionada(reglaId);
@@ -221,47 +148,28 @@ const VendedorDashboard: React.FC = () => {
     return ptsProductos;
   };
 
+  // El servidor recalcula los puntos desde las reglas del comercio y genera el código con azar
+  // criptográfico y vencimiento de cinco minutos (H-05, H-06, H-11).
   const generarQR = async (e: React.FormEvent) => {
     e.preventDefault();
     setMensaje(null);
 
-    const prepagoStatus = checkComercioPrepagoStatus(comercio!);
-    if (!prepagoStatus.puedeOperar) {
-      setMensaje({ texto: "Comercio deshabilitado temporalmente por falta de pago de mensualidad.", tipo: 'error' });
-      return;
-    }
-
-    const puntos = calcularPuntos();
-    if (puntos <= 0) {
-      setMensaje({ texto: "El cálculo de puntos debe ser mayor a 0 para generar el código.", tipo: 'error' });
-      return;
-    }
-
     try {
-      const codigo = Math.floor(100000 + Math.random() * 900000).toString();
-      const nroFinal = sinFactura ? 'S/F' : (nroFactura.trim() || 'S/F');
-
-      const sesionData: SesionQR = {
-        id: codigo,
-        tipo: 'ACUMULACION',
-        creadorId: userData!.uid,
-        creadorAlias: userData!.email?.split('@')[0] || 'Vendedor',
-        comercioId: comercio!.id,
-        estado: 'PENDIENTE',
-        createdAt: Date.now(),
+      const respuesta = await invocar<
+        { montoFactura: number; nroFactura?: string; reglaId?: string; productos: { reglaId: string; cantidad: number }[] },
+        { codigo: string; puntos: number; expiraEn: number }
+      >('crearSesionAcumulacion', {
         montoFactura: Number(montoFactura) || 0,
-        nroFactura: (reglaSeleccionada && comercio!.reglas.find(r => r.id === reglaSeleccionada)?.tipo === 'POR_REGISTRO') ? 'BONO BIENVENIDA' : nroFinal,
-        puntosCalculados: puntos,
-        reglaAplicadaId: reglaSeleccionada
-      };
-
-      await setDoc(doc(db, 'sesiones_qr', codigo), sesionData);
-      setQrData(codigo);
+        nroFactura: sinFactura ? 'S/F' : (nroFactura.trim() || 'S/F'),
+        reglaId: reglaSeleccionada || undefined,
+        productos: productos.map(p => ({ reglaId: p.id, cantidad: p.qty })),
+      });
+      setQrData(respuesta.codigo);
     } catch (error) {
-      console.error("Error al generar código de 6 dígitos:", error);
-      setMensaje({ texto: "Hubo un error al generar el código.", tipo: 'error' });
+      setMensaje({ texto: mensajeDeError(error), tipo: 'error' });
     }
   };
+
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando panel del vendedor...</div>;
   if (!comercio) return <div className="p-8 text-center text-red-500">Error: Comercio no encontrado.</div>;

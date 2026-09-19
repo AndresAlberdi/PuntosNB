@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, doc, setDoc, getDocs, query, where, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
@@ -8,6 +8,7 @@ import type { Comercio, Usuario, CobroPrepago, ModalidadPagoComercio } from '../
 import { COLOR_PALETTES } from '../utils/theme';
 import { checkComercioPrepagoStatus } from '../utils/reports';
 import { optimizeImage } from '../utils/imageOptimizer';
+import { invocar, mensajeDeError } from '../utils/backend';
 
 const RESERVED_DOMAINS = ['influencer', 'hiinfluencer', 'hiinfluencer.io', 'admin', 'superadmin', 'hipatia', 'puntosnb'];
 
@@ -205,31 +206,21 @@ const SuperAdminDashboard: React.FC = () => {
     }
 
     try {
-      const comercioRef = doc(collection(db, 'comercios'));
-      const nuevoComercio: Comercio = {
-        id: comercioRef.id,
+      // El alta la hace el servidor: es la única vía para fijar plan, modalidad y costos (H-07).
+      await invocar('guardarComercio', {
         nombre: nombreComercio.trim(),
         nit_rut: nitRut.trim(),
-        razonSocial: razonSocial.trim() || '',
+        razonSocial: razonSocial.trim() || undefined,
         dominio: cleanDominio,
-        reglas: [],
-        premios: [],
-        productos: [],
-        createdAt: Date.now(),
-        logoUrl: logoBase64 || '',
-        paletteId: paletteId,
         plan: planComercio,
-        
-        // Facturación & Prepago
         modalidadPago: modalidadPago,
         mensualidadBs: parseDecimal(mensualidadBs, 25.00),
         costoPorPremioBs: parseDecimal(costoPorPremioBs, 1.25),
         costoPorCodigoComercio: parseDecimal(costoPorCodigoComercio, 10.00),
         recibeFactura: recibeFactura,
-        mesesPagados: modalidadPago === 'PREPAGO' ? [] : undefined,
-        saldoPremiosBs: 0
-      };
-      await setDoc(comercioRef, nuevoComercio);
+        logoUrl: logoBase64 || undefined,
+        paletteId: paletteId,
+      });
       setMsgCard1({ texto: `Comercio "${nombreComercio}" creado exitosamente con dominio ${cleanDominio}`, tipo: 'success' });
       setNombreComercio('');
       setNitRut('');
@@ -248,7 +239,7 @@ const SuperAdminDashboard: React.FC = () => {
       cargarComercios();
     } catch (error: any) {
       console.error(error);
-      setMsgCard1({ texto: 'Error al crear comercio: ' + error.message, tipo: 'error' });
+      setMsgCard1({ texto: mensajeDeError(error), tipo: 'error' });
     }
   };
 
@@ -279,20 +270,19 @@ const SuperAdminDashboard: React.FC = () => {
     }
 
     try {
-      const updates: any = {
+      await invocar('guardarComercio', {
+        comercioId: editingComercio.id,
         nombre: editComercioNombre.trim(),
         nit_rut: editComercioNit.trim(),
-        razonSocial: editComercioRazonSocial.trim() || '',
+        razonSocial: editComercioRazonSocial.trim() || undefined,
         dominio: cleanDominio,
         plan: editComercioPlan,
         modalidadPago: editModalidadPago,
         mensualidadBs: parseDecimal(editMensualidadBs, 25.00),
         costoPorPremioBs: parseDecimal(editCostoPorPremioBs, 1.25),
         costoPorCodigoComercio: parseDecimal(editCostoPorCodigoComercio, 10.00),
-        recibeFactura: editRecibeFactura
-      };
-
-      await updateDoc(doc(db, 'comercios', editingComercio.id), updates);
+        recibeFactura: editRecibeFactura,
+      });
       setEditComercioMsg({ texto: '✓ ¡Cambios guardados con éxito!', tipo: 'success' });
       await cargarComercios();
       setTimeout(() => {
@@ -301,7 +291,7 @@ const SuperAdminDashboard: React.FC = () => {
       }, 1500);
     } catch (err: any) {
       console.error(err);
-      setEditComercioMsg({ texto: 'Error al actualizar comercio: ' + err.message, tipo: 'error' });
+      setEditComercioMsg({ texto: mensajeDeError(err), tipo: 'error' });
     } finally {
       setGuardandoEditComercio(false);
     }
@@ -339,36 +329,27 @@ const SuperAdminDashboard: React.FC = () => {
     }
 
     try {
-      // 1. Vendedor (PIN)
+      // 1. Vendedor: lo crea el servidor. Da de alta su cuenta en Firebase Auth, guarda el PIN
+      // como hash en una colección cerrada al cliente y deja el rol en el token (H-04, H-22).
       if (rol === 'vendedor') {
         if (!/^\d{6}$/.test(pinVendedor)) {
           setMsgCard2({ texto: 'El PIN del vendedor debe ser exactamente de 6 dígitos numéricos.', tipo: 'error' });
           return;
         }
-
-        const qExists = query(collection(db, 'users'), where('email', '==', syntheticUser));
-        const existsSnap = await getDocs(qExists);
-        if (!existsSnap.empty) {
-          setMsgCard2({ texto: `El usuario "${syntheticUser}" ya se encuentra registrado.`, tipo: 'error' });
+        if (!comercioId) {
+          setMsgCard2({ texto: 'Selecciona el comercio al que pertenece el vendedor.', tipo: 'error' });
           return;
         }
 
-        const newUid = 'vend_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-        const userData: Usuario = {
-          uid: newUid,
-          email: syntheticUser,
+        await invocar('crearVendedor', {
           usuario: syntheticUser,
           nombre: nombreUsuario.trim(),
-          rol: 'vendedor',
-          comercioId: comercioId,
+          comercioId,
           pin: pinVendedor.trim(),
-          createdAt: Date.now(),
-          ...(telefonoUsuario ? { telefono: `${countryCode}${telefonoUsuario}` } : {})
-        };
-
-        await setDoc(doc(db, 'users', newUid), userData);
-        setMsgCard2({ texto: `Vendedor creado exitosamente: ${syntheticUser} (PIN: ${pinVendedor})`, tipo: 'success' });
-      } 
+          ...(telefonoUsuario ? { telefono: `${countryCode}${telefonoUsuario}` } : {}),
+        });
+        setMsgCard2({ texto: `Vendedor creado exitosamente: ${syntheticUser}`, tipo: 'success' });
+      }
       // 2. Admin / Influencer / Contador (Firebase Auth)
       else {
         if (!emailReal || !emailReal.includes('@')) {
@@ -408,13 +389,19 @@ const SuperAdminDashboard: React.FC = () => {
             usuario: syntheticUser,
             emailReal: emailReal.trim().toLowerCase(),
             nombre: nombreUsuario.trim(),
-            rol,
+            rol: 'cliente',
             createdAt: Date.now(),
-            ...(rol === 'admin_comercio' && comercioId ? { comercioId } : {}),
             ...(telefonoUsuario ? { telefono: `${countryCode}${telefonoUsuario}` } : {}),
             ...(rol === 'influencer' && prefijoCodigo ? { prefijoCodigo: prefijoCodigo.trim().toUpperCase() } : {})
           };
           await setDoc(userDocRef, userData);
+          // El rol y el comercio los fija el servidor, que además los graba en el token y deja
+          // asiento en la auditoría. El cliente nunca decide un rol (H-01, H-09).
+          await invocar('asignarRol', {
+            uid: userUid,
+            rol,
+            ...(rol === 'admin_comercio' && comercioId ? { comercioId } : {}),
+          });
           setMsgCard2({ texto: `Usuario ${rol} creado exitosamente: ${syntheticUser}`, tipo: 'success' });
         }
       }
@@ -429,7 +416,7 @@ const SuperAdminDashboard: React.FC = () => {
       fetchGlobalUsers();
     } catch (error: any) {
       console.error(error);
-      setMsgCard2({ texto: 'Error al crear usuario: ' + error.message, tipo: 'error' });
+      setMsgCard2({ texto: mensajeDeError(error), tipo: 'error' });
     }
   };
 
@@ -531,12 +518,13 @@ const SuperAdminDashboard: React.FC = () => {
 
   const handleToggleEstadoUsuario = async (usuario: Usuario) => {
     const nuevoEstado = usuario.estado === 'bloqueado' ? 'activo' : 'bloqueado';
+    if (!confirm(`¿Seguro que quieres ${nuevoEstado === 'bloqueado' ? 'bloquear' : 'desbloquear'} a "${usuario.nombre}"?`)) return;
     try {
-      await updateDoc(doc(db, 'users', usuario.uid), { estado: nuevoEstado });
-      setGlobalUsers(globalUsers.map(u => u.uid === usuario.uid ? { ...u, estado: nuevoEstado } : u));
-      setMsgCard5({ texto: `Usuario ${nuevoEstado === 'bloqueado' ? 'bloqueado' : 'activado'} con éxito.`, tipo: 'success' });
-    } catch (err: any) {
-      setMsgCard5({ texto: 'Error: ' + err.message, tipo: 'error' });
+      // Bloquear revoca además las sesiones abiertas del usuario.
+      await invocar('cambiarEstadoUsuario', { uid: usuario.uid, bloquear: nuevoEstado === 'bloqueado' });
+      fetchGlobalUsers();
+    } catch (err) {
+      alert(mensajeDeError(err));
     }
   };
 

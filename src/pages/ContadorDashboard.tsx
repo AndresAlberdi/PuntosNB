@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Comercio, CobroPrepago, Usuario } from '../types';
 import { optimizeImage } from '../utils/imageOptimizer';
+import { invocar, mensajeDeError } from '../utils/backend';
 
 export const ContadorDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -19,6 +20,9 @@ export const ContadorDashboard: React.FC = () => {
   const [montoPremios, setMontoPremios] = useState('');
   const [codigoDeposito, setCodigoDeposito] = useState('');
   const [comprobanteBase64, setComprobanteBase64] = useState('');
+  // Identifica este cobro concreto: si la conexión falla y se reintenta, el servidor reconoce
+  // que es el mismo y no cobra dos veces.
+  const [claveIdempotencia, setClaveIdempotencia] = useState(() => crypto.randomUUID());
 
   // Feedback message
   const [mensaje, setMensaje] = useState<{ texto: string; tipo: 'success' | 'error' } | null>(null);
@@ -146,49 +150,46 @@ export const ContadorDashboard: React.FC = () => {
     }
 
     try {
-      const cobroRef = doc(collection(db, 'cobros_prepago'));
-      const nuevoCobro: CobroPrepago = {
-        id: cobroRef.id,
+      // El servidor recalcula la mensualidad desde la configuración del comercio y registra el
+      // cobro y la acreditación en una sola transacción: ya no pueden quedar desparejos.
+      // `clave` hace que un reintento por mala conexión no cobre dos veces.
+      const respuesta = await invocar<
+        {
+          comercioId: string; mesesPagados: string[]; montoPremios: number;
+          codigoDeposito: string; comprobanteUrl?: string; recibeFactura: boolean; clave: string;
+        },
+        { cobroId: string; montoTotal: number; montoMensualidad: number; saldoPremiosBs: number }
+      >('registrarCobroPrepago', {
+        comercioId: selectedComercio.id,
+        mesesPagados: mesesSeleccionados,
+        montoPremios: subtotalPremios,
+        codigoDeposito: codigoDeposito.trim().toUpperCase(),
+        comprobanteUrl: comprobanteBase64 || undefined,
+        recibeFactura: selectedComercio.recibeFactura ?? true,
+        clave: claveIdempotencia,
+      });
+
+      await notificarSuperAdmins({
+        id: respuesta.cobroId,
         comercioId: selectedComercio.id,
         nombreComercio: selectedComercio.nombre,
         nitRut: selectedComercio.nit_rut,
         razonSocial: selectedComercio.razonSocial,
         recibeFactura: selectedComercio.recibeFactura ?? true,
-        
         contadorId: userData!.uid,
         contadorAlias: userData!.email?.split('@')[0] || 'Contador',
         fechaHora: Date.now(),
-        
-        montoTotal: montoIngresadoNum,
-        montoMensualidad: subtotalMensualidad,
+        montoTotal: respuesta.montoTotal,
+        montoMensualidad: respuesta.montoMensualidad,
         mesesPagados: mesesSeleccionados,
         montoPremios: subtotalPremios,
         cantidadPremiosEquivalentes: premiosEquivalentes,
-        
         codigoDeposito: codigoDeposito.trim().toUpperCase(),
         comprobanteUrl: comprobanteBase64 || '',
-        
-        estado: 'PENDIENTE_VERIFICACION',
-        consumidoPremiosBs: 0
-      };
+      } as CobroPrepago);
 
-      await setDoc(cobroRef, nuevoCobro);
+      setMensaje({ texto: `¡Cobro de Bs. ${respuesta.montoTotal.toFixed(2)} para "${selectedComercio.nombre}" registrado con éxito!`, tipo: 'success' });
 
-      // Actualizar el saldo de premios y meses pagados del comercio
-      const nuevosMeses = Array.from(new Set([...(selectedComercio.mesesPagados || []), ...mesesSeleccionados]));
-      const nuevoSaldoPremios = (selectedComercio.saldoPremiosBs || 0) + subtotalPremios;
-
-      await updateDoc(doc(db, 'comercios', selectedComercio.id), {
-        mesesPagados: nuevosMeses,
-        saldoPremiosBs: nuevoSaldoPremios,
-        modalidadPago: 'PREPAGO' // Se activa en modalidad prepago si no lo estaba
-      });
-
-      // Disparar notificación a SuperAdmins
-      await notificarSuperAdmins(nuevoCobro);
-
-      setMensaje({ texto: `¡Cobro de Bs. ${montoIngresadoNum.toFixed(2)} para "${selectedComercio.nombre}" registrado con éxito!`, tipo: 'success' });
-      
       // Limpiar formulario
       setMontoCobrado('');
       setConfirmarMontoCobrado('');
@@ -196,15 +197,16 @@ export const ContadorDashboard: React.FC = () => {
       setMontoPremios('');
       setCodigoDeposito('');
       setComprobanteBase64('');
+      setClaveIdempotencia(crypto.randomUUID());
       const fileInput = document.getElementById('comprobante-file') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
 
       fetchData();
-    } catch (err: any) {
-      console.error(err);
-      setMensaje({ texto: 'Error al registrar cobro: ' + err.message, tipo: 'error' });
+    } catch (err) {
+      setMensaje({ texto: mensajeDeError(err), tipo: 'error' });
     }
   };
+
 
   const handleBorrarCobro = async (cobro: CobroPrepago) => {
     // Validar si el cobro ya está conciliado o si ya se consumieron premios
