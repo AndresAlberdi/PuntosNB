@@ -1,17 +1,14 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, type Timestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { Usuario } from '../types';
-
-const VENDEDOR_STORAGE_KEY = 'hipatia_vendedor_session';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
   userData: Usuario | null;
   loading: boolean;
-  loginVendedor: (vendedor: Usuario) => void;
   logout: () => Promise<void>;
 }
 
@@ -19,7 +16,6 @@ const AuthContext = createContext<AuthContextType>({
   currentUser: null,
   userData: null,
   loading: true,
-  loginVendedor: () => {},
   logout: async () => {},
 });
 
@@ -29,63 +25,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userData, setUserData] = useState<Usuario | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Cargar sesión interna de vendedor si existe al inicio
-  useEffect(() => {
-    try {
-      const storedVendedor = localStorage.getItem(VENDEDOR_STORAGE_KEY);
-      if (storedVendedor) {
-        const parsed = JSON.parse(storedVendedor) as Usuario;
-        if (parsed && parsed.rol === 'vendedor') {
-          setUserData(parsed);
-          setLoading(false);
-        }
-      }
-    } catch (e) {
-      console.warn("Error leyendo sesión de vendedor:", e);
-    }
-  }, []);
+  // Última marca de claims aplicada, para refrescar el token una sola vez por cambio.
+  const ultimosClaims = useRef<number | null>(null);
 
   useEffect(() => {
-    let unsubUserDoc: () => void;
+    let unsubUserDoc: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
-      if (user) {
-        // Limpiar sesión local de vendedor si entra un usuario de Firebase Auth
-        localStorage.removeItem(VENDEDOR_STORAGE_KEY);
 
-        unsubUserDoc = onSnapshot(doc(db, 'users', user.uid), (userDoc) => {
-          if (userDoc.exists()) {
-            setUserData(userDoc.data() as Usuario);
-          } else {
-            // Sin documento de perfil no hay rol. El perfil de cliente se crea al aceptar los
-            // términos en el inicio de sesión; los roles administrativos los asigna el servidor.
-            // Se eliminaron la auto-recuperación por correo (H-02), el autoaprovisionamiento por
-            // dominio (H-03) y la asignación de superadmin desde el cliente (H-09).
-            setUserData(null);
-          }
-          setLoading(false);
-        }, (error) => {
-          console.error("Error fetching user data:", error);
-          setUserData(null);
-          setLoading(false);
-        });
-      } else {
-        // Si no hay usuario de Firebase Auth, verificar si hay sesión de vendedor
-        const storedVendedor = localStorage.getItem(VENDEDOR_STORAGE_KEY);
-        if (storedVendedor) {
-          try {
-            setUserData(JSON.parse(storedVendedor) as Usuario);
-          } catch {
-            setUserData(null);
-          }
-        } else {
-          setUserData(null);
-        }
+      if (!user) {
+        // Ya no existe la "sesión" de vendedor en localStorage: el vendedor entra con un
+        // custom token emitido por el servidor tras validar su PIN (H-04).
+        ultimosClaims.current = null;
+        setUserData(null);
         setLoading(false);
         if (unsubUserDoc) unsubUserDoc();
+        return;
       }
+
+      unsubUserDoc = onSnapshot(
+        doc(db, 'users', user.uid),
+        async (userDoc) => {
+          if (userDoc.exists()) {
+            const datos = userDoc.data() as Usuario & { claimsUpdatedAt?: Timestamp };
+
+            // El servidor avisa por este campo que cambió el rol o el comercio en el token.
+            const marca = datos.claimsUpdatedAt?.toMillis?.() ?? null;
+            if (marca && ultimosClaims.current !== marca) {
+              ultimosClaims.current = marca;
+              try {
+                await user.getIdToken(true);
+              } catch (e) {
+                console.warn('No se pudo refrescar el token tras el cambio de rol:', e);
+              }
+            }
+
+            setUserData(datos);
+          } else {
+            // Sin documento de perfil no hay rol. El perfil de cliente se crea al aceptar los
+            // términos; los roles administrativos los asigna el servidor. Se eliminaron la
+            // auto-recuperación por correo (H-02), el autoaprovisionamiento por dominio (H-03)
+            // y la asignación de superadmin desde el cliente (H-09).
+            setUserData(null);
+          }
+          setLoading(false);
+        },
+        (error) => {
+          console.error('Error al leer el perfil del usuario:', error);
+          setUserData(null);
+          setLoading(false);
+        },
+      );
     });
 
     return () => {
@@ -94,26 +85,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const loginVendedor = (vendedor: Usuario) => {
-    localStorage.setItem(VENDEDOR_STORAGE_KEY, JSON.stringify(vendedor));
-    setUserData(vendedor);
-    setCurrentUser(null);
-    setLoading(false);
-  };
-
   const logout = async () => {
-    localStorage.removeItem(VENDEDOR_STORAGE_KEY);
+    ultimosClaims.current = null;
     setUserData(null);
     setCurrentUser(null);
     try {
       await signOut(auth);
     } catch (e) {
-      console.error("Error during signOut:", e);
+      console.error('Error al cerrar sesión:', e);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, userData, loading, loginVendedor, logout }}>
+    <AuthContext.Provider value={{ currentUser, userData, loading, logout }}>
       {!loading && children}
     </AuthContext.Provider>
   );

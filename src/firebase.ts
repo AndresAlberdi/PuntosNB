@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getFunctions } from "firebase/functions";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 import { isStaging } from "./utils/env";
 
@@ -36,5 +37,8 @@ export const auth = getAuth(app);
 
 // Initialize Firestore
 export const db = getFirestore(app);
+
+// Backend de confianza (Cloud Functions). La región debe coincidir con la del despliegue.
+export const functions = getFunctions(app, "us-central1");
 
 export default app;
