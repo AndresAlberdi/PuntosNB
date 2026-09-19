@@ -1,0 +1,183 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Funciones de utilidad para verificar roles
+    function isAuth() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isAuth() && getUserData().rol == 'superadmin';
+    }
+
+    function isAdminComercio() {
+      return isAuth() && getUserData().rol == 'admin_comercio';
+    }
+
+    function isVendedor() {
+      return isAuth() && getUserData().rol == 'vendedor';
+    }
+    
+    function isCliente() {
+      return isAuth() && getUserData().rol == 'cliente';
+    }
+
+    function isInfluencer() {
+      return isAuth() && getUserData().rol == 'influencer';
+    }
+
+    function isContador() {
+      return isAuth() && getUserData().rol == 'contador';
+    }
+
+    // Reglas por colección
+
+    match /users/{userId} {
+      // Los usuarios pueden leer su propio documento, superadmins todo, admins pueden ver a los influencers y usuarios de su comercio
+      allow read: if isAuth() && (
+        request.auth.uid == userId || 
+        (resource.data.email != null && request.auth.token.email != null && resource.data.email == request.auth.token.email) ||
+        isSuperAdmin() || 
+        isContador() ||
+        resource.data.rol == 'influencer' ||
+        (isAdminComercio() && resource.data.comercioId == getUserData().comercioId)
+      );
+      allow write: if isAuth() && (
+        request.auth.uid == userId || 
+        (resource.data.email != null && request.auth.token.email != null && resource.data.email == request.auth.token.email) ||
+        isSuperAdmin() || 
+        isAdminComercio()
+      );
+    }
+
+    match /comercios/{comercioId} {
+      // Todos los usuarios autenticados pueden leer los comercios
+      allow read: if isAuth();
+      // Superadmins, contadores (para prepago) y admins de su propio comercio pueden modificar
+      allow write: if isSuperAdmin() || isContador() || (isAdminComercio() && getUserData().comercioId == comercioId);
+    }
+
+    match /cobros_prepago/{cobroId} {
+      // Superadmins, contadores y el admin del comercio respectivo pueden leer
+      allow read: if isAuth() && (
+        isSuperAdmin() || 
+        isContador() || 
+        (isAdminComercio() && getUserData().comercioId == resource.data.comercioId)
+      );
+      // Contadores y Superadmins pueden registrar y modificar cobros
+      allow create: if isAuth() && (isSuperAdmin() || isContador());
+      allow update: if isAuth() && (isSuperAdmin() || (isContador() && resource.data.contadorId == request.auth.uid));
+      allow delete: if isAuth() && (isSuperAdmin() || (isContador() && resource.data.contadorId == request.auth.uid));
+    }
+
+    match /transacciones/{txId} {
+      // Clientes ven sus transacciones, vendedores/admins ven las de su comercio, superadmin ve todas
+      allow read: if isAuth() && (
+        isSuperAdmin() || 
+        resource == null ||
+        (isCliente() && resource.data.clienteId == request.auth.uid) ||
+        (isInfluencer() && (resource.data.clienteId == request.auth.uid || resource.data.influencerId == request.auth.uid)) ||
+        ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
+      );
+      // Vendedores, admins y superadmins pueden registrar cualquier transacción; clientes pueden registrar transacciones propias
+      allow create: if isAuth() && (
+        isSuperAdmin() || 
+        isVendedor() || 
+        isAdminComercio() || 
+        ((isCliente() || isInfluencer()) && request.resource.data.clienteId == request.auth.uid)
+      );
+      allow update, delete: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
+    }
+
+    match /puntos_saldos/{saldoId} {
+      // Misma lógica de lectura que transacciones
+      allow read: if isAuth() && (
+        isSuperAdmin() || 
+        resource == null ||
+        ((isCliente() || isInfluencer()) && resource.data.clienteId == request.auth.uid) ||
+        ((isAdminComercio() || isVendedor()) && getUserData().comercioId == resource.data.comercioId)
+      );
+      // Clientes pueden crear o actualizar su propio saldo de puntos
+      allow create: if isAuth() && (
+        isSuperAdmin() || 
+        isVendedor() || 
+        isAdminComercio() || 
+        ((isCliente() || isInfluencer()) && request.resource.data.clienteId == request.auth.uid)
+      );
+      allow update: if isAuth() && (
+        isSuperAdmin() || 
+        isVendedor() || 
+        isAdminComercio() || 
+        ((isCliente() || isInfluencer()) && resource.data.clienteId == request.auth.uid && request.resource.data.clienteId == request.auth.uid)
+      );
+      allow delete: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
+    }
+
+    match /sesiones_qr/{sesionId} {
+      // Las sesiones QR requieren acceso ágil de lectura y escritura por parte del cliente y del vendedor
+      allow read, write: if isAuth();
+    }
+
+    match /asignaciones_influencer/{asignacionId} {
+      // Todos los usuarios autenticados pueden consultar asignaciones para validar códigos
+      allow read: if isAuth();
+      // Superadmin, admin del comercio, influencer y clientes (al canjear puntos de la bolsa) pueden actualizar
+      allow update: if isAuth() && (
+        isSuperAdmin() || 
+        isCliente() ||
+        (isAdminComercio() && getUserData().comercioId == resource.data.comercioId) || 
+        (isInfluencer() && request.auth.uid == resource.data.influencerId)
+      );
+      allow create: if isAuth() && (
+        isSuperAdmin() || 
+        (isAdminComercio() && getUserData().comercioId == request.resource.data.comercioId) || 
+        (isInfluencer() && request.auth.uid == request.resource.data.influencerId)
+      );
+      allow delete: if isAuth() && (
+        isSuperAdmin() || 
+        (isAdminComercio() && getUserData().comercioId == resource.data.comercioId) || 
+        (isInfluencer() && request.auth.uid == resource.data.influencerId)
+      );
+    }
+
+    match /codigos_influencer/{codigoId} {
+      allow read: if isAuth();
+      // Influencers crean y editan sus códigos
+      allow create: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == request.resource.data.influencerId));
+      allow update: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == resource.data.influencerId));
+      allow delete: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == resource.data.influencerId));
+    }
+
+    match /canjes_codigo/{canjeId} {
+      allow read: if isAuth();
+      // Clientes pueden registrar el canje
+      allow create: if isAuth() && (isSuperAdmin() || (isCliente() && request.resource.data.clienteId == request.auth.uid));
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /codigos_comercio/{codigoId} {
+      allow read: if isAuth();
+      // Admins del comercio respectivo y Superadmins pueden crear, editar y eliminar códigos de su comercio
+      allow create: if isAuth() && (isSuperAdmin() || (isAdminComercio() && getUserData().comercioId == request.resource.data.comercioId));
+      allow update, delete: if isAuth() && (isSuperAdmin() || (isAdminComercio() && getUserData().comercioId == resource.data.comercioId));
+    }
+
+    match /canjes_codigos/{canjeId} {
+      allow read: if isAuth();
+      // Clientes pueden registrar el canje
+      allow create: if isAuth() && (isSuperAdmin() || (isCliente() && request.resource.data.clienteId == request.auth.uid));
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // Regla por defecto de seguridad para cualquier otra colección no definida
+    match /{document=**} {
+      allow read, write: if isSuperAdmin();
+    }
+  }
+}

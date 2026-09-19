@@ -5,7 +5,7 @@ import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LoadingScreen } from '../components/LoadingScreen';
-import { isStaging, isSuperAdminEmail, APP_VERSION } from '../utils/env';
+import { isStaging, APP_VERSION } from '../utils/env';
 import { initRecaptcha, executeRecaptcha } from '../utils/recaptcha';
 import type { Usuario } from '../types';
 
@@ -241,24 +241,17 @@ const Login: React.FC = () => {
       const userDocRef = doc(db, 'users', userCred.user.uid);
       const userDoc = await getDoc(userDocRef);
       
-      if (userDoc.exists()) {
-        if (isSuperAdminEmail(userCred.user.email) && userDoc.data().rol !== 'superadmin') {
-          await updateDoc(userDocRef, { rol: 'superadmin' });
-        }
-      }
-
       if (!userDoc.exists()) {
         if (!aceptoTerminos) {
           setPendingGoogleUser(userCred.user);
           setLoading(false);
           return;
         }
-        const isAdmin = isSuperAdminEmail(userCred.user.email);
         await setDoc(userDocRef, {
           uid: userCred.user.uid,
           email: userCred.user.email,
           nombre: userCred.user.displayName || userCred.user.email?.split('@')[0],
-          rol: isAdmin ? 'superadmin' : 'cliente',
+          rol: 'cliente',
           termsAccepted: true,
           termsAcceptedAt: Date.now(),
           createdAt: Date.now()
@@ -324,12 +317,11 @@ const Login: React.FC = () => {
                  setError('');
                  try {
                    const userDocRef = doc(db, 'users', pendingGoogleUser.uid);
-                   const isAdmin = isSuperAdminEmail(pendingGoogleUser.email);
                    await setDoc(userDocRef, {
                      uid: pendingGoogleUser.uid,
                      email: pendingGoogleUser.email,
                      nombre: pendingGoogleUser.displayName || pendingGoogleUser.email?.split('@')[0],
-                     rol: isAdmin ? 'superadmin' : 'cliente',
+                     rol: 'cliente',
                      termsAccepted: true,
                      termsAcceptedAt: Date.now(),
                      createdAt: Date.now()

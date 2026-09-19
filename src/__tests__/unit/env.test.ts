@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isStaging, APP_TITLE, APP_VERSION, isSuperAdminEmail, SUPER_ADMIN_EMAILS } from '../../utils/env';
+import * as env from '../../utils/env';
+import { isStaging, APP_TITLE, APP_VERSION } from '../../utils/env';
 
 describe('Environment Config Utility', () => {
   it('should evaluate isStaging based on project ID or mode', () => {
@@ -16,19 +17,12 @@ describe('Environment Config Utility', () => {
     }
   });
 
-  it('should identify exactly the 3 authorized superadmin emails', () => {
-    expect(SUPER_ADMIN_EMAILS).toEqual([
-      'alberdi.andres@gmail.com',
-      'nbruzonic@gmail.com',
-      'hipatia.admin@gmail.com'
-    ]);
-
-    expect(isSuperAdminEmail('alberdi.andres@gmail.com')).toBe(true);
-    expect(isSuperAdminEmail('nbruzonic@gmail.com')).toBe(true);
-    expect(isSuperAdminEmail('hipatia.admin@gmail.com')).toBe(true);
-    expect(isSuperAdminEmail('HIPATIA.ADMIN@GMAIL.COM')).toBe(true);
-    expect(isSuperAdminEmail('hipatia-admin@gmail.com')).toBe(false);
-    expect(isSuperAdminEmail('otro.usuario@gmail.com')).toBe(false);
-    expect(isSuperAdminEmail(null)).toBe(false);
+  it('no expone ninguna lista de superadministradores en el cliente (H-09)', () => {
+    // El rol de superadministrador se asigna solo desde el servidor
+    // (scripts/admin/set-superadmin.mjs). Ningún correo debe viajar en el bundle.
+    expect('SUPER_ADMIN_EMAILS' in env).toBe(false);
+    expect('isSuperAdminEmail' in env).toBe(false);
+    const valores = JSON.stringify(Object.values(env));
+    expect(valores).not.toContain('@');
   });
 });

@@ -16,5 +16,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/setupTests.ts',
+    // Las pruebas de reglas corren aparte, contra el emulador: `npm run test:rules`.
+    exclude: ['node_modules/**', 'dist/**', 'src/__tests__/security/**'],
   },
 })
