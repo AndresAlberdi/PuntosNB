@@ -7,7 +7,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 
 | Fase | Estado | Rama | Última actualización |
 |---|---|---|---|
-| 0 — Línea base y contención | cerrada con observaciones | `hardening/fase-0-linea-base` | 19-sep-2026 |
+| 0 — Línea base y contención | **cerrada** | `hardening/fase-0-linea-base` | 19-sep-2026 |
 | 1 — Backend de confianza | no iniciada | — | — |
 | 2 — Cierre de reglas y App Check | no iniciada | — | — |
 | 3 — Superficie web y limpieza | no iniciada | — | — |
@@ -156,8 +156,7 @@ la migración a pnpm y la auditoría bloqueante.
 
 ## Informe de la Fase 0
 
-**1. Estado:** cerrada con observaciones. Falta desplegar el parche de contención, que requiere
-autorización, y el respaldo previo al despliegue.
+**1. Estado:** cerrada. Respaldo hecho y parche desplegado y verificado en los dos entornos.
 
 **2. Hallazgos cubiertos**
 
@@ -243,7 +242,17 @@ Autorizado por Andrés el 19-sep-2026. `firebase deploy --only firestore:rules -
 Ruleset `19f63a5e…` y, tras el ajuste de H-26, el ruleset vigente. Verificado descargando las reglas
 en vivo y comparándolas con `firestore.rules`: **idénticas**. La lectura anónima sigue devolviendo 403.
 
-Pendiente: `hipatia-puntos` (producción), a la espera de autorización.
+### Despliegue del parche a `hipatia-puntos` — hecho
+
+Autorizado por Andrés el 19-sep-2026, minutos después del de pruebas. Verificado igual: las reglas
+en vivo son idénticas a `firestore.rules`. Producción corría hasta ahora una versión de reglas de
+agosto sin `contador`, `cobros_prepago` ni `codigos_comercio`; los dos entornos quedan por fin
+alineados.
+
+Compatibilidad con el *bundle* viejo que sigue servido en `hipatia-puntos.web.app` (del 25-ago): el
+alta de cliente por Google escribe exactamente los campos de la lista blanca, y la asignación de
+superadmin desde el cliente no llega a dispararse porque las tres cuentas ya tienen el rol. Los
+intentos de auto-recuperación quedan denegados, que es justo lo que se busca.
 
 #### Hallazgo H-26 (alta) — el canje en comercios PREPAGO está roto desde antes del hardening
 
