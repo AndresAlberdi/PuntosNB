@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore --project demo-hipatia-reglas \"vitest run --config vitest.rules.config.ts\"",
-    "test:all": "npm run test && npm run test:rules"
+    "test:all": "npm run test && npm run test:rules && npm run test:functions",
+    "test:functions": "npm --prefix functions run build && firebase emulators:exec --only functions,firestore,auth --project demo-hipatia-funciones \"vitest run --config functions/vitest.config.ts\""
   },
   "dependencies": {
     "@yudiel/react-qr-scanner": "^2.6.0",
