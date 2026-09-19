@@ -7,7 +7,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 
 | Fase | Estado | Rama | Última actualización |
 |---|---|---|---|
-| 0 — Línea base y contención | en curso | `hardening/fase-0-linea-base` | 19-sep-2026 |
+| 0 — Línea base y contención | cerrada con observaciones | `hardening/fase-0-linea-base` | 19-sep-2026 |
 | 1 — Backend de confianza | no iniciada | — | — |
 | 2 — Cierre de reglas y App Check | no iniciada | — | — |
 | 3 — Superficie web y limpieza | no iniciada | — | — |
@@ -73,7 +73,143 @@ producto. La cuenta `alberdi.andres@gmail.com` sí ve `hipatia-puntos` y `puntos
 estado compartido de la CLI (`firebase login:use` afecta a otras sesiones abiertas), todos los comandos
 se ejecutan con la opción `--account alberdi.andres@gmail.com`. No se requiere una nueva autenticación.
 
+### Resolución de O-01
+
+Andrés autorizó publicar la rama. `feature/influencers` está en GitHub y el PR
+[#17](https://github.com/AndresAlberdi/PuntosNB/pull/17) propone su fusión a `main`. La fusión la
+decide él; ningún agente aprueba ni fusiona por iniciativa propia.
+
+---
+
+## Línea base del estado desplegado (Fase 0, paso 2)
+
+Las reglas desplegadas se descargaron con la API de Firebase Rules usando la cuenta
+`alberdi.andres@gmail.com` y se guardaron en `docs/security/baseline/`.
+
+| Proyecto | Ruleset | Desplegado | Diferencia con `firestore.rules` |
+|---|---|---|---|
+| `puntosnb` | `3c8ae899…` | 29-ago-2026 | **Ninguna**: idéntico al repositorio. |
+| `hipatia-puntos` | `3dab545e…` | 25-ago-2026 | Versión anterior: sin `contador`, sin `cobros_prepago`, sin `codigos_comercio` y sin la cláusula de coincidencia por correo. |
+
+### Hallazgo O-02 — lo que se llama «producción» está vacío; el piloto real corre en `puntosnb`
+
+La revisión forense de solo lectura (`scripts/admin/forense-lectura.mjs`) arroja:
+
+| | `hipatia-puntos` («producción») | `puntosnb` («pruebas») |
+|---|---|---|
+| Comercios | 0 | 4 (Epico, Pizza NB, Hamburguesas NB, BRUCRAFT) |
+| Clientes | 4 | 21 |
+| Vendedores | 0 | 5 |
+| Transacciones | 0 | 36 |
+| Sesiones QR | 0 | 56 |
+| Superadmins | 3 | 3 |
+
+Los sitios confirman la separación: `hipatia-puntos.web.app` apunta al proyecto `hipatia-puntos` y
+`puntosnb.web.app` al proyecto `puntosnb`. **EPICO y PIZZA NB operan sobre `puntosnb`.**
+
+Consecuencia para el plan: el parche de contención, el respaldo, el PITR y las alertas deben
+aplicarse **primero a `puntosnb`**, que es donde están los datos reales, aunque el plan lo nombre
+como entorno de pruebas. Se registra como **H-21 (severidad alta): el entorno con datos reales no
+tiene respaldo, PITR ni tratamiento de producción.**
+
+### Resolución de H-04 — el vendedor no opera hoy por PIN
+
+Contradicción resuelta: no hay reglas más permisivas desplegadas. Una consulta anónima a
+`users` (`rol == 'vendedor'`) devuelve **HTTP 403 en los dos proyectos**, de modo que la búsqueda
+del vendedor que `Login.tsx` hace *antes* de autenticar siempre falla. Los datos lo confirman:
+**ningún vendedor tiene el campo `pin`** y tres de los cinco de `puntosnb` existen como cuentas de
+Firebase Auth. Los vendedores entran, entonces, con correo y contraseña de Firebase Auth; el flujo
+de PIN es código muerto que solo se activa si la contraseña tecleada tiene exactamente 6 dígitos,
+en cuyo caso el ingreso falla.
+
+Los PIN **no** están expuestos porque no existen. Se mantiene la rotación prevista en la Fase 1 para
+el flujo nuevo, pero no hay una fuga que contener hoy.
+
+Derivado: **H-22 (media)** — `SuperAdminDashboard` crea vendedores con un uid sintético
+(`vend_<timestamp>`) que no existe en Firebase Auth y con el PIN en claro en `users`. Todo vendedor
+creado con esa pantalla queda imposibilitado de entrar. Se corrige en la Fase 1 con `loginVendedor`.
+
+### Otros hallazgos del forense (nuevos, sobre `puntosnb`)
+
+- **H-23 (media):** cinco correos de cliente tienen documentos `users` duplicados (dos o tres cada
+  uno), efecto de la auto-recuperación por correo que se elimina en esta fase. Sus saldos quedan
+  fragmentados entre UID. Requiere una migración de consolidación, propuesta para la Fase 1.
+- **H-24 (media):** tres de 36 transacciones no tienen un vendedor válido de su comercio.
+- **H-25 (alta):** `Hamburguesas NB` (saldo 150 Bs) y `Epico` (saldo 190 Bs) tienen saldo de premios
+  **sin ningún cobro registrado** en `cobros_prepago`, que está vacío. El saldo se acreditó por fuera
+  del flujo de cobranza. Encaja con H-07 y se cierra al mover la acreditación a Cloud Functions.
+- Los saldos de puntos sí cuadran: 17 saldos contra 36 transacciones, **cero descuadres**.
+- 24 de 56 sesiones QR llevan más de 24 horas en `PENDIENTE` (sin TTL; previsto en la Fase 2).
+
+### Escaneo de secretos e inventario de dependencias (Fase 0, paso 8)
+
+`gitleaks detect` sobre los 99 commits del historial: **6 hallazgos, todos valores públicos por
+diseño** (claves web de Firebase en `.env.production`, `.env.staging` y `src/firebase.ts`, y la clave
+de sitio de reCAPTCHA). No hay cuentas de servicio, tokens ni PIN en el historial. Queda pendiente
+restringir la clave de API en GCP (H-20, Fase 5).
+
+`npm audit`: 7 vulnerabilidades (4 altas, 3 moderadas) en dependencias de desarrollo transitivas
+(`undici`, `nanoid`, `browserslist`), todas con corrección disponible. Se resuelven en la Fase 4 con
+la migración a pnpm y la auditoría bloqueante.
+
+---
+
+## Informe de la Fase 0
+
+**1. Estado:** cerrada con observaciones. Falta desplegar el parche de contención, que requiere
+autorización, y el respaldo previo al despliegue.
+
+**2. Hallazgos cubiertos**
+
+| Hallazgo | Cambio | Prueba que lo demuestra |
+|---|---|---|
+| H-01 autoescalada de rol | `users`: lista blanca de campos propios; `rol`, `comercioId`, `estado` y `pin` fuera del alcance del cliente; `admin_comercio` acotado a vendedores de su comercio | `firestore.rules.test.ts` → «un cliente NO puede convertirse en superadmin», «…asignarse un comercio», «…desbloquearse a sí mismo», «…ponerse un PIN de vendedor», «un admin_comercio NO puede cambiar el rol de su vendedor» |
+| H-02 toma de cuenta por correo | Se elimina la cláusula `resource.data.email == request.auth.token.email` en lectura y escritura; se elimina la auto-recuperación de `AuthContext` | «un usuario con el mismo correo NO puede leer/escribir el documento ajeno» |
+| H-03 autoaprovisionamiento por dominio | El alta propia solo admite `rol: 'cliente'` sin `comercioId`; se elimina el bloque de aprovisionamiento por dominio de `AuthContext` | «un usuario nuevo NO puede crearse como admin_comercio / vendedor / superadmin»; «SÍ puede crearse a sí mismo como cliente» |
+| H-07 campos de facturación | `comercios`: el comercio solo edita `reglas`, `premios`, `productos`, `logoUrl`, `paletteId`; el contador solo `saldoPremiosBs`, `mesesPagados`, `modalidadPago` | «un admin_comercio NO puede acreditarse saldo / pasarse a premium / marcarse meses pagados / desbloquear su comercio»; «un contador NO puede cambiar el plan ni la mensualidad» |
+| H-09 superadmin decidido por el cliente | Se retira `SUPER_ADMIN_EMAILS` del bundle y toda asignación de rol desde `Login.tsx`; se crea `scripts/admin/set-superadmin.mjs` (Admin SDK + ADC, idempotente, `--dry-run`) | `env.test.ts` → «no expone ninguna lista de superadministradores en el cliente»; `grep` sobre `dist/`: 0 coincidencias |
+| H-15 pruebas que pasan sin probar | Se eliminan los `ctx.skip()`; `npm run test:rules` levanta el emulador con `firebase emulators:exec` | 31 casos ejecutados, 0 omitidos |
+| H-04 vendedor sin identidad | Resuelto como diagnóstico (ver arriba); la corrección es de la Fase 1 | «rechaza leer usuarios sin autenticación (flujo de PIN del vendedor)» |
+
+**3. Cambios**
+
+- `ddb4d6f` — plan y bitácora en `docs/security/`.
+- `bc53f23` — reglas de contención, limpieza de `AuthContext`/`Login`/`utils/env`, scripts de
+  administración, pruebas de reglas y configuración de `test:rules`.
+- Sin migraciones de datos. Reversión: `git revert bc53f23` y redesplegar las reglas anteriores, que
+  están guardadas en `docs/security/baseline/`.
+
+**4. Evidencia de verificación**
+
+| Comprobación | Resultado |
+|---|---|
+| `tsc -b` | limpio |
+| `eslint .` | 99 problemas (92 errores), todos preexistentes; antes de la fase eran 101 (94 errores). La Fase 0 no introdujo ninguno y corrigió dos. La deuda de `any` se limpia en la Fase 3. |
+| `npm test` | 9 archivos, 40 pruebas, todas pasan |
+| `npm run test:rules` | 31 pruebas, todas pasan, **0 omitidas** |
+| `npm run build:prod` | correcto |
+| `npm run build:staging` | correcto |
+| Correos de superadmin en `dist/` | 0 |
+| `gitleaks detect` | 6 hallazgos, todos configuración pública |
+| `npm audit` | 7 vulnerabilidades (4 altas) preexistentes, Fase 4 |
+
+**5. Requiere intervención de Andrés**
+
+1. **Autorizar el respaldo de `puntosnb`** (exportación de Firestore a un bucket de Cloud Storage).
+   Es una escritura en GCP: crea el bucket y el volcado. Se ejecuta antes de tocar las reglas.
+2. **Autorizar el despliegue del parche de contención**, primero a `puntosnb` (donde están los datos
+   reales, O-02) y después a `hipatia-puntos`.
+3. **Decidir la fusión del PR #17** a `main`.
+
+**6. Riesgo residual y siguiente fase**
+
+Quedan abiertos, por diseño de fases: el libro mayor escribible por el cliente (H-05, H-06), la
+sesión de vendedor sin identidad (H-04), los canjes de códigos sin validación (H-08) y App Check sin
+enforcement (H-10). Ninguno permite hoy tomar el control de la plataforma; sí permiten fraude de
+puntos dentro de un comercio. La Fase 1 (backend de confianza) los cierra.
+
 ### Pendientes inmediatos
 
-- Autorización para leer las reglas desplegadas en `puntosnb` (pruebas) y `hipatia-puntos` (producción).
-- Decisión sobre la divergencia `feature/influencers` ↔ `main` en GitHub (O-01).
+- Respaldo de `puntosnb` y despliegue del parche (puntos 1 y 2 de arriba).
+- Al abrir la Fase 1: corregir H-22 (alta de vendedores que no pueden entrar) y planificar la
+  consolidación de los `users` duplicados (H-23).
