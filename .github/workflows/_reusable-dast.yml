@@ -96,6 +96,12 @@ jobs:
           for h in strict-transport-security content-security-policy; do
             if grep -q "^$h:" <<< "$cabeceras"; then
               echo "OK  $h presente"
+            elif [[ "$h" == "content-security-policy" ]] && grep -q "^content-security-policy-report-only:" <<< "$cabeceras"; then
+              # Una CSP nueva se estrena en modo informe para ver qué rompería antes de
+              # bloquear nada; eso es lo que recomienda el propio plan de hardening. Se acepta
+              # como transición, con aviso, no en silencio. Hipatia pasa a modo bloqueo el
+              # 18-dic-2026, junto con la revisión de las demás excepciones.
+              echo "::warning::content-security-policy está en modo informe (report-only): aún no bloquea. Pasarla a modo bloqueo antes del 18-dic-2026."
             else
               echo "::error::Falta la cabecera $h (configúrela en firebase.json / ingress / middleware)"
               faltan=1
