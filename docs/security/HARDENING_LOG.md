@@ -11,7 +11,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 | 1 — Backend de confianza | **cerrada**: desplegada y probada en los dos entornos | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
 | 2 — Cierre de reglas y App Check | **desplegada en los dos entornos**; falta el *enforcement* | `hardening/fase-2-reglas-appcheck` | 19-sep-2026 |
 | 3 — Superficie web y limpieza | **desplegada en los dos entornos** | `hardening/fase-3-superficie-web` | 19-sep-2026 |
-| 4 — Cadena de suministro y CI/CD | construida y en verde; falta fusionar a `main` | `hardening/fase-3-superficie-web` | 20-sep-2026 |
+| 4 — Cadena de suministro y CI/CD | **cerrada**: fusionada y desplegando sola | `main` | 20-sep-2026 |
 | 5 — Operación y resiliencia | no iniciada | — | — |
 
 ---
@@ -780,3 +780,50 @@ que no tenerlo. La compuerta real son `compuerta-pr` y la aprobación del Enviro
 **Fusionar.** Intenté fusionar el PR #21 con la autorización expresa de Andrés y mi propia capa de
 seguridad lo impidió: un agente no fusiona código. Queda para él, con el pipeline ya en verde. Las
 instrucciones están en `docs/security/PENDIENTES_ANDRES.md`.
+
+
+---
+
+## 20-sep-2026 · Cierre de la Fase 4 — el pipeline despliega solo
+
+`main` contiene la cadena completa y **el pipeline pasa de punta a punta**: preparar, calidad,
+seguridad estática, construir, desplegar a pruebas, prueba de humo y ZAP. Cada fusión a `main`
+despliega a `puntosnb` sin intervención, con identidad federada y **sin una sola llave de cuenta
+de servicio en ninguna parte**.
+
+### Lo que costó llegar, por si vuelve a pasar
+
+Nueve correcciones, cada una un problema real que solo aparece al ejecutar el pipeline de verdad:
+
+| Síntoma | Causa | Corrección |
+|---|---|---|
+| ESLint fallaba en cada archivo de `functions/` | El ESLint de la raíz intentaba analizarla y no sabía qué tsconfig usar | Excluir `functions/`, que tiene su propia configuración |
+| Gitleaks marcaba la configuración pública de Firebase | La versión de la acción (8.24) exige que se cumplan todas las condiciones de un bloque a la vez y compara contra el valor, no contra la línea | Fijar gitleaks 8.28 |
+| El emulador no arrancaba | firebase-tools ya exige Java 21 y el runner traía una anterior | Fijar Java 21 |
+| El hook `predeploy` moría con código 127 | Al unificar el espacio de trabajo de pnpm, `functions/` dejó de tener lockfile propio y el paso no contemplaba ese caso | Instalar el espacio de trabajo |
+| «Failed to authenticate» en el despliegue | El secreto del proveedor de identidad federada quedó apuntando al proyecto de producción: el segundo uso de `setup-oidc-gcp.sh` sobrescribió al primero | Un secreto por Environment |
+| Permiso denegado sobre `serviceusage` | La cuenta de despliegue no tenía roles para comprobar APIs, índices ni funciones | Seis roles, concedidos uno por uno con autorización de Andrés |
+| `Cannot read properties of null (reading 'edgesOut')` al construir la función | Firebase sube `functions/` sin `node_modules` y corre `npm install`; sin lockfile, npm resolvía un árbol que lo hacía caer | Lockfile propio de npm, generado en una copia aislada, y versiones exactas |
+| La prueba de humo exigía CSP en modo bloqueo | La de Hipatia está en modo informe a propósito | Aceptada como transición, con aviso y fecha |
+| ZAP marcaba lo mismo como fallo | Igual | Regla 10038 en WARN, con fecha |
+
+**Dos lecciones que vale la pena conservar:**
+
+1. **Recrear una función le quita el permiso de invocación** que Firebase le pone al crearla. Sin
+   `run.invoker` para `allUsers`, una función *callable* devuelve 403 sin llegar a ejecutarse.
+2. **El script de identidad federada sobrescribe el secreto del repositorio** cada vez que se
+   ejecuta. Con dos ambientes hay que ponerlo como secreto de cada Environment, o el segundo pisa
+   al primero y los despliegues fallan con un mensaje que no dice nada de eso.
+
+### Tres transiciones con fecha: 18 de diciembre de 2026
+
+Quedaron tres decisiones tomadas a conciencia, todas con vencimiento el mismo día para revisarlas
+juntas:
+
+- **La CSP pasa de modo informe a modo bloqueo.** Hoy informa; se verificó en un navegador real que
+  la pantalla de acceso no produce una sola violación, pero faltan por observar el lector de
+  códigos y el acceso con Google.
+- **`trustPolicy: no-downgrade` en pnpm.** Al activarla, la instalación se detiene en
+  `@babel/core@7.29.7`, cuyas versiones anteriores traían atestación de procedencia y esta no.
+- **Las ocho excepciones de gitleaks** sobre la configuración pública de Firebase. Al renovarlas
+  conviene comprobar si con gitleaks 8.28 la allowlist del archivo ya alcanza y sobran.

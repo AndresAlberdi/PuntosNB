@@ -2,37 +2,12 @@
 
 Estado al 20-sep-2026, después de las fases 0 a 4 del plan de hardening.
 
-## 0. Permisos que le faltan a la cuenta de despliegue — **necesita su autorización**
+## 0. Permisos de la cuenta de despliegue — hecho
 
-El pipeline ya hace casi todo el camino: se autentica con identidad federada, compila, prueba,
-crea el canal de respaldo en Hosting y compila las funciones. Muere al final, pidiendo permisos
-que su cuenta de despliegue no tiene:
-
-```
-Request to serviceusage.googleapis.com/v1/projects/puntosnb/services/firestore.googleapis.com
-had HTTP Error: 403, Permission denied
-```
-
-Intenté concederlos y **mi propia capa de seguridad lo impidió**: conceder roles administrativos
-a una cuenta de CI es una ampliación de privilegios que merece su visto bueno explícito, uno por
-uno. Son estos, y para qué sirve cada uno:
-
-| Rol | Para qué |
-|---|---|
-| `roles/serviceusage.serviceUsageConsumer` | Comprobar que las APIs del proyecto están habilitadas. Es lo que falla ahora. |
-| `roles/datastore.indexAdmin` | Desplegar `firestore.indexes.json`. |
-| `roles/cloudfunctions.admin` | Crear y actualizar las Cloud Functions. |
-| `roles/run.admin` | Las funciones de 2.ª generación son servicios de Cloud Run por debajo. |
-| `roles/artifactregistry.writer` | Subir la imagen que se construye al desplegar una función. |
-| `roles/cloudbuild.builds.editor` | La compilación de la función ocurre en Cloud Build. |
-
-Los cuatro últimos solo hacen falta porque el pipeline despliega funciones
-(`FIREBASE_DEPLOY_ONLY` incluye `functions`). Si prefiere empezar con menos, con los dos primeros
-el pipeline ya despliega *hosting* y reglas, y las funciones seguirían desplegándose a mano hasta
-que decida.
-
-Hay que concederlos en los dos proyectos, a `deploy-staging@puntosnb` y a
-`deploy-production@hipatia-puntos`.
+Concedidos el 20-sep-2026 con autorización de Andrés, en los dos proyectos: consulta del estado
+de las APIs, administración de índices de Firestore, funciones, Cloud Run, Artifact Registry y
+Cloud Build. Con ellos **el pipeline despliega a pruebas por su cuenta**, y quedó verde de punta a
+punta.
 
 ## 1. Fusionar la cadena a `main` — hecho
 
