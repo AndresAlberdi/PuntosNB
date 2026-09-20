@@ -4,7 +4,7 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { isStaging, APP_VERSION } from '../utils/env';
 import { initRecaptcha, executeRecaptcha } from '../utils/recaptcha';

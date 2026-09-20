@@ -1,16 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-
-interface LoadingContextType {
-  isGlobalLoading: boolean;
-  startAsyncAction: <T>(actionPromiseOrFn: Promise<T> | (() => Promise<T>)) => Promise<T>;
-}
-
-const LoadingContext = createContext<LoadingContextType>({
-  isGlobalLoading: false,
-  startAsyncAction: async (action) => (typeof action === 'function' ? action() : action),
-});
-
-export const useGlobalLoading = () => useContext(LoadingContext);
+import React, { useState, useCallback, useRef } from 'react';
+import { LoadingContext } from './useGlobalLoading';
 
 export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [showSpinner, setShowSpinner] = useState(false);

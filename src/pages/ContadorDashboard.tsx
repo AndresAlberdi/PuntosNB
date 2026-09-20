@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import type { Comercio, CobroPrepago } from '../types';
 import { optimizarImagen, resumenOptimizacion } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';

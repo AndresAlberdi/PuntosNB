@@ -3,7 +3,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
 import { invocar, mensajeDeError } from '../utils/backend';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import type { AsignacionInfluencer, CodigoInfluencer, Comercio, Transaccion } from '../types';
 
 export const InfluencerDashboard: React.FC = () => {

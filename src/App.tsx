@@ -1,7 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import type { RolUsuario, Comercio } from './types';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AuthProvider } from './contexts/AuthContext';
+import { useAuth } from './contexts/useAuth';
 import { LoadingProvider } from './contexts/LoadingContext';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';

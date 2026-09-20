@@ -3,7 +3,7 @@ import { doc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getD
 import { errorFirebase } from '../utils/backend';
 import { db } from '../firebase';
 import { cargarComercioCompleto } from '../utils/comercios';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import type { Comercio, ReglaPunto, TipoRegla, Premio, ProductoCatalogo, CobroPrepago } from '../types';
 import { CRMSection } from '../components/CRMSection';
 import { AdminInfluencers } from '../components/AdminInfluencers';
