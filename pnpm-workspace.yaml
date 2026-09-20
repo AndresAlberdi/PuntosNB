@@ -1,3 +1,9 @@
+# Un solo espacio de trabajo con la aplicación y las funciones: una sola instalación
+# reproducible, un solo lockfile. `functions/` conserva su package.json y su tsconfig.
+packages:
+  - '.'
+  - 'functions'
+
 # Scripts de instalación de dependencias: decisión explícita, paquete por paquete.
 #
 # Por defecto no se ejecuta ninguno (`ignore-scripts` en .npmrc): un paquete

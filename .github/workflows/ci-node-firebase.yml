@@ -184,15 +184,10 @@ jobs:
       # contra los emuladores de Functions, Firestore y Auth. Sin ellas, el pipeline dejaría
       # pasar un cambio que rompa la acumulación, el canje o la cobranza.
       - name: Compilar las funciones
+        # Las dependencias ya vinieron con la instalación de la raíz: `functions` es un paquete
+        # más del espacio de trabajo de pnpm, con un único lockfile para todo el repositorio.
         if: hashFiles('functions/package.json') != ''
-        run: |
-          if [[ -f functions/pnpm-lock.yaml ]]; then
-            corepack enable
-            pnpm --dir functions install --frozen-lockfile --ignore-workspace
-          else
-            npm ci --prefix functions
-          fi
-          npm --prefix functions run build
+        run: npm --prefix functions run build
 
       - name: Pruebas de integración de las funciones (emuladores)
         if: hashFiles('functions/package.json') != ''
