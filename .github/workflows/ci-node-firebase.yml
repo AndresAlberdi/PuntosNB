@@ -183,6 +183,18 @@ jobs:
       # Las funciones tienen sus propias pruebas de integración: recorren el libro mayor
       # contra los emuladores de Functions, Firestore y Auth. Sin ellas, el pipeline dejaría
       # pasar un cambio que rompa la acumulación, el canje o la cobranza.
+      - name: Verificar que el lockfile de las funciones esté sincronizado
+        # `calidad` compila `functions` con las dependencias de la raíz, así que por sí sola
+        # nunca lee `functions/package-lock.json`. Pero el despliegue sí: el hook `predeploy`
+        # corre `npm ci --prefix functions`, que aborta si ese lockfile no concuerda con
+        # `functions/package.json`. Sin esta comprobación el desajuste pasa la compuerta en
+        # verde y revienta DESPUÉS de fusionar, en `desplegar-staging`, que es justo lo que
+        # ocurrió el 20/09/2026 al subir TypeScript a 6.0.3. `--dry-run` hace la validación
+        # sin instalar nada: cuesta segundos y convierte un fallo posterior a la fusión en uno
+        # anterior.
+        if: hashFiles('functions/package-lock.json') != ''
+        run: npm ci --prefix functions --ignore-scripts --dry-run --no-audit --no-fund
+
       - name: Compilar las funciones
         # Las dependencias ya vinieron con la instalación de la raíz: `functions` es un paquete
         # más del espacio de trabajo de pnpm, con un único lockfile para todo el repositorio.
