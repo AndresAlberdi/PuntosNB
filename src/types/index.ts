@@ -75,7 +75,11 @@ export interface Comercio {
   plan?: 'regular' | 'premium';
   estado?: 'activo' | 'bloqueado';
 
-  // --- FACTURACIÓN & PREPAGO ---
+  // --- SEÑALES DERIVADAS (las calcula el servidor en el documento público) ---
+  operativoHasta?: number | null; // Fin del periodo prepagado; null = PILOTO
+  puedeCanjearPremios?: boolean;
+
+  // --- FACTURACIÓN & PREPAGO (viven en comercios_privado; solo los ven los roles autorizados) ---
   modalidadPago?: ModalidadPagoComercio; // 'PREPAGO' | 'PILOTO' (default: PILOTO)
   mensualidadBs?: number; // Ej: 25.00
   costoPorPremioBs?: number; // Ej: 1.25
@@ -83,6 +87,37 @@ export interface Comercio {
   recibeFactura?: boolean; // Booleano
   mesesPagados?: string[]; // Meses pagados en formato 'YYYY-MM' (ej: ['2026-08', '2026-09'])
   saldoPremiosBs?: number; // Saldo prepagado disponible para premios (ej: 60.00)
+}
+
+/**
+ * Mitad privada del comercio (`comercios_privado/{id}`): datos fiscales y económicos.
+ * Solo la leen el superadministrador, el contador y el administrador de ese comercio.
+ */
+export interface ComercioPrivado {
+  id: string;
+  nit_rut?: string;
+  razonSocial?: string;
+  recibeFactura?: boolean;
+  plan?: 'regular' | 'premium';
+  modalidadPago?: ModalidadPagoComercio;
+  mensualidadBs?: number;
+  costoPorPremioBs?: number;
+  costoPorCodigoComercio?: number;
+  saldoPremiosBs?: number;
+  consumidoPremiosBs?: number;
+  mesesPagados?: string[];
+}
+
+/** Perfil público mínimo de un influencer (`influencers_publico/{uid}`). */
+export interface InfluencerPublico {
+  uid: string;
+  nombre: string;
+  prefijoCodigo?: string;
+  avatarUrl?: string;
+  descripcion?: string;
+  redesSociales?: string[];
+  seguidores?: number;
+  estado?: 'activo' | 'bloqueado';
 }
 
 export interface SaldoPunto {

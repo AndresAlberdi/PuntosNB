@@ -13,7 +13,8 @@ import { validar } from '../comun/validacion';
 import { conflicto, errorInterno, noEncontrado } from '../comun/errores';
 import { actorDe, exigirRol } from '../comun/sesion';
 import { auditarEnTransaccion } from '../comun/auditoria';
-import { estadoPrepago, type Comercio } from '../comun/negocio';
+import { estadoPrepago } from '../comun/negocio';
+import { leerComercioEnTx } from '../comun/comercio';
 
 const Entrada = z.object({
   codigo: z.string().trim().toUpperCase().min(3).max(40),
@@ -57,10 +58,9 @@ export const canjearCodigo = onCall(opcionesCallable, async (req) => {
     const comercioId = datosCodigo.comercioId;
 
     return await db.runTransaction(async (tx) => {
-      const refComercio = db.collection('comercios').doc(comercioId);
-      const snapCom = await tx.get(refComercio);
-      if (!snapCom.exists) throw noEncontrado('El comercio del código no existe.');
-      if (!estadoPrepago(snapCom.data() as Comercio).puedeOperar) {
+      const vista = await leerComercioEnTx(tx, comercioId);
+      if (!vista.existe) throw noEncontrado('El comercio del código no existe.');
+      if (!estadoPrepago(vista.completo).puedeOperar) {
         throw conflicto('El comercio está deshabilitado temporalmente.');
       }
 
