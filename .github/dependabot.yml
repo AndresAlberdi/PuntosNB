@@ -3,6 +3,12 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    # Cuarentena de 7 dias para versiones recien publicadas, igual que
+    # `minimumReleaseAge: 10080` en `.npmrc`: una version comprometida suele
+    # detectarse y retirarse en los primeros dias, y no hay motivo para ser
+    # el primero en instalarla.
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday
@@ -12,6 +18,12 @@ updates:
     labels: [dependencias, github-actions, seguridad]
   - package-ecosystem: npm
     directory: /
+    # Cuarentena de 7 dias para versiones recien publicadas, igual que
+    # `minimumReleaseAge: 10080` en `.npmrc`: una version comprometida suele
+    # detectarse y retirarse en los primeros dias, y no hay motivo para ser
+    # el primero en instalarla.
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday
@@ -28,6 +40,12 @@ updates:
   # exactamente lo que ocurrió el 20/09/2026 al fusionar la subida de TypeScript.
   - package-ecosystem: npm
     directory: /functions
+    # Cuarentena de 7 dias para versiones recien publicadas, igual que
+    # `minimumReleaseAge: 10080` en `.npmrc`: una version comprometida suele
+    # detectarse y retirarse en los primeros dias, y no hay motivo para ser
+    # el primero en instalarla.
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday
