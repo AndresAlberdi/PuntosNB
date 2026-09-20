@@ -4,7 +4,7 @@ import { errorFirebase } from '../utils/backend';
 import { db } from '../firebase';
 import { cargarComercioCompleto } from '../utils/comercios';
 import { useAuth } from '../contexts/AuthContext';
-import type { Comercio, ReglaPunto, Premio, ProductoCatalogo, CobroPrepago } from '../types';
+import type { Comercio, ReglaPunto, TipoRegla, Premio, ProductoCatalogo, CobroPrepago } from '../types';
 import { CRMSection } from '../components/CRMSection';
 import { AdminInfluencers } from '../components/AdminInfluencers';
 import { AdminCodigosComercio } from '../components/AdminCodigosComercio';
@@ -173,7 +173,7 @@ const AdminDashboard: React.FC = () => {
 
     const reglaFinal: ReglaPunto = {
       id: `regla_${Date.now()}`,
-      tipo: nuevaRegla.tipo as any,
+      tipo: nuevaRegla.tipo as TipoRegla,
       activa: true,
       ...(nuevaRegla.tipo === 'POR_COMPRA' ? { puntosAOtorgar: Number(nuevaRegla.puntosAOtorgar) || 0 } : {}),
       ...(nuevaRegla.tipo === 'POR_PRODUCTO' ? { 
@@ -537,7 +537,7 @@ const AdminDashboard: React.FC = () => {
                 <select 
                   className="w-full border rounded-lg px-3 py-2 bg-white font-semibold"
                   value={nuevaRegla.tipo} 
-                  onChange={(e) => setNuevaRegla({...nuevaRegla, tipo: e.target.value as any})}
+                  onChange={(e) => setNuevaRegla({...nuevaRegla, tipo: e.target.value as TipoRegla})}
                 >
                   <option value="POR_COMPRA">Por Compra General</option>
                   <option value="POR_PRODUCTO">Por Producto Especial</option>

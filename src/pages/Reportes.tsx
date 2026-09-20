@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import type { Transaccion, Comercio } from '../types';
+import type { Transaccion, Comercio, Usuario } from '../types';
 import {
   getDateRangeForMonth,
   getDateRangeBetween,
@@ -68,7 +68,7 @@ const Reportes: React.FC = () => {
         const usersSnap = await getDocs(collection(db, 'users'));
         const uMap: Record<string, string> = {};
         usersSnap.forEach(d => {
-          const u = d.data() as any;
+          const u = d.data() as Usuario;
           uMap[u.uid] = u.nombre || u.emailReal || u.email?.split('@')[0];
         });
         setUsersMap(uMap);

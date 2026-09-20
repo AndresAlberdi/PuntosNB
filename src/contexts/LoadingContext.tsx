@@ -15,7 +15,7 @@ export const useGlobalLoading = () => useContext(LoadingContext);
 export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [showSpinner, setShowSpinner] = useState(false);
   const activeOperationsRef = useRef(0);
-  const timerRef = useRef<any>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startAsyncAction = useCallback(async <T,>(action: Promise<T> | (() => Promise<T>)): Promise<T> => {
     activeOperationsRef.current += 1;

@@ -4,13 +4,20 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
 import { secondaryAuth } from '../secondaryApp';
-import type { Comercio, Usuario, CobroPrepago, ModalidadPagoComercio, AsignacionInfluencer } from '../types';
+import type { Comercio, Usuario, CobroPrepago, ModalidadPagoComercio, AsignacionInfluencer, TipoTransaccion } from '../types';
 import { COLOR_PALETTES } from '../utils/theme';
 import { checkComercioPrepagoStatus } from '../utils/reports';
 import { optimizarImagen } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError, errorFirebase } from '../utils/backend';
 import { evaluarContrasena } from '../utils/password';
 import { cargarComerciosCompletos } from '../utils/comercios';
+
+/** Opciones de los selectores del panel; evitan repetir la union en cada `onChange`. */
+type PlanComercio = NonNullable<Comercio['plan']>;
+type RolCreable = 'admin_comercio' | 'vendedor' | 'influencer' | 'contador';
+type PeriodoCobranzas = 'HOY' | 'SEMANA' | 'MES' | 'RANGO' | 'TODOS';
+type EstadoCobranzas = 'TODOS' | 'VERIFICADOS' | 'PENDIENTES' | 'RECHAZADOS';
+type TipoSesionQR = Extract<TipoTransaccion, 'ACUMULACION' | 'CANJE'>;
 
 const RESERVED_DOMAINS = ['influencer', 'hiinfluencer', 'hiinfluencer.io', 'admin', 'superadmin', 'hipatia', 'puntosnb'];
 
@@ -25,7 +32,7 @@ const SuperAdminDashboard: React.FC = () => {
   const [dominioComercio, setDominioComercio] = useState('');
   const [logoBase64, setLogoBase64] = useState('');
   const [paletteId, setPaletteId] = useState('ocean');
-  const [planComercio, setPlanComercio] = useState<'regular' | 'premium'>('regular');
+  const [planComercio, setPlanComercio] = useState<PlanComercio>('regular');
   
   // Parámetros Prepago Nuevo Comercio
   const [modalidadPago, setModalidadPago] = useState<ModalidadPagoComercio>('PILOTO');
@@ -42,7 +49,7 @@ const SuperAdminDashboard: React.FC = () => {
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [telefonoUsuario, setTelefonoUsuario] = useState('');
   const [countryCode, setCountryCode] = useState('+591');
-  const [rol, setRol] = useState<'admin_comercio' | 'vendedor' | 'influencer' | 'contador'>('vendedor');
+  const [rol, setRol] = useState<RolCreable>('vendedor');
   const [comercioId, setComercioId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [prefijoCodigo, setPrefijoCodigo] = useState('');
@@ -63,7 +70,7 @@ const SuperAdminDashboard: React.FC = () => {
   const [editingComercio, setEditingComercio] = useState<Comercio | null>(null);
   const [editComercioNombre, setEditComercioNombre] = useState('');
   const [editComercioDominio, setEditComercioDominio] = useState('');
-  const [editComercioPlan, setEditComercioPlan] = useState<'regular' | 'premium'>('regular');
+  const [editComercioPlan, setEditComercioPlan] = useState<PlanComercio>('regular');
   const [editComercioNit, setEditComercioNit] = useState('');
   const [editComercioRazonSocial, setEditComercioRazonSocial] = useState('');
   const [editModalidadPago, setEditModalidadPago] = useState<ModalidadPagoComercio>('PILOTO');
@@ -80,11 +87,11 @@ const SuperAdminDashboard: React.FC = () => {
   const [editInfEmailReal, setEditInfEmailReal] = useState('');
   const [editInfTelefono, setEditInfTelefono] = useState('');
   const [editInfPrefijo, setEditInfPrefijo] = useState('');
-  const [allAsignaciones, setAllAsignaciones] = useState<any[]>([]);
+  const [allAsignaciones, setAllAsignaciones] = useState<AsignacionInfluencer[]>([]);
 
   // States for QR Simulator
   const [qrSimComercioId, setQrSimComercioId] = useState('');
-  const [qrSimTipo, setQrSimTipo] = useState<'ACUMULACION' | 'CANJE'>('ACUMULACION');
+  const [qrSimTipo, setQrSimTipo] = useState<TipoSesionQR>('ACUMULACION');
   const [qrSimMonto, setQrSimMonto] = useState('100');
   const [qrSimCodeResult, setQrSimCodeResult] = useState('');
 
@@ -97,8 +104,8 @@ const SuperAdminDashboard: React.FC = () => {
   const [modalComprobante, setModalComprobante] = useState<CobroPrepago | null>(null);
 
   // Filtros avanzados para el Dashboard de Cobranzas
-  const [filtroCobranzasPeriodo, setFiltroCobranzasPeriodo] = useState<'HOY' | 'SEMANA' | 'MES' | 'RANGO' | 'TODOS'>('MES');
-  const [filtroCobranzasEstado, setFiltroCobranzasEstado] = useState<'TODOS' | 'VERIFICADOS' | 'PENDIENTES' | 'RECHAZADOS'>('TODOS');
+  const [filtroCobranzasPeriodo, setFiltroCobranzasPeriodo] = useState<PeriodoCobranzas>('MES');
+  const [filtroCobranzasEstado, setFiltroCobranzasEstado] = useState<EstadoCobranzas>('TODOS');
   const hoyStr = new Date().toISOString().split('T')[0];
   const primerDiaMesStr = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
   const [fechaDesdeCobro, setFechaDesdeCobro] = useState<string>(primerDiaMesStr);
@@ -700,7 +707,7 @@ const SuperAdminDashboard: React.FC = () => {
                 <div className="flex flex-wrap gap-2">
                   <select 
                     value={filtroCobranzasPeriodo} 
-                    onChange={e => setFiltroCobranzasPeriodo(e.target.value as any)}
+                    onChange={e => setFiltroCobranzasPeriodo(e.target.value as PeriodoCobranzas)}
                     className="sa-input text-xs font-bold bg-white dark:bg-gray-700"
                     style={{ width: 'auto' }}
                   >
@@ -713,7 +720,7 @@ const SuperAdminDashboard: React.FC = () => {
 
                   <select 
                     value={filtroCobranzasEstado} 
-                    onChange={e => setFiltroCobranzasEstado(e.target.value as any)}
+                    onChange={e => setFiltroCobranzasEstado(e.target.value as EstadoCobranzas)}
                     className="sa-input text-xs font-bold bg-white dark:bg-gray-700"
                     style={{ width: 'auto' }}
                   >
@@ -947,7 +954,7 @@ const SuperAdminDashboard: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="sa-label">Categoría / Plan</label>
-                  <select className="sa-input font-bold" value={planComercio} onChange={e => setPlanComercio(e.target.value as any)}>
+                  <select className="sa-input font-bold" value={planComercio} onChange={e => setPlanComercio(e.target.value as PlanComercio)}>
                     <option value="regular">Regular</option>
                     <option value="premium">Premium (Acceso a Reportes y CRM)</option>
                   </select>
@@ -1115,14 +1122,14 @@ const SuperAdminDashboard: React.FC = () => {
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="sa-label">Categoría / Plan del Comercio</label>
-                          <select className="sa-input font-bold" value={editComercioPlan} onChange={e=>setEditComercioPlan(e.target.value as any)}>
+                          <select className="sa-input font-bold" value={editComercioPlan} onChange={e=>setEditComercioPlan(e.target.value as PlanComercio)}>
                             <option value="regular">Regular</option>
                             <option value="premium">Premium</option>
                           </select>
                         </div>
                         <div>
                           <label className="sa-label">Modalidad Comercial</label>
-                          <select className="sa-input" value={editModalidadPago} onChange={e=>setEditModalidadPago(e.target.value as any)}>
+                          <select className="sa-input" value={editModalidadPago} onChange={e=>setEditModalidadPago(e.target.value as ModalidadPagoComercio)}>
                             <option value="PILOTO">Piloto</option>
                             <option value="PREPAGO">Prepago</option>
                           </select>
@@ -1225,7 +1232,7 @@ const SuperAdminDashboard: React.FC = () => {
             <form onSubmit={handleCrearUsuario} className="space-y-4 text-xs">
               <div>
                 <label className="sa-label">Rol del Usuario</label>
-                <select className="sa-input font-bold" value={rol} onChange={e => setRol(e.target.value as any)}>
+                <select className="sa-input font-bold" value={rol} onChange={e => setRol(e.target.value as RolCreable)}>
                   <option value="vendedor">Vendedor de Tienda (PIN de 6 dígitos)</option>
                   <option value="admin_comercio">Administrador del Comercio</option>
                   <option value="influencer">Influencer (@hiinfluencer.io)</option>
@@ -1535,7 +1542,7 @@ const SuperAdminDashboard: React.FC = () => {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="sa-label">Tipo de Sesión</label>
-                <select className="sa-input" value={qrSimTipo} onChange={e => setQrSimTipo(e.target.value as any)}>
+                <select className="sa-input" value={qrSimTipo} onChange={e => setQrSimTipo(e.target.value as TipoSesionQR)}>
                   <option value="ACUMULACION">Acumular Puntos (Venta)</option>
                   <option value="CANJE">Canje de Premio</option>
                 </select>

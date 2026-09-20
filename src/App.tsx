@@ -130,7 +130,7 @@ const NotificationBell = () => {
           const c = d.data() as Comercio;
           const saldo = sMap[c.id] || 0;
           if (saldo > 0) {
-             const canAfford = (c.premios || []).filter((p: any) => p.activo && p.puntosRequeridos <= saldo).length;
+             const canAfford = (c.premios || []).filter(p => p.activo && p.puntosRequeridos <= saldo).length;
              totalPrizes += canAfford;
           }
         });
