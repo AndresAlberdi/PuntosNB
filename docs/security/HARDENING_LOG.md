@@ -8,7 +8,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 | Fase | Estado | Rama | Última actualización |
 |---|---|---|---|
 | 0 — Línea base y contención | **cerrada** | `hardening/fase-0-linea-base` | 19-sep-2026 |
-| 1 — Backend de confianza | construida; falta desplegar | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
+| 1 — Backend de confianza | desplegada en `puntosnb`; falta producción | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
 | 2 — Cierre de reglas y App Check | no iniciada | — | — |
 | 3 — Superficie web y limpieza | no iniciada | — | — |
 | 4 — Cadena de suministro y CI/CD | no iniciada | — | — |
@@ -364,15 +364,25 @@ dos reclamos simultáneos, código expirado, bono repetido, saldo insuficiente e
 bolivianos, vendedor de otro comercio, código vencido, bolsa de influencer agotada, campaña no
 aceptada, fuerza bruta de PIN, mes cobrado dos veces y reintento idempotente de un cobro.
 
+### Despliegue en `puntosnb` — hecho el 19-sep-2026
+
+Autorizado por Andrés. Los cuatro pasos, en orden, con su verificación:
+
+| Paso | Resultado verificado |
+|---|---|
+| Funciones | 14 funciones *callable* v2 en us-central1, Node 22. El despliegue lo corrió Andrés; se verificó con `functions:list`. |
+| *Backfill* de claims | 25 cuentas sincronizadas. Contraste posterior cuenta por cuenta: **cero incoherencias** entre el rol del documento y el del token. Ocho cuentas de Auth no tienen documento en `users` y quedaron sin claim. |
+| Reglas | Desplegadas y comprobadas descargándolas en vivo: idénticas al repositorio. |
+| *Hosting* | `puntosnb.web.app` sirve el cliente nuevo: referencia `loginVendedor`, `reclamarAcumulacion` y `registrarCobroPrepago`, y ya **no contiene** `hipatia_vendedor_session`. |
+
+Prueba de humo contra la función real: `loginVendedor` con un PIN mal formado responde
+`INVALID_ARGUMENT` con el mensaje en español y sin tocar dato alguno.
+
+Nota de método: el primer comando de despliegue se entregó en un bloque ejecutable y lo corrió
+Andrés. Corresponde que lo ejecute Claude; el resto de la secuencia se ejecutó desde aquí.
+
 ### Pendiente para cerrar la fase
 
-El despliegue, que necesita autorización, en este orden:
-
-1. `firebase deploy --only functions --project puntosnb` (crea las funciones en la nube).
-2. `node scripts/admin/backfill-claims.mjs --project puntosnb` (escribe los custom claims).
-3. `firebase deploy --only firestore:rules --project puntosnb` (cierra las colecciones del servidor).
-4. `firebase deploy --only hosting --project puntosnb` (el cliente nuevo, que ya depende de las funciones).
-
-Después, prueba guiada de los cuatro flujos críticos contra `puntosnb.web.app` y, con el visto
-bueno, la misma secuencia en `hipatia-puntos`. Conviene además fijar la alerta de presupuesto en
-ambos proyectos: ya están en plan Blaze.
+- Prueba de los cuatro flujos críticos contra `puntosnb.web.app` con datos desechables.
+- Misma secuencia de despliegue en `hipatia-puntos`.
+- Alerta de presupuesto en ambos proyectos (ya están en plan Blaze).
