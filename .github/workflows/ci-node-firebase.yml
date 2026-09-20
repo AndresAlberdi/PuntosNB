@@ -163,6 +163,15 @@ jobs:
             exit 1
           fi
 
+      - name: Java 21 para los emuladores
+        # firebase-tools dejó de admitir versiones anteriores a la 21, y la imagen del runner
+        # trae una más vieja por defecto.
+        if: needs.preparar.outputs.hay_test_rules == 'true' || hashFiles('functions/package.json') != ''
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Pruebas de reglas de Firestore (emulador)
         if: needs.preparar.outputs.hay_test_rules == 'true'
         # El emulador necesita Java (preinstalado en ubuntu-latest).
