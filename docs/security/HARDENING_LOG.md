@@ -9,8 +9,8 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 |---|---|---|---|
 | 0 — Línea base y contención | **cerrada** | `hardening/fase-0-linea-base` | 19-sep-2026 |
 | 1 — Backend de confianza | **cerrada**: desplegada y probada en los dos entornos | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
-| 2 — Cierre de reglas y App Check | desplegada en `puntosnb`; falta producción y el *enforcement* | `hardening/fase-2-reglas-appcheck` | 19-sep-2026 |
-| 3 — Superficie web y limpieza | construida; falta desplegar | `hardening/fase-3-superficie-web` | 19-sep-2026 |
+| 2 — Cierre de reglas y App Check | **desplegada en los dos entornos**; falta el *enforcement* | `hardening/fase-2-reglas-appcheck` | 19-sep-2026 |
+| 3 — Superficie web y limpieza | **desplegada en los dos entornos** | `hardening/fase-3-superficie-web` | 19-sep-2026 |
 | 4 — Cadena de suministro y CI/CD | no iniciada | — | — |
 | 5 — Operación y resiliencia | no iniciada | — | — |
 
@@ -672,7 +672,52 @@ respuesta y una descripción honesta del modelo de seguridad vigente.
 | Cabeceras servidas | verificadas con el emulador de hosting, ruta por ruta |
 | CSP en un navegador real | cero violaciones en la pantalla de acceso |
 
-### Pendiente
+### Despliegue de las fases 2 y 3 — hecho el 19-sep-2026
 
-- Desplegar la Fase 3 (pruebas y producción).
-- Desplegar la Fase 2 en `hipatia-puntos`, que sigue con las reglas de la Fase 1.
+`puntosnb` recibió la Fase 3 sin novedades. Producción fue otra historia y dejó dos lecciones.
+
+#### La cuota de CPU de Cloud Run
+
+`hipatia-puntos` tiene un límite de **20 CPU en us-central1**. Veintidós funciones reservando diez
+instancias de una CPU cada una piden 220: el despliegue falló con
+«Quota exceeded for total allowable CPU per project per region», y los reintentos acumularon
+**81 revisiones que reservaban 431 CPU entre todas**.
+
+Se corrigió en dos frentes:
+
+1. Cada función pasa a **un cuarto de CPU y dos instancias** —sobra para leer y hacer una
+   transacción corta—, salvo `loginVendedor`, que deriva el hash scrypt del PIN y conserva una CPU
+   entera. El techo bajo además acota lo que puede costar un bucle descontrolado.
+2. Con autorización de Andrés se borraron las revisiones obsoletas y, cuando eso no alcanzó —la
+   revisión que seguía sirviendo era la vieja, de diez instancias—, las dieciocho funciones que no
+   levantaban, que el mismo despliegue recreó con el tamaño nuevo.
+
+#### El permiso de invocación se pierde al recrear una función
+
+Tras recrearlas, la prueba de extremo a extremo fallaba con 403. Las funciones recreadas quedaron
+**sin el `roles/run.invoker` para `allUsers`** que Firebase les pone al crearlas. Es la
+configuración normal de una función *callable*: la autenticación la verifica la propia función con
+el token de Firebase; sin ese permiso, ni siquiera llega a ejecutarse. Se restituyó en las 22.
+
+**Queda anotado como parte del procedimiento:** si alguna vez hay que borrar y recrear funciones,
+hay que volver a conceder ese permiso, o el cliente recibe 403 sin explicación.
+
+#### Resultado
+
+| | `puntosnb` | `hipatia-puntos` |
+|---|---|---|
+| Funciones | 22, sanas | 22, sanas |
+| Reglas | Fase 3, idénticas al repositorio | Fase 3 |
+| Cliente | publicado, con cabeceras y App Check | publicado |
+| Migración de datos | hecha | hecha (no había datos que dividir) |
+| Prueba de extremo a extremo | 16/16 | **16/16** |
+
+### Versión en pantalla
+
+A pedido de Andrés, y en línea con lo que la Fase 4 del plan ya preveía, la versión que se muestra
+sale de la **etiqueta de git** (`git describe --tags --always`), con el hash corto del commit
+mientras no haya etiquetas, en lugar del número de `package.json` que nadie actualizaba. Se ve en
+los dos entornos: en pruebas como hasta ahora, en producción discreta junto al nombre.
+
+Falta crear la primera etiqueta, `v1.3.0`, y con la Fase 4 el despliegue a producción pasará a
+hacerse solo desde una etiqueta, con aprobación.
