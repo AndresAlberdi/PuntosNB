@@ -91,6 +91,20 @@ export const registrarCobroPrepago = onCall(opcionesCallable, async (req) => {
           ...comercio, saldoPremiosBs: nuevoSaldo, mesesPagados: nuevosMeses, modalidadPago: 'PREPAGO',
         });
 
+        // Aviso pendiente para el superadministrador. La colección es del servidor; el envío real
+        // por correo se conecta en la Fase 5, junto con las demás alertas. Antes esto era un
+        // `console.log` en el navegador del contador que volcaba los correos de los superadmins.
+        tx.set(db.collection('notificaciones').doc(), {
+          tipo: 'cobro_prepago.registrado',
+          comercioId: datos.comercioId,
+          nombreComercio: comercio.nombre ?? '',
+          cobroId: refCobro.id,
+          montoTotal,
+          codigoDeposito: datos.codigoDeposito,
+          estado: 'PENDIENTE',
+          creadoEn: Date.now(),
+        });
+
         auditarEnTransaccion(tx, {
           accion: 'cobro_prepago.registrado',
           actorUid: actor.uid,

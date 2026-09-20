@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import type { Comercio, CobroPrepago, Usuario } from '../types';
+import type { Comercio, CobroPrepago } from '../types';
 import { optimizarImagen, resumenOptimizacion } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';
 import { cargarComerciosCompletos } from '../utils/comercios';
@@ -99,31 +99,6 @@ export const ContadorDashboard: React.FC = () => {
   const montoIngresadoNum = parseFloat(montoCobrado) || 0;
   const totalCoincideConCalculo = Math.abs(montoIngresadoNum - totalCalculado) < 0.01 && montoIngresadoNum > 0;
 
-  // Enviar email a los SuperAdmins sobre el cobro registrado
-  const notificarSuperAdmins = async (cobro: CobroPrepago) => {
-    try {
-      // Obtenemos correos de los superadmins
-      const snapUsers = await getDocs(collection(db, 'users'));
-      const superadminEmails: string[] = [];
-      snapUsers.forEach(d => {
-        const u = d.data() as Usuario;
-        if (u.rol === 'superadmin' && u.emailReal) {
-          superadminEmails.push(u.emailReal);
-        }
-      });
-
-      console.log(`[NOTIFICACIÓN EMAIL] Enviando notificación de cobro registrado a ${superadminEmails.length} superadmins:`, {
-        destinatarios: superadminEmails,
-        comercio: cobro.nombreComercio,
-        monto: cobro.montoTotal,
-        codigoDeposito: cobro.codigoDeposito,
-        fechaHora: new Date(cobro.fechaHora).toISOString()
-      });
-    } catch (err) {
-      console.error("Error al notificar por email:", err);
-    }
-  };
-
   const handleRegistrarCobro = async (e: React.FormEvent) => {
     e.preventDefault();
     setMensaje(null);
@@ -168,24 +143,6 @@ export const ContadorDashboard: React.FC = () => {
         clave: claveIdempotencia,
       });
 
-      await notificarSuperAdmins({
-        id: respuesta.cobroId,
-        comercioId: selectedComercio.id,
-        nombreComercio: selectedComercio.nombre,
-        nitRut: selectedComercio.nit_rut,
-        razonSocial: selectedComercio.razonSocial,
-        recibeFactura: selectedComercio.recibeFactura ?? true,
-        contadorId: userData!.uid,
-        contadorAlias: userData!.email?.split('@')[0] || 'Contador',
-        fechaHora: Date.now(),
-        montoTotal: respuesta.montoTotal,
-        montoMensualidad: respuesta.montoMensualidad,
-        mesesPagados: mesesSeleccionados,
-        montoPremios: subtotalPremios,
-        cantidadPremiosEquivalentes: premiosEquivalentes,
-        codigoDeposito: codigoDeposito.trim().toUpperCase(),
-        comprobanteUrl: comprobanteBase64 || '',
-      } as CobroPrepago);
 
       setMensaje({ texto: `¡Cobro de Bs. ${respuesta.montoTotal.toFixed(2)} para "${selectedComercio.nombre}" registrado con éxito!`, tipo: 'success' });
 

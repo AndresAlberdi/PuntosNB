@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
+import { evaluarContrasena } from '../utils/password';
 import { auth } from '../firebase';
 
 export const ChangePasswordModal = ({ onClose }: { onClose: () => void }) => {
@@ -10,11 +11,6 @@ export const ChangePasswordModal = ({ onClose }: { onClose: () => void }) => {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const validateStrongPassword = (pass: string) => {
-    // al menos 8 caracteres, 1 mayuscula, 1 numero, 1 simbolo
-    const strongRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    return strongRegex.test(pass);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,8 +22,9 @@ export const ChangePasswordModal = ({ onClose }: { onClose: () => void }) => {
       return;
     }
 
-    if (!validateStrongPassword(newPassword)) {
-      setError("La contraseña debe tener al menos 8 caracteres, una mayúscula, un número y un símbolo especial (@$!%*?&).");
+    const evaluacion = evaluarContrasena(newPassword, [auth.currentUser?.email ?? '']);
+    if (!evaluacion.valida) {
+      setError(evaluacion.problema!);
       return;
     }
 

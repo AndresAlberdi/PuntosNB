@@ -9,6 +9,7 @@ import { COLOR_PALETTES } from '../utils/theme';
 import { checkComercioPrepagoStatus } from '../utils/reports';
 import { optimizarImagen } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';
+import { evaluarContrasena } from '../utils/password';
 import { cargarComerciosCompletos } from '../utils/comercios';
 
 const RESERVED_DOMAINS = ['influencer', 'hiinfluencer', 'hiinfluencer.io', 'admin', 'superadmin', 'hipatia', 'puntosnb'];
@@ -357,8 +358,10 @@ const SuperAdminDashboard: React.FC = () => {
           return;
         }
 
-        if (!password || password.length < 6) {
-          setMsgCard2({ texto: 'La contraseña debe tener al menos 6 caracteres.', tipo: 'error' });
+        // Las cuentas administrativas manejan dinero y datos de terceros (H-19).
+        const evaluacion = evaluarContrasena(password, [syntheticUser, emailReal]);
+        if (!evaluacion.valida) {
+          setMsgCard2({ texto: evaluacion.problema!, tipo: 'error' });
           return;
         }
 
@@ -453,23 +456,21 @@ const SuperAdminDashboard: React.FC = () => {
       return;
     }
     try {
-      const { generarCodigoUnicoQR } = await import('../utils/qr');
-      const codigo = await generarCodigoUnicoQR(db);
-      const sesionRef = doc(db, 'sesiones_qr', codigo);
-      await setDoc(sesionRef, {
-        id: codigo,
-        tipo: qrSimTipo,
-        comercioId: qrSimComercioId,
+      // El servidor genera el código, recalcula los puntos y le pone vencimiento, igual que
+      // para un vendedor real: el simulador deja de escribir en `sesiones_qr`.
+      const simulada = await invocar<
+        { montoFactura: number; reglaId?: string; comercioId: string; productos: [] },
+        { codigo: string; puntos: number }
+      >('crearSesionAcumulacion', {
         montoFactura: Number(qrSimMonto) || 100,
-        nroFactura: 'SIM-' + Math.floor(Math.random() * 10000),
-        puntosCalculados: Number(qrSimMonto) || 10,
-        estado: 'PENDIENTE',
-        createdAt: Date.now()
+        comercioId: qrSimComercioId,
+        productos: [],
       });
+      const codigo = simulada.codigo;
       setQrSimCodeResult(codigo);
       setMsgCardSimulador({ texto: `QR simulado generado con éxito: ${codigo}`, tipo: 'success' });
-    } catch (err: any) {
-      setMsgCardSimulador({ texto: 'Error al generar QR simulado: ' + err.message, tipo: 'error' });
+    } catch (err) {
+      setMsgCardSimulador({ texto: mensajeDeError(err), tipo: 'error' });
     }
   };
 
@@ -1332,7 +1333,7 @@ const SuperAdminDashboard: React.FC = () => {
                 <div>
                   <label className="sa-label">Contraseña de Acceso</label>
                   <div className="relative">
-                    <input type={showPassword ? "text" : "password"} required minLength={6} className="sa-input" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••" />
+                    <input type={showPassword ? "text" : "password"} required minLength={12} className="sa-input" value={password} onChange={e => setPassword(e.target.value)} placeholder="Al menos 12 caracteres" />
                     <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs font-medium cursor-pointer">
                       {showPassword ? 'Ocultar' : 'Ver'}
                     </button>
