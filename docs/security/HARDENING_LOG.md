@@ -8,7 +8,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 | Fase | Estado | Rama | Última actualización |
 |---|---|---|---|
 | 0 — Línea base y contención | **cerrada** | `hardening/fase-0-linea-base` | 19-sep-2026 |
-| 1 — Backend de confianza | desplegada en `puntosnb`; falta producción | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
+| 1 — Backend de confianza | **cerrada**: desplegada y probada en los dos entornos | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
 | 2 — Cierre de reglas y App Check | no iniciada | — | — |
 | 3 — Superficie web y limpieza | no iniciada | — | — |
 | 4 — Cadena de suministro y CI/CD | no iniciada | — | — |
@@ -396,8 +396,55 @@ Prueba de humo contra la función real: `loginVendedor` con un PIN mal formado r
 Nota de método: el primer comando de despliegue se entregó en un bloque ejecutable y lo corrió
 Andrés. Corresponde que lo ejecute Claude; el resto de la secuencia se ejecutó desde aquí.
 
-### Pendiente para cerrar la fase
+### Permiso de IAM que faltaba
 
-- Prueba de los cuatro flujos críticos contra `puntosnb.web.app` con datos desechables.
-- Misma secuencia de despliegue en `hipatia-puntos`.
-- Alerta de presupuesto en ambos proyectos (ya están en plan Blaze).
+La primera prueba en vivo falló: `loginVendedor` devolvía error interno. El registro de la función
+mostró `iam.serviceAccounts.signBlob` denegado. Emitir un custom token exige que la cuenta de
+ejecución de las funciones pueda **firmar como ella misma**, y la cuenta por defecto no trae ese
+permiso. Con autorización de Andrés se concedió `roles/iam.serviceAccountTokenCreator` a
+`<número de proyecto>-compute@developer.gserviceaccount.com` sobre sí misma, en los dos proyectos.
+Es el arreglo documentado por Firebase y su alcance no va más allá de firmar sus propios tokens.
+
+Queda anotado como requisito de despliegue: **cualquier entorno nuevo necesita esa concesión** antes
+de que funcione el ingreso por PIN.
+
+### Prueba de extremo a extremo contra los entornos reales
+
+`scripts/admin/prueba-e2e.mjs` crea un comercio «PRUEBA HARDENING», un vendedor y un cliente
+propios, recorre los cuatro flujos invocando las funciones desplegadas igual que el navegador, y
+borra todo lo que creó. **16 comprobaciones, todas en verde en los dos proyectos**, con limpieza
+verificada después (21 documentos borrados en cada corrida; cero cuentas y cero documentos de
+prueba remanentes).
+
+Entre lo que demuestra sobre el entorno real: el servidor recalcula los puntos e ignora los que
+manda el cliente (pidió 99.999, recibió 20); el PIN se guarda como hash scrypt; el token del
+vendedor lleva su rol firmado; un PIN incorrecto responde con el mensaje genérico; el mismo código
+no se reclama dos veces; el cobro recalcula el monto y el reintento no cobra de nuevo; el canje
+descuenta puntos y saldo en bolivianos y se bloquea sin saldo; y cada operación deja asiento en
+`auditoria`.
+
+### Despliegue en `hipatia-puntos` — hecho el 19-sep-2026
+
+14 funciones creadas, 7 cuentas con claims sincronizados, reglas de Fase 1 desplegadas y `hosting`
+actualizado con el cliente nuevo. La prueba de extremo a extremo pasó al primer intento y el
+proyecto quedó como estaba: 0 comercios, 0 transacciones, 7 documentos en `users`.
+
+De paso se fijó en ambos proyectos la **política de limpieza de imágenes** de `gcf-artifacts`
+(borra las de más de un día): sin ella, cada despliegue deja una imagen de contenedor que se factura.
+
+### Alertas de presupuesto — hechas el 19-sep-2026
+
+Presupuesto de **10 USD mensuales por proyecto**, con avisos al 50 %, 90 % y 100 %, en las dos
+cuentas de facturación. Los avisos llegan al correo de los administradores de facturación. Cubre el
+punto 3 de la sección 5 del plan; el plan Blaze ya estaba activo en ambos proyectos desde antes.
+
+### Estado de H-20 (clave de API web)
+
+Verificado: **las claves ya están restringidas** por referente HTTP y por lista de APIs.
+`puntosnb` admite solo `puntosnb.web.app` y `puntosnb.firebaseapp.com`; `hipatia-puntos` admite su
+sitio, su dominio de Firebase y tres puertos de `localhost` (5173, 3000 y 5000), que conviene quitar
+cuando ya no se use el entorno local contra producción.
+
+Matiz que conviene tener presente: la restricción por referente **no es una barrera de seguridad**.
+La prueba de extremo a extremo de esta sesión entró sin navegador, enviando la cabecera `Referer`.
+La barrera real es App Check, que se activa en la Fase 2.
