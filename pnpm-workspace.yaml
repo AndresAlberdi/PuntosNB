@@ -4,6 +4,19 @@ packages:
   - '.'
   - 'functions'
 
+# Un paquete recién publicado es el vehículo habitual de un ataque a la cadena de suministro:
+# se compromete una cuenta, se publica una versión con código malicioso y se espera a que los
+# equipos la instalen en las horas siguientes. Estas tres opciones cierran esa ventana.
+minimumReleaseAge: 10080        # siete días de cuarentena antes de instalar una versión nueva
+blockExoticSubdeps: true        # ninguna dependencia transitiva desde un origen que no sea el registro
+
+# `trustPolicy: no-downgrade` queda pendiente a propósito. Al activarlo, la instalación se
+# detiene en `@babel/core@7.29.7`: versiones anteriores traían atestación de procedencia y esta
+# no. Es exactamente la señal que la opción busca dar, y merece revisarse con calma —muy
+# probablemente sea un cambio en el proceso de publicación de Babel, no un incidente—, pero no
+# se resuelve dejando el repositorio sin poder instalar. Se retoma al renovar las excepciones,
+# el 18-dic-2026.
+
 # Scripts de instalación de dependencias: decisión explícita, paquete por paquete.
 #
 # Por defecto no se ejecuta ninguno (`ignore-scripts` en .npmrc): un paquete

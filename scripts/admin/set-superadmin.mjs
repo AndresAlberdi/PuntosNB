@@ -62,7 +62,7 @@ const ref = db.collection('users').doc(usuarioAuth.uid);
 const snap = await ref.get();
 
 if (!snap.exists) {
-  console.error(`La cuenta existe en Auth (uid ${usuarioAuth.uid.slice(0, 8)}…) pero no tiene documento en users.`);
+  console.error('La cuenta existe en Firebase Auth pero no tiene documento en users.');
   console.error('Debe iniciar sesión una vez en la aplicación para que se cree su perfil.');
   process.exit(3);
 }
@@ -73,7 +73,8 @@ if (rolActual === rolDestino) {
   process.exit(0);
 }
 
-console.log(`Cambio previsto: "${rolActual}" → "${rolDestino}" (uid ${usuarioAuth.uid.slice(0, 8)}…)`);
+// No se registra el identificador de la cuenta: basta el correo enmascarado que ya se imprimió.
+console.log(`Cambio previsto: "${rolActual}" → "${rolDestino}"`);
 
 if (dryRun) {
   console.log('Simulación: no se escribió nada.');
