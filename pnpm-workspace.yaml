@@ -1,0 +1,10 @@
+# Scripts de instalación de dependencias: decisión explícita, paquete por paquete.
+#
+# Por defecto no se ejecuta ninguno (`ignore-scripts` en .npmrc): un paquete
+# comprometido no debe poder correr código solo por instalarse. Estos tres piden
+# ejecutarlos; se revisaron y la aplicación funciona sin ellos, así que quedan en
+# `false`. Si alguno llegara a hacer falta, se cambia aquí con su motivo.
+allowBuilds:
+  '@firebase/util': false   # postinstall de conveniencia
+  protobufjs: false         # genera tipos que ya vienen empaquetados
+  re2: false                # binario nativo; solo lo usa firebase-tools en local
