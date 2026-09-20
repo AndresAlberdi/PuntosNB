@@ -10,7 +10,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 | 0 — Línea base y contención | **cerrada** | `hardening/fase-0-linea-base` | 19-sep-2026 |
 | 1 — Backend de confianza | **cerrada**: desplegada y probada en los dos entornos | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
 | 2 — Cierre de reglas y App Check | desplegada en `puntosnb`; falta producción y el *enforcement* | `hardening/fase-2-reglas-appcheck` | 19-sep-2026 |
-| 3 — Superficie web y limpieza | no iniciada | — | — |
+| 3 — Superficie web y limpieza | construida; falta desplegar | `hardening/fase-3-superficie-web` | 19-sep-2026 |
 | 4 — Cadena de suministro y CI/CD | no iniciada | — | — |
 | 5 — Operación y resiliencia | no iniciada | — | — |
 
@@ -560,3 +560,119 @@ Comprobaciones adicionales contra el entorno real:
 - Registrar las aplicaciones en App Check y activar el *enforcement* cuando las métricas lo
   permitan (`docs/security/CHECKLIST_APPCHECK.md`). Luego, redesplegar las funciones con
   `EXIGIR_APP_CHECK=true`.
+
+
+---
+
+## 19-sep-2026 · Sesión 1 · Imágenes y App Check
+
+### Medición: el peso está en las fotos, no en los datos
+
+`scripts/admin/medir-datos.mjs` sobre `puntosnb`: 0,21 MB en total, de los cuales **0,13 MB son
+imágenes en base64** (dos comprobantes de 47 y 42 KB y un catálogo de productos de 45 KB). Los
+datos de negocio ocupan 0,04 MB: **36 transacciones pesan 11,6 KB entre todas**. Producción, 2,1 KB.
+
+Lo caro no es guardarlas: `ClienteDashboard` lee todos los comercios y cada lectura arrastra las
+fotos del catálogo. Con cincuenta comercios serían cientos de KB por apertura, facturados como
+lectura de Firestore.
+
+### Transformación en el navegador, antes de enviar
+
+`src/utils/imageOptimizer.ts` se reescribió con presupuestos por uso —logotipo 25 KB, producto y
+premio 40 KB, avatar 20 KB, comprobante 90 KB—, elige **WebP** cuando el navegador lo soporta, baja
+calidad y luego tamaño hasta entrar en el presupuesto, valida el tipo y rechaza archivos de más de
+15 MB antes de decodificarlos.
+
+El servidor dejó de aceptar lo que el navegador ya no manda: comprobante hasta 140.000 caracteres,
+logotipo hasta 40.000, y las reglas rechazan un logotipo sin reducir en la escritura del catálogo.
+
+El plan para sacar las imágenes de Firestore quedó en `docs/security/PLAN_IMAGENES_STORAGE.md`,
+propuesto para después de la Fase 4.
+
+### Hallazgo O-03 — el entorno de pruebas nunca tuvo App Check
+
+Al verificar la CSP con el emulador de hosting, la consola del navegador mostró
+«Falta VITE_RECAPTCHA_SITE_KEY». La variable existía en `.env.staging` **con el valor vacío**, de
+modo que App Check no llegaba a inicializarse en `puntosnb`: el tráfico verificado habría quedado
+en 0 % indefinidamente y la exigencia nunca se habría podido activar.
+
+Se completó con la clave que ya estaba registrada en App Check para ese proyecto —es un valor
+público, viaja en el paquete— y se comprobó que ahora sí llega al `build`. Producción no tenía el
+problema: su clave estaba bien y coincide con la registrada.
+
+Esto explica la primera medición de métricas: 0 % verificado, con 144 solicitudes marcadas como
+`MISSING_OUTDATED_CLIENT`. El error del cliente dejó de silenciarse justamente para que esto se
+note, y la tarea programada que vigila las métricas tiene instrucción de avisar si a las 24 horas
+sigue en cero.
+
+### Monitoreo de App Check
+
+Tarea programada «App Check Hipatia», a las 9:00 y 21:00. Informa el porcentaje verificado por
+proyecto y servicio, los motivos de lo no verificado y la tendencia, y avisa cuando se cumpla el
+criterio para exigir: **más del 95 % durante dos días**, primero en `puntosnb`, un día de uso real,
+después en `hipatia-puntos`, y al final el redespliegue de las funciones con `EXIGIR_APP_CHECK=true`.
+
+---
+
+## 19-sep-2026 · Sesión 1 · Fase 3 — Superficie web y limpieza
+
+### Cabeceras y caché
+
+En `firebase.json`: HSTS con `preload`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`,
+`Cross-Origin-Opener-Policy: same-origin-allow-popups` —que el inicio de sesión con Google
+necesita— y `Permissions-Policy` con `camera=(self)`, porque el lector de códigos la usa, y todo
+lo demás en vacío.
+
+La **CSP va en modo informe**, como pide el plan, con los orígenes reales del build: Firebase,
+Google Identity y reCAPTCHA Enterprise. Se retiró `upgrade-insecure-requests`, que el navegador
+ignora en modo informe y solo ensuciaba la consola; vuelve cuando la política pase a bloqueo.
+
+Caché: un año e inmutable para los archivos con huella en el nombre, `no-cache` para el índice.
+
+Verificado sirviendo el `build` con el emulador de hosting y abriéndolo en un navegador real: la
+página carga **sin una sola violación de CSP** y sin errores en consola.
+
+### Limpieza (H-18)
+
+Fuera `src/utils/seedDatabase.ts` —traía contraseñas `123456`—, `update_superadmin.py`,
+`fix_colors.cjs`, `firestore-debug.log`, `PhoneVerification.tsx` y `src/utils/qr.ts`, que quedó sin
+uso cuando el servidor pasó a generar los códigos. `lang="es"` en el índice.
+
+El `console.log` de `ContadorDashboard` que volcaba los correos de los superadmins desapareció: el
+cobro ahora deja una notificación pendiente en `notificaciones`, colección del servidor, lista para
+conectar el envío real en la Fase 5.
+
+El simulador de QR del superadministrador pasa por `crearSesionAcumulacion` —con el comercio como
+parámetro, algo que solo el superadministrador puede hacer— en lugar de escribir en `sesiones_qr`,
+que las reglas de la Fase 2 ya no permiten.
+
+### Credenciales (H-19)
+
+`src/utils/password.ts`: mínimo de **doce caracteres** para cuentas administrativas, rechazo de
+palabras comunes, del propio correo y del carácter repetido, y aceptación de frases largas aunque
+tengan pocas clases de caracteres. Lo usan el alta de cuentas y el cambio de contraseña.
+
+Se retiró `fetchSignInMethodsForEmail`, incompatible con la protección contra enumeración de
+correos: el mensaje de error ahora sugiere Google sin confirmar si la cuenta existe.
+
+`SECURITY.md` dejó de ser la plantilla de GitHub: tiene canal de reporte, alcance, plazos de
+respuesta y una descripción honesta del modelo de seguridad vigente.
+
+### Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `tsc` cliente y functions | limpios |
+| `eslint` cliente | 63 problemas (56 errores); eran 94 al empezar el hardening |
+| `npm test` | 54 pruebas (7 de imágenes y 7 de contraseñas, nuevas) |
+| `npm run test:rules` | 347 pruebas |
+| `npm run test:functions` | 50 pruebas |
+| `build:prod` y `build:staging` | correctos |
+| Cabeceras servidas | verificadas con el emulador de hosting, ruta por ruta |
+| CSP en un navegador real | cero violaciones en la pantalla de acceso |
+
+### Pendiente
+
+- Desplegar la Fase 3 (pruebas y producción).
+- Desplegar la Fase 2 en `hipatia-puntos`, que sigue con las reglas de la Fase 1.
