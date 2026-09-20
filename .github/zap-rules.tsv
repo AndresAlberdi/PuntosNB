@@ -38,7 +38,7 @@
 10035	FAIL	(Falta Strict-Transport-Security: exigido por el estándar)
 10036	WARN	(Cabecera Server revela versión)
 10037	WARN	(X-Powered-By revela tecnología)
-10038	FAIL	(Content-Security-Policy no definida: exigida por el estándar)
+10038	WARN	(CSP) — en Hipatia la política está en modo informe a propósito hasta el 18-dic-2026: se estrena observando qué rompería antes de bloquear. Volver a FAIL al pasarla a modo bloqueo.
 10040	FAIL	(Contenido mixto http:// en páginas https)
 10043	WARN	(Evento JS controlable por el usuario)
 10049	WARN	(Contenido cacheable: revisar si contiene datos privados)
