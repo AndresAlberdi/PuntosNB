@@ -115,14 +115,14 @@ importers:
   functions:
     dependencies:
       firebase-admin:
-        specifier: ^14.4.0
+        specifier: 14.4.0
         version: 14.4.0(@firebase/app-compat@0.5.18)(@firebase/app@0.16.2)(supports-color@7.2.0)
       firebase-functions:
-        specifier: ^7.3.2
+        specifier: 7.3.2
         version: 7.3.2(firebase-admin@14.4.0(@firebase/app-compat@0.5.18)(@firebase/app@0.16.2)(supports-color@7.2.0))(supports-color@7.2.0)
       zod:
-        specifier: ^4.6.0
-        version: 4.6.4
+        specifier: 4.6.0
+        version: 4.6.0
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -4561,6 +4561,9 @@ packages:
     engines: {node: '>=18.0.0'}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
+
+  zod@4.6.0:
+    resolution: {integrity: sha512-iIvwyDnebKYpww2ta0DjaNOL8RnVLmPMhgWyOzlW9y0EIIxv5gl+H6Y0ONpt83HqjGqkk78uWp6xWtpxzZdPbw==}
 
   zod@4.6.4:
     resolution: {integrity: sha512-AXSD6hvGdvRjajG/l1cC+d6IrhH+sjmPKtYeQdJIK8MFJl3LyClzS+o/YsVC+zQZPupAaeH5skwwm8YqYH7BqA==}
@@ -9467,6 +9470,8 @@ snapshots:
   zod-validation-error@4.0.2(zod@4.6.4):
     dependencies:
       zod: 4.6.4
+
+  zod@4.6.0: {}
 
   zod@4.6.4: {}
 
