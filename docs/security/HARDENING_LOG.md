@@ -8,7 +8,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 | Fase | Estado | Rama | Última actualización |
 |---|---|---|---|
 | 0 — Línea base y contención | **cerrada** | `hardening/fase-0-linea-base` | 19-sep-2026 |
-| 1 — Backend de confianza | no iniciada | — | — |
+| 1 — Backend de confianza | construida; falta desplegar | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
 | 2 — Cierre de reglas y App Check | no iniciada | — | — |
 | 3 — Superficie web y limpieza | no iniciada | — | — |
 | 4 — Cadena de suministro y CI/CD | no iniciada | — | — |
@@ -274,3 +274,105 @@ es de la Fase 1, tal como ya estaba previsto en el plan.
 - Alerta de presupuesto en ambos proyectos (el plan Blaze ya está activo en los dos).
 - Al abrir la Fase 1: corregir H-22 (alta de vendedores que no pueden entrar) y planificar la
   consolidación de los `users` duplicados (H-23).
+
+
+---
+
+## 19-sep-2026 · Sesión 1 · Fase 1 — Backend de confianza
+
+Rama `hardening/fase-1-backend-confianza`, abierta desde la de Fase 0 porque esta se apoya en sus
+reglas y todavía no está fusionada.
+
+### Andamiaje
+
+`functions/` en TypeScript estricto, Node 22, ESLint propio y vitest contra emuladores. Región
+**us-central1**, verificada contra la ubicación de las dos bases: `hipatia-puntos` está en nam5
+(multirregión de EE. UU.) y `puntosnb` en us-central1; us-central1 sirve a ambas sin salto de región.
+`enforceAppCheck` se controla con la variable `EXIGIR_APP_CHECK`, apagada hasta cerrar la Fase 2.
+
+Dependencias nuevas, todas oficiales de Google o de uso masivo: `firebase-functions` 7.4,
+`firebase-admin` 14.4 (también como dependencia de desarrollo en la raíz, para los scripts
+administrativos) y `zod` 4.6 para validar la entrada de cada función.
+
+### Identidad del vendedor (H-04, H-22)
+
+- `loginVendedor` compara el PIN contra un hash **scrypt con sal por usuario** guardado en
+  `vendedores_secretos`, colección con reglas `if false`. Devuelve un custom token con los claims
+  `rol` y `comercioId`.
+- Bloqueo progresivo por cuenta y por IP: cinco intentos dentro de quince minutos bloquean quince
+  minutos y revocan las sesiones vivas de esa cuenta. La IP se guarda como HMAC, no en claro, para
+  no convertir la bitácora de intentos en un registro de direcciones de personas.
+- Mensaje único —«Usuario o PIN incorrectos»— para usuario inexistente, PIN equivocado y cuenta sin
+  PIN: el motivo real solo queda en el registro del servidor.
+- `crearVendedor` da de alta una cuenta real en Firebase Auth (sin método de acceso propio), de modo
+  que el vendedor pueda entrar y se le puedan revocar las sesiones. Corrige H-22.
+- `rotarPinVendedor` y `bloquearVendedor` completan el ciclo; ambos acotados al comercio de quien
+  los invoca. Rotar el PIN revoca las sesiones abiertas con el anterior.
+- Rechaza PIN obvios (seis dígitos iguales o secuencias corridas).
+
+**Migración de PIN:** no hizo falta. El forense de la Fase 0 confirmó que **ningún vendedor tiene el
+campo `pin`** en ninguno de los dos proyectos, de modo que no hay secretos en claro que migrar ni
+rotación que comunicar a EPICO o PIZZA NB. El punto 4 de la sección 5 del plan (comunicar la
+rotación) queda sin objeto; los vendedores actuales siguen entrando con correo y contraseña de
+Firebase Auth hasta que se les cree un PIN con el flujo nuevo.
+
+### Libro mayor en el servidor (H-05, H-06, H-08, H-11, H-12)
+
+| Función | Qué controla |
+|---|---|
+| `crearSesionAcumulacion` | Recalcula los puntos desde las reglas del comercio; código con `crypto.randomInt` reservado dentro de una transacción; vencimiento de 5 minutos; verifica el estado de prepago. |
+| `reclamarAcumulacion` | Un solo uso, vencimiento, bono `POR_REGISTRO` una vez por cliente y comercio, asiento y saldo en una transacción. |
+| `crearSesionCanje` / `confirmarCanje` | Saldo de puntos, `premioId` persistido y **bloqueo del canje si el comercio PREPAGO no tiene saldo en bolivianos**; lleva `consumidoPremiosBs`. |
+| `canjearCodigo` | Resuelve si el código es de influencer o de comercio; vigencia, campaña aceptada, tope de la bolsa y un canje por cliente. |
+| `registrarCobroPrepago` | Recalcula el monto desde la mensualidad configurada; cobro y acreditación en una sola transacción; clave de idempotencia. |
+| `asignarRol`, `cambiarEstadoUsuario`, `guardarComercio` | Única vía para fijar rol, comercio y campos de facturación; graban los custom claims y revocan sesiones al degradar o bloquear. |
+
+Desviación del plan, deliberada: en lugar de `canjearCodigoInfluencer` y `canjearCodigoComercio` se
+expone **una sola** función `canjearCodigo`. El cliente ya no necesita averiguar de qué tipo es el
+código —lo resuelve el servidor—, y así deja de enumerar qué códigos existen antes de canjearlos.
+Las dos validaciones siguen separadas dentro de la función.
+
+Toda operación sensible escribe en `auditoria`. Las cuatro colecciones nuevas del servidor
+—`vendedores_secretos`, `auditoria`, `intentos_login_ip`, `operaciones_idempotentes`— quedan con
+reglas `if false` y **excluidas del comodín del superadministrador**: ni desde el navegador de un
+superadmin se puede leer el hash de un PIN.
+
+### Cliente
+
+`VendedorDashboard`, `ClienteDashboard`, `ContadorDashboard` y `SuperAdminDashboard` invocan las
+funciones en lugar de escribir en Firestore. `AuthContext` perdió la sesión de vendedor en
+`localStorage` y ahora refresca el token cuando el servidor marca `claimsUpdatedAt`.
+`scripts/admin/backfill-claims.mjs` proyecta los roles existentes al token reutilizando el mismo
+código compilado que usan las funciones, para que no haya dos implementaciones que diverjan.
+Simulación sobre `puntosnb`: **25 cuentas recibirían claims**; 12 documentos `users` no tienen
+cuenta en Firebase Auth (los duplicados de H-23 y los vendedores sintéticos de H-22).
+
+### Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `tsc -b` (cliente) y `tsc` (functions) | limpios |
+| `eslint` cliente | 90 problemas (81 errores), todos preexistentes; eran 94 al empezar el hardening |
+| `eslint` functions | limpio, 0 avisos |
+| `npm test` | 40 pruebas |
+| `npm run test:rules` | 42 pruebas, 0 omitidas |
+| `npm run test:functions` | 35 pruebas de integración contra los emuladores |
+| `build:prod` y `build:staging` | correctos |
+
+Las 35 pruebas de integración cubren las negativas que pide el plan: doble reclamo del mismo código,
+dos reclamos simultáneos, código expirado, bono repetido, saldo insuficiente en puntos y en
+bolivianos, vendedor de otro comercio, código vencido, bolsa de influencer agotada, campaña no
+aceptada, fuerza bruta de PIN, mes cobrado dos veces y reintento idempotente de un cobro.
+
+### Pendiente para cerrar la fase
+
+El despliegue, que necesita autorización, en este orden:
+
+1. `firebase deploy --only functions --project puntosnb` (crea las funciones en la nube).
+2. `node scripts/admin/backfill-claims.mjs --project puntosnb` (escribe los custom claims).
+3. `firebase deploy --only firestore:rules --project puntosnb` (cierra las colecciones del servidor).
+4. `firebase deploy --only hosting --project puntosnb` (el cliente nuevo, que ya depende de las funciones).
+
+Después, prueba guiada de los cuatro flujos críticos contra `puntosnb.web.app` y, con el visto
+bueno, la misma secuencia en `hipatia-puntos`. Conviene además fijar la alerta de presupuesto en
+ambos proyectos: ya están en plan Blaze.

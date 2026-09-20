@@ -363,6 +363,42 @@ describe('Flujos críticos del negocio (siguen operando)', () => {
   });
 });
 
+describe('Colecciones exclusivas del servidor (Fase 1)', () => {
+  const COLECCIONES = ['vendedores_secretos', 'auditoria', 'intentos_login_ip', 'operaciones_idempotentes'];
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'vendedores_secretos', UID_VENDEDOR), { hash: 'x', sal: 'y', algoritmo: 'scrypt' });
+      await setDoc(doc(db, 'auditoria', 'a1'), { accion: 'prueba' });
+      await setDoc(doc(db, 'intentos_login_ip', 'i1'), { intentosFallidos: 1 });
+      await setDoc(doc(db, 'operaciones_idempotentes', 'o1'), { operacion: 'prueba' });
+    });
+  });
+
+  it('ni el superadministrador puede leerlas desde el navegador', async () => {
+    const db = como(UID_SUPER);
+    await assertFails(getDoc(doc(db, 'vendedores_secretos', UID_VENDEDOR)));
+    await assertFails(getDoc(doc(db, 'auditoria', 'a1')));
+    await assertFails(getDoc(doc(db, 'intentos_login_ip', 'i1')));
+    await assertFails(getDoc(doc(db, 'operaciones_idempotentes', 'o1')));
+  });
+
+  it('nadie puede escribirlas', async () => {
+    for (const uid of [UID_SUPER, UID_ADMIN, UID_VENDEDOR, UID_CLIENTE]) {
+      const db = como(uid);
+      for (const coleccion of COLECCIONES) {
+        await assertFails(setDoc(doc(db, coleccion, 'intruso'), { x: 1 }));
+      }
+    }
+  });
+
+  it('el hash del PIN no es legible ni por el propio vendedor', async () => {
+    const db = como(UID_VENDEDOR);
+    await assertFails(getDoc(doc(db, 'vendedores_secretos', UID_VENDEDOR)));
+  });
+});
+
 describe('Superadministrador', () => {
   it('SÍ puede asignar roles y comercios', async () => {
     const db = como(UID_SUPER);
