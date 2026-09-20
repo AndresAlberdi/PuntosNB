@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { doc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs } from 'firebase/firestore';
 import { errorFirebase } from '../utils/backend';
 import { db } from '../firebase';
@@ -31,7 +31,7 @@ const AdminDashboard: React.FC = () => {
   // Prepago history
   const [cobrosComercio, setCobrosComercio] = useState<CobroPrepago[]>([]);
 
-  const fetchComercio = async () => {
+  const fetchComercio = useCallback(async () => {
     if (userData?.comercioId) {
       try {
         // Vista combinada: el catálogo público más los montos de `comercios_privado`,
@@ -52,11 +52,17 @@ const AdminDashboard: React.FC = () => {
       }
     }
     setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchComercio();
   }, [userData]);
+
+  // El cuerpo de un efecto no puede ser `async`: la carga se lanza desde una función
+  // interna, de modo que el estado se actualiza al resolverse la consulta y no durante
+  // el propio efecto.
+  useEffect(() => {
+    const cargar = async () => {
+      await fetchComercio();
+    };
+    cargar();
+  }, [fetchComercio]);
 
   const handleEliminarRegla = async (regla: ReglaPunto) => {
     if (!comercio || !userData?.comercioId) return;

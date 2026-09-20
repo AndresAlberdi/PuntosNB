@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { collection, doc, setDoc, getDocs, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
@@ -112,21 +112,23 @@ const SuperAdminDashboard: React.FC = () => {
   const [fechaHastaCobro, setFechaHastaCobro] = useState<string>(hoyStr);
   const [busquedaComercioExistente, setBusquedaComercioExistente] = useState<string>('');
 
-  const cargarComercios = async () => {
+  const cargarComercios = useCallback(async () => {
     try {
       // Vista combinada: el perfil público más los datos de facturación de `comercios_privado`.
       const data = await cargarComerciosCompletos();
       setComercios(data);
-      if (data.length > 0 && !qrSimComercioId) {
-        setQrSimComercioId(data[0].id);
+      // Se preselecciona el primer comercio solo si todavía no hay ninguno elegido. Con la
+      // forma funcional la carga no depende del comercio del simulador de QR.
+      if (data.length > 0) {
+        setQrSimComercioId(actual => actual || data[0].id);
       }
     } catch (err) {
       console.error(err);
     }
     setLoading(false);
-  };
+  }, []);
 
-  const fetchGlobalUsers = async () => {
+  const fetchGlobalUsers = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, 'users'));
       const users: Usuario[] = [];
@@ -135,9 +137,9 @@ const SuperAdminDashboard: React.FC = () => {
     } catch (err) {
       console.error('No se pudieron cargar los usuarios:', err);
     }
-  };
+  }, []);
 
-  const fetchAsignaciones = async () => {
+  const fetchAsignaciones = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, 'asignaciones_influencer'));
       const asigs: AsignacionInfluencer[] = [];
@@ -146,9 +148,9 @@ const SuperAdminDashboard: React.FC = () => {
     } catch (err) {
       console.error('No se pudieron cargar las campañas de influencer:', err);
     }
-  };
+  }, []);
 
-  const fetchCobros = async () => {
+  const fetchCobros = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, 'cobros_prepago'));
       const list: CobroPrepago[] = [];
@@ -158,14 +160,17 @@ const SuperAdminDashboard: React.FC = () => {
     } catch (err) {
       console.error('No se pudieron cargar los cobros:', err);
     }
-  };
-
-  useEffect(() => {
-    cargarComercios();
-    fetchGlobalUsers();
-    fetchAsignaciones();
-    fetchCobros();
   }, []);
+
+  // El cuerpo de un efecto no puede ser `async`: la carga se lanza desde una función
+  // interna, de modo que el estado se actualiza al resolverse la consulta y no durante
+  // el propio efecto.
+  useEffect(() => {
+    const cargar = async () => {
+      await Promise.all([cargarComercios(), fetchGlobalUsers(), fetchAsignaciones(), fetchCobros()]);
+    };
+    cargar();
+  }, [cargarComercios, fetchGlobalUsers, fetchAsignaciones, fetchCobros]);
 
   const handleNombreComercioChange = (val: string) => {
     setNombreComercio(val);

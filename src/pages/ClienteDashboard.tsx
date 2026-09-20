@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../firebase';
@@ -555,7 +555,7 @@ const ClienteDashboard: React.FC = () => {
   // Modal QR de Canje
   const [qrCanje, setQrCanje] = useState<{ id: string, premio: string, puntos: number } | null>(null);
 
-  const cargarDatos = async () => {
+  const cargarDatos = useCallback(async () => {
     if (!userData) return;
     try {
       const comerciosSnap = await getDocs(collection(db, 'comercios'));
@@ -590,11 +590,17 @@ const ClienteDashboard: React.FC = () => {
       console.error("Error cargando información del cliente", error);
     }
     setLoading(false);
-  };
-
-  useEffect(() => {
-    cargarDatos();
   }, [userData]);
+
+  // El cuerpo de un efecto no puede ser `async`: la carga se lanza desde una función
+  // interna, de modo que el estado se actualiza al resolverse la consulta y no durante
+  // el propio efecto.
+  useEffect(() => {
+    const cargar = async () => {
+      await cargarDatos();
+    };
+    cargar();
+  }, [cargarDatos]);
 
   // Un solo camino: el servidor resuelve si el código es de acumulación, de influencer o del
   // comercio, valida vigencia y tope, y acredita los puntos. El navegador ya no escribe puntos.

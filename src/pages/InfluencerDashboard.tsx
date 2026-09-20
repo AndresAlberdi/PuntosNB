@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
@@ -21,7 +21,12 @@ export const InfluencerDashboard: React.FC = () => {
 
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-  const fetchData = async () => {
+  // Marca de tiempo con la que se mide la vigencia de los códigos. Leer el reloj en cada render
+  // haría impuro el renderizado: se toma al montar y se refresca en cada carga de datos, que es
+  // cuando la cuenta regresiva puede cambiar.
+  const [ahora, setAhora] = useState(() => Date.now());
+
+  const fetchData = useCallback(async () => {
     if (!userData) return;
     try {
       // 1. Comercios
@@ -57,15 +62,23 @@ export const InfluencerDashboard: React.FC = () => {
       snapTxs.forEach(d => txList.push(d.data() as Transaccion));
       setTransaccionesInfluencer(txList);
 
+      setAhora(Date.now());
+
     } catch (err) {
       console.error("Error fetching influencer data:", err);
     }
     setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchData();
   }, [userData]);
+
+  // El cuerpo de un efecto no puede ser `async`: la carga se lanza desde una función
+  // interna, de modo que el estado se actualiza al resolverse la consulta y no durante
+  // el propio efecto.
+  useEffect(() => {
+    const cargar = async () => {
+      await fetchData();
+    };
+    cargar();
+  }, [fetchData]);
 
   // Enviar propuesta de colaboración a un comercio
   const handleEnviarPropuestaAComercio = async (e: React.FormEvent) => {
@@ -399,7 +412,7 @@ export const InfluencerDashboard: React.FC = () => {
               const canjesCom = txsComercio.length;
               txsComercio.forEach(t => ptsRepartidosCom += (t.puntos || 0));
 
-              const msSinceRenovation = codigo ? Date.now() - codigo.fechaUltimaRenovacion : 0;
+              const msSinceRenovation = codigo ? ahora - codigo.fechaUltimaRenovacion : 0;
               const daysLeft = codigo ? Math.max(0, Math.ceil((THIRTY_DAYS_MS - msSinceRenovation) / (1000 * 60 * 60 * 24))) : 0;
 
               return (
