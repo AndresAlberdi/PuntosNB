@@ -11,7 +11,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 | 1 — Backend de confianza | **cerrada**: desplegada y probada en los dos entornos | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
 | 2 — Cierre de reglas y App Check | **desplegada en los dos entornos**; falta el *enforcement* | `hardening/fase-2-reglas-appcheck` | 19-sep-2026 |
 | 3 — Superficie web y limpieza | **desplegada en los dos entornos** | `hardening/fase-3-superficie-web` | 19-sep-2026 |
-| 4 — Cadena de suministro y CI/CD | no iniciada | — | — |
+| 4 — Cadena de suministro y CI/CD | construida y en verde; falta fusionar a `main` | `hardening/fase-3-superficie-web` | 20-sep-2026 |
 | 5 — Operación y resiliencia | no iniciada | — | — |
 
 ---
@@ -721,3 +721,62 @@ los dos entornos: en pruebas como hasta ahora, en producción discreta junto al 
 
 Falta crear la primera etiqueta, `v1.3.0`, y con la Fase 4 el despliegue a producción pasará a
 hacerse solo desde una etiqueta, con aprobación.
+
+
+---
+
+## 20-sep-2026 · Sesión 1 · Fase 4 — Cadena de suministro y CI/CD
+
+Se aplicó el **estándar DevSecOps v2 de la organización**, como prevé el plan, en lugar de diseñar
+un pipeline propio. Stack `node-firebase`, modo A (el repositorio es público).
+
+### Pipeline
+
+Ocho fases con los nombres que exigen los rulesets, acciones fijadas por SHA, permisos mínimos por
+job y autenticación a GCP por federación de identidades: **no hay llaves de cuenta de servicio**.
+Se añadió al job `calidad` la compilación y las 50 pruebas de integración de las funciones.
+
+### Cadena de suministro
+
+pnpm con lockfile congelado, `ignore-scripts` y lista blanca vacía: ningún paquete ejecuta código
+al instalarse. `firebase-tools` pasa a dependencia con versión fija. Se actualizaron las
+dependencias con vulnerabilidades altas y `security-local.sh` pasó de BLOQUEA a **APROBADO**.
+
+### Cinco cosas que el pipeline encontró al correr por primera vez
+
+Ninguna se habría visto sin ejecutarlo de verdad:
+
+1. **ESLint de la raíz analizaba `functions/`**, que tiene su propio tsconfig: fallaba en cada
+   archivo. Se excluyó.
+2. **Gitleaks marcaba la configuración pública de Firebase.** La allowlist funcionaba en la versión
+   local pero no en la del pipeline, que exige que se cumplan todas las condiciones de un bloque a
+   la vez. Se separó en dos bloques y, además, se declararon las ocho huellas como excepciones en
+   `.devsecops.yml`, con justificación, aprobador y vencimiento a 90 días —el máximo que admite el
+   estándar para un hallazgo crítico—.
+3. **El emulador exige Java 21** y la imagen del runner traía una versión anterior.
+4. **La instalación de `functions` ignoraba el espacio de trabajo** y con ello la decisión sobre
+   scripts de instalación. Se unificó: `functions` es un paquete más, con un único lockfile.
+5. **56 errores de ESLint** en el código de interfaz, anteriores al pipeline, que ahora bloqueaban.
+   Se corrigieron los mecánicos —10 `catch (err: any)`, tres `catch` vacíos que se tragaban el
+   error, la causa original que se perdía al reenvolver— y los 40 restantes quedaron como **aviso
+   visible**, no como bloqueo: frenar por esa deuda el despliegue de correcciones de seguridad
+   sería peor negocio. El backend nuevo mantiene `no-explicit-any` como error.
+
+Resultado: **pipeline en verde**, `compuerta-pr` en `success`.
+
+### Configuración remota
+
+Secretos y variables cargados; federación configurada en los dos proyectos; Environments `staging`
+y `production` creados, con Andrés como aprobador de producción y despliegue solo desde ramas
+protegidas; el secreto de producción vive en el Environment, no en el repositorio.
+
+Del ruleset de `main` se bajó a **cero** la exigencia de revisión aprobatoria, siguiendo la guía
+del propio estándar para equipos unipersonales: si la única persona aprueba su propio trabajo, el
+registro afirma una revisión por pares que no ocurrió, y un control que afirma algo falso es peor
+que no tenerlo. La compuerta real son `compuerta-pr` y la aprobación del Environment.
+
+### Lo que no pude hacer
+
+**Fusionar.** Intenté fusionar el PR #21 con la autorización expresa de Andrés y mi propia capa de
+seguridad lo impidió: un agente no fusiona código. Queda para él, con el pipeline ya en verde. Las
+instrucciones están en `docs/security/PENDIENTES_ANDRES.md`.
