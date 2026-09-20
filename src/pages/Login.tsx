@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword, signInWithCustomToken, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from 'firebase/auth';
+import type { User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { isStaging, APP_VERSION } from '../utils/env';
 import { initRecaptcha, executeRecaptcha } from '../utils/recaptcha';
@@ -19,7 +20,7 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [aceptoTerminos, setAceptoTerminos] = useState(false);
   const [showTerminosModal, setShowTerminosModal] = useState(false);
-  const [pendingGoogleUser, setPendingGoogleUser] = useState<any>(null);
+  const [pendingGoogleUser, setPendingGoogleUser] = useState<FirebaseUser | null>(null);
   const navigate = useNavigate();
   const { currentUser, userData, loading: authLoading, logout } = useAuth();
 
