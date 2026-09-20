@@ -518,7 +518,7 @@ jobs:
 
       - name: Subir SARIF a Code Scanning (Modo A/B)
         if: inputs.subir_sarif && always()
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep${{ needs.preparar.outputs.sufijo_sarif }}
@@ -786,7 +786,7 @@ jobs:
 
       - name: Subir SARIF a Code Scanning (Modo A/B)
         if: inputs.subir_sarif && always()
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs${{ needs.preparar.outputs.sufijo_sarif }}
@@ -861,7 +861,7 @@ jobs:
       # razón que nada tiene que ver con la seguridad del código.
       - name: Subir SARIF a Code Scanning (Modo A/B)
         if: inputs.subir_sarif && always() && hashFiles('trivy-config.sarif') != ''
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config${{ needs.preparar.outputs.sufijo_sarif }}
@@ -902,7 +902,7 @@ jobs:
 
       - name: Subir SARIF de Checkov a Code Scanning (Modo A/B)
         if: inputs.subir_sarif && always() && steps.sarif_checkov.outputs.archivo != ''
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: ${{ steps.sarif_checkov.outputs.archivo }}
           category: checkov${{ needs.preparar.outputs.sufijo_sarif }}
