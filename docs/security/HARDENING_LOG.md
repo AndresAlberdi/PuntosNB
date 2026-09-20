@@ -827,3 +827,74 @@ juntas:
   `@babel/core@7.29.7`, cuyas versiones anteriores traían atestación de procedencia y esta no.
 - **Las ocho excepciones de gitleaks** sobre la configuración pública de Firebase. Al renovarlas
   conviene comprobar si con gitleaks 8.28 la allowlist del archivo ya alcanza y sobran.
+
+---
+
+## 20-sep-2026 (tarde) · CodeQL mide por primera vez, deuda de calidad saldada y un despliegue roto
+
+### CodeQL nunca había producido un resultado
+
+Fallaba en `main` y en cada PR desde que existe el workflow, con «configuration error». La causa
+estaba en los ajustes del repositorio, no en el código: tenía activa la **configuración
+predeterminada** de CodeQL, y GitHub rechaza por diseño los resultados del workflow avanzado
+cuando eso ocurre:
+
+```
+CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled
+```
+
+Se desactivó la predeterminada y se agregó `actions` a `CODEQL_LENGUAJES`, porque ella analizaba
+también los workflows y el avanzado solo JS/TS: desactivarla sin más habría **reducido** la
+cobertura. Resultado: los dos jobs en verde con `security-extended` y **cero alertas**. Antes el
+código no estaba ni limpio ni sucio: no se medía, y el rojo permanente lo tapaba.
+
+Al actualizar la acción apareció un segundo problema: Dependabot abrió un PR para `init` (#15) y
+otro para `analyze` (#16), pero **CodeQL exige que ambas corran en la misma versión**. Cada PR por
+separado fallaba con `Loaded a configuration file for version '4.38.0', but running version
+'4.37.9'`. Se aplicaron juntas en #33.
+
+### La deuda de ESLint, a cero
+
+Los 40 avisos del código de interfaz anterior al pipeline bajaron a cero en #32, y las cinco
+reglas que estaban rebajadas a aviso volvieron a `error`: un `any` nuevo o un render impuro
+detienen ahora la compuerta. Sin un solo `eslint-disable`. Se verificó en el navegador que la
+aplicación carga sin errores en consola, lo que ejercita justamente los dos contextos que la
+refactorización partió en dos.
+
+### El despliegue se rompió después de fusionar, y la compuerta no lo vio
+
+Tras fusionar la subida de TypeScript (#6), `desplegar-staging` falló:
+
+```
+npm error Invalid: lock file's typescript@5.9.3 does not satisfy typescript@6.0.3
+```
+
+En la Fase 4 se le dio a `functions/` su propio `package-lock.json`, pero **`dependabot.yml` solo
+declaraba la raíz**. Dependabot actualizó `functions/package.json` y dejó el lockfile atrás.
+
+Lo que de verdad falló no fue el lockfile sino la compuerta: `calidad` compila `functions` con
+las dependencias de la raíz y nunca lee ese archivo, así que el desajuste pasó en verde y solo
+apareció después de fusionar. #34 lo corrige en tres niveles: regenera el lockfile, declara
+`/functions` en Dependabot, y agrega a `calidad` una verificación en seco (`npm ci --dry-run`)
+que convierte un fallo posterior a la fusión en uno anterior. Staging no llegó a romperse: el
+fallo ocurre en `predeploy`, antes de subir nada.
+
+### Cuarentena de siete días, ahora de verdad en los tres gestores
+
+- **Dependabot** no declaraba período de enfriamiento: una versión publicada hace una hora podía
+  proponerse el mismo día. Ahora espera 7 días en los tres ecosistemas (Semgrep lo marcó en #34).
+- **npm** ignoraba la cuarentena del `.npmrc`: la línea usaba el nombre y la unidad de pnpm
+  (`minimum-release-age`, en minutos), y npm usa `min-release-age`, en días. El comentario
+  afirmaba que valía para cualquier gestor, y no valía. Era la alerta #17 de code scanning.
+
+### Lecciones
+
+1. **Un job de despliegue que toma `main` por nombre** reporta en cada ejecución el estado del
+   último commit, no el del que la disparó. Dos ejecuciones distintas mostraron el mismo fallo, y
+   un resumen leído sin abrir el detalle hizo reportar como verde un despliegue que había fallado.
+   Desde entonces se vigila por identificador de ejecución y se confirma contra el sitio real.
+2. **Una configuración que se declara en dos gestores tiene que verificarse en los dos.** Tanto
+   el lockfile de `functions/` como la cuarentena del `.npmrc` estaban escritos pensando en uno y
+   fallaban en silencio en el otro.
+3. **Dependabot no sabe que dos acciones van juntas.** Cuando una acción tiene varias rutas
+   (`init` y `analyze`), hay que actualizarlas en el mismo commit.
