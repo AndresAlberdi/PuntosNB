@@ -1,0 +1,53 @@
+# Diagnóstico de la identidad federada. Se lanza a mano y no despliega nada.
+#
+# Existe porque el despliegue fallaba con "Permission 'iam.serviceAccounts.getAccessToken'
+# denied" y el mensaje no dice qué principal está pidiendo el permiso. Imprime las
+# afirmaciones del token —nunca el token— y la configuración de la credencial, que es
+# exactamente lo que hay que comparar con la política de la cuenta de servicio.
+#
+# Se retira en cuanto el despliegue funcione.
+name: Diagnóstico de identidad federada
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostico:
+    name: diagnostico
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: staging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Afirmaciones del token de GitHub
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const token = await core.getIDToken('https://iam.googleapis.com/projects/636899046414/locations/global/workloadIdentityPools/github/providers/github');
+            const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+            for (const clave of ['sub', 'repository', 'repository_owner', 'aud', 'environment', 'ref']) {
+              core.info(`${clave}: ${payload[clave]}`);
+            }
+
+      - name: Autenticar en GCP
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_DEPLOY_STAGING }}
+
+      - name: Configuración de la credencial y prueba de acceso
+        run: |
+          python3 - <<'PY'
+          import json, os
+          d = json.load(open(os.environ['GOOGLE_APPLICATION_CREDENTIALS']))
+          print('audiencia:', d.get('audience'))
+          print('suplanta a:', d.get('service_account_impersonation_url', '(ninguna)'))
+          PY
+          echo "--- prueba de acceso real ---"
+          gcloud auth print-access-token >/dev/null 2>&1 && echo "el intercambio de credenciales funciona" || echo "el intercambio de credenciales FALLA"
