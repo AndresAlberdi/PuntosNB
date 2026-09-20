@@ -440,7 +440,8 @@ jobs:
           npm i -g "firebase-tools@${FIREBASE_TOOLS_VERSION}"
           firebase --debug hosting:channel:create previa --project "$PROYECTO" --expires 30d \
             --non-interactive >/dev/null 2>&1 || true
-          firebase hosting:clone "$SITIO:live" "$SITIO:previa" --project "$PROYECTO"
+          firebase --debug hosting:clone "$SITIO:live" "$SITIO:previa" --project "$PROYECTO" \
+            || { echo "--- detalle de firebase-debug.log ---"; tail -40 firebase-debug.log 2>/dev/null; exit 1; }
 
       - name: Desplegar hosting + reglas (staging)
         env:
