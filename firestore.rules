@@ -206,6 +206,7 @@ service cloud.firestore {
     // escriben desde el cliente, ni siquiera con sesión de superadministrador.
 
     match /vendedores_secretos/{uid} { allow read, write: if false; }
+    match /notificaciones/{id} { allow read, write: if false; }
     match /auditoria/{asientoId} { allow read, write: if false; }
     match /intentos_login_ip/{id} { allow read, write: if false; }
     match /operaciones_idempotentes/{id} { allow read, write: if false; }

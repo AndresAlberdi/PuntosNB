@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { signInWithEmailAndPassword, signInWithCustomToken, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, fetchSignInMethodsForEmail } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInWithCustomToken, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
@@ -180,23 +180,14 @@ const Login: React.FC = () => {
         }
       }
 
-      // 3. Si no es sesión de vendedor por PIN, autenticar en Firebase Auth (Admin, Influencer, Superadmin)
-      try {
-        const methods = await fetchSignInMethodsForEmail(auth, userInput);
-        if (methods.includes('google.com') && !methods.includes('password')) {
-          setError('Esta cuenta está registrada con Google. Por favor, usa el botón "Continuar con Google".');
-          setLoading(false);
-          return;
-        }
-      } catch (e) {
-        // En caso de protección de enumeración de correo, continuar normalmente
-      }
-
+      // 3. Acceso administrativo por Firebase Auth. Ya no se consulta qué métodos tiene el
+      // correo: esa llamada revelaba si una cuenta existe y es incompatible con la protección
+      // contra enumeración de correos (H-19). Si la cuenta es de Google, el error lo dice.
       await signInWithEmailAndPassword(auth, userInput, passwordOrPin);
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
-        setError('Usuario o contraseña incorrectos.');
+        setError('Usuario o contraseña incorrectos. Si te registraste con Google, usa el botón "Continuar con Google".');
       } else if (err.code === 'auth/too-many-requests') {
         setError('Demasiados intentos fallidos. Intenta más tarde.');
       } else {

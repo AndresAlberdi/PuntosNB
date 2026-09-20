@@ -28,6 +28,9 @@ const CrearSesion = z.object({
     .max(50)
     .default([]),
   clave: z.string().trim().max(64).optional(),
+  // Solo el superadministrador puede indicar el comercio: le sirve para simular una sesión
+  // desde su panel. El resto opera siempre sobre el comercio que trae su token.
+  comercioId: z.string().trim().max(64).optional(),
 });
 
 const Reclamar = z.object({
@@ -39,8 +42,8 @@ export const crearSesionAcumulacion = onCall(opcionesCallable, async (req) => {
   exigirRol(actor, 'vendedor', 'admin_comercio', 'superadmin');
   const datos = validar(CrearSesion, req.data);
 
-  if (!actor.comercioId) throw conflicto('Tu cuenta no tiene un comercio asignado.');
-  const comercioId = actor.comercioId;
+  const comercioId = actor.rol === 'superadmin' && datos.comercioId ? datos.comercioId : actor.comercioId;
+  if (!comercioId) throw conflicto('Tu cuenta no tiene un comercio asignado.');
 
   try {
     return await conIdempotencia(datos.clave, 'crearSesionAcumulacion', actor.uid, async () => {

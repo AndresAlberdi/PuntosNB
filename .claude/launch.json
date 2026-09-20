@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hosting-emulador",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["firebase", "emulators:start", "--only", "hosting", "--project", "demo-hipatia-cabeceras"],
+      "port": 5000
+    }
+  ]
+}
