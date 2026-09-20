@@ -419,6 +419,16 @@ jobs:
             fi
           fi
 
+      - name: Comprobar la identidad federada antes de desplegar
+        # Si firebase-tools no logra autenticarse, su mensaje es genérico ("have you run
+        # firebase login?"). Estas dos líneas dicen con qué identidad se está operando y si el
+        # intercambio de credenciales funcionó, que es donde suele estar el problema.
+        run: |
+          gcloud auth list 2>&1 | head -5
+          gcloud config get-value project 2>&1 | head -2
+          echo "credenciales: ${GOOGLE_APPLICATION_CREDENTIALS:-(sin definir)}"
+          python3 -c "import json,os;d=json.load(open(os.environ['GOOGLE_APPLICATION_CREDENTIALS']));print('tipo de credencial:', d.get('type'));print('suplanta a:', d.get('service_account_impersonation_url','(ninguna)')[:90])"
+
       - name: Conservar copia de la versión actual (canal "previa" para rollback)
         # D7: antes de CADA deploy a live (staging y producción) se clona el
         # contenido en vivo a un canal "previa". El rollback es clonar de vuelta.
@@ -428,7 +438,7 @@ jobs:
           SITIO: ${{ vars.GCP_PROJECT_ID_STAGING }}
         run: |
           npm i -g "firebase-tools@${FIREBASE_TOOLS_VERSION}"
-          firebase hosting:channel:create previa --project "$PROYECTO" --expires 30d \
+          firebase --debug hosting:channel:create previa --project "$PROYECTO" --expires 30d \
             --non-interactive >/dev/null 2>&1 || true
           firebase hosting:clone "$SITIO:live" "$SITIO:previa" --project "$PROYECTO"
 
