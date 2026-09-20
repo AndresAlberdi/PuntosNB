@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import type { Comercio, SesionQR } from '../types';
 import { getPaletteStyle } from '../utils/theme';
 import { checkComercioPrepagoStatus } from '../utils/reports';

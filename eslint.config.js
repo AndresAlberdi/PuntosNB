@@ -22,17 +22,18 @@ export default defineConfig([
     },
   },
   {
-    // Deuda de calidad anterior a que existiera el pipeline, en el código de interfaz.
-    // Queda como aviso —visible en cada ejecución— en lugar de bloquear el despliegue de
-    // correcciones de seguridad. El código nuevo del backend (`functions/`) mantiene
-    // `no-explicit-any` como error, y lo que se toque aquí debe salir sin `any`.
+    // Estas reglas estuvieron rebajadas a aviso mientras quedaba deuda de calidad anterior al
+    // pipeline en el código de interfaz. Saldada esa deuda —`src/` no tiene hallazgos—, vuelven
+    // a bloquear, igual que en el backend (`functions/`): un `any`, un efecto que actualiza el
+    // estado de forma síncrona o un render impuro detienen la compuerta en vez de pasar como
+    // aviso.
     files: ['src/**/*.{ts,tsx}'],
     rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/purity': 'warn',
-      'react-refresh/only-export-components': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
+      'react-hooks/set-state-in-effect': 'error',
+      'react-hooks/immutability': 'error',
+      'react-hooks/purity': 'error',
+      'react-refresh/only-export-components': 'error',
     },
   },
 ])

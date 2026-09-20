@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import type { Comercio, CobroPrepago } from '../types';
 import { optimizarImagen, resumenOptimizacion } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';
@@ -28,13 +28,15 @@ export const ContadorDashboard: React.FC = () => {
   // Feedback message
   const [mensaje, setMensaje] = useState<{ texto: string; tipo: 'success' | 'error' } | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       // 1. Fetch Comercios
       const listComercios = await cargarComerciosCompletos();
       setComercios(listComercios);
-      if (listComercios.length > 0 && !selectedComercioId) {
-        setSelectedComercioId(listComercios[0].id);
+      // Se preselecciona el primer comercio solo si todavía no hay ninguno elegido. Con la
+      // forma funcional la carga no depende del comercio seleccionado y no se repite al cambiarlo.
+      if (listComercios.length > 0) {
+        setSelectedComercioId(actual => actual || listComercios[0].id);
       }
 
       // 2. Fetch Cobros
@@ -47,11 +49,17 @@ export const ContadorDashboard: React.FC = () => {
       console.error("Error fetching contador data:", err);
     }
     setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchData();
   }, []);
+
+  // El cuerpo de un efecto no puede ser `async`: la carga se lanza desde una función
+  // interna, de modo que el estado se actualiza al resolverse la consulta y no durante
+  // el propio efecto.
+  useEffect(() => {
+    const cargar = async () => {
+      await fetchData();
+    };
+    cargar();
+  }, [fetchData]);
 
   const selectedComercio = comercios.find(c => c.id === selectedComercioId);
   const mensualidadBs = selectedComercio?.mensualidadBs || 25.00;
