@@ -15,7 +15,8 @@ import { conflicto, errorInterno, noEncontrado } from '../comun/errores';
 import { actorDe, exigirRol } from '../comun/sesion';
 import { auditarEnTransaccion } from '../comun/auditoria';
 import { nuevoCodigo, vencimiento } from '../comun/codigos';
-import { costoPorPremio, estadoPrepago, type Comercio } from '../comun/negocio';
+import { costoPorPremio, estadoPrepago } from '../comun/negocio';
+import { actualizarDerivados, leerComercio, leerComercioEnTx, refPrivado } from '../comun/comercio';
 
 const CrearSesionCanje = z.object({
   comercioId: z.string().trim().min(1).max(64),
@@ -32,9 +33,9 @@ export const crearSesionCanje = onCall(opcionesCallable, async (req) => {
   const datos = validar(CrearSesionCanje, req.data);
 
   try {
-    const snapComercio = await db.collection('comercios').doc(datos.comercioId).get();
-    if (!snapComercio.exists) throw noEncontrado('El comercio no existe.');
-    const comercio = snapComercio.data() as Comercio;
+    const vista = await leerComercio(datos.comercioId);
+    if (!vista.existe) throw noEncontrado('El comercio no existe.');
+    const comercio = vista.completo;
 
     const premio = (comercio.premios ?? []).find((p) => p.id === datos.premioId && p.activo !== false);
     if (!premio) throw noEncontrado('Ese premio ya no está disponible.');
@@ -115,10 +116,9 @@ export const confirmarCanje = onCall(opcionesCallable, async (req) => {
         throw conflicto('Ese canje pertenece a otro comercio.');
       }
 
-      const refComercio = db.collection('comercios').doc(comercioId);
-      const snapComercio = await tx.get(refComercio);
-      if (!snapComercio.exists) throw noEncontrado('El comercio no existe.');
-      const comercio = snapComercio.data() as Comercio;
+      const vista = await leerComercioEnTx(tx, comercioId);
+      if (!vista.existe) throw noEncontrado('El comercio no existe.');
+      const comercio = vista.completo;
 
       const refSaldo = db.collection('puntos_saldos').doc(`${sesion.creadorId}_${comercioId}`);
       const snapSaldo = await tx.get(refSaldo);
@@ -152,10 +152,16 @@ export const confirmarCanje = onCall(opcionesCallable, async (req) => {
       tx.update(refSaldo, { saldoTotal: saldoPuntos - puntos, updatedAt: Date.now() });
 
       if (costo > 0) {
-        tx.update(refComercio, {
-          saldoPremiosBs: Math.round((saldoBs - costo) * 100) / 100,
-          consumidoPremiosBs: Math.round(((comercio.consumidoPremiosBs ?? 0) + costo) * 100) / 100,
-        });
+        const nuevoSaldo = Math.round((saldoBs - costo) * 100) / 100;
+        tx.set(
+          refPrivado(comercioId),
+          {
+            saldoPremiosBs: nuevoSaldo,
+            consumidoPremiosBs: Math.round(((comercio.consumidoPremiosBs ?? 0) + costo) * 100) / 100,
+          },
+          { merge: true },
+        );
+        actualizarDerivados(tx, comercioId, { ...comercio, saldoPremiosBs: nuevoSaldo });
       }
 
       tx.update(refSesion, { estado: 'USADO', confirmadoPor: actor.uid, usadoEn: FieldValue.serverTimestamp() });

@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
+import { cargarComercioCompleto } from '../utils/comercios';
 import { useAuth } from '../contexts/AuthContext';
 import type { Comercio, ReglaPunto, Premio, ProductoCatalogo, CobroPrepago } from '../types';
 import { CRMSection } from '../components/CRMSection';
 import { AdminInfluencers } from '../components/AdminInfluencers';
 import { AdminCodigosComercio } from '../components/AdminCodigosComercio';
 import { checkComercioPrepagoStatus } from '../utils/reports';
-import { optimizeImage } from '../utils/imageOptimizer';
+import { optimizarImagen } from '../utils/imageOptimizer';
 
 const AdminDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -32,11 +33,10 @@ const AdminDashboard: React.FC = () => {
   const fetchComercio = async () => {
     if (userData?.comercioId) {
       try {
-        const docRef = doc(db, 'comercios', userData.comercioId);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setComercio(docSnap.data() as Comercio);
-        }
+        // Vista combinada: el catálogo público más los montos de `comercios_privado`,
+        // que este administrador sí puede leer para su propio comercio.
+        const completo = await cargarComercioCompleto(userData.comercioId);
+        if (completo) setComercio(completo);
 
         // Cargar cobros registrados para este comercio
         const qCobros = query(collection(db, 'cobros_prepago'), where('comercioId', '==', userData.comercioId));
@@ -632,10 +632,10 @@ const AdminDashboard: React.FC = () => {
                     const file = e.target.files?.[0];
                     if (file) {
                       try {
-                        const compressed = await optimizeImage(file, 300, 0.75);
-                        setProductoFotoBase64(compressed);
+                        const optimizada = await optimizarImagen(file, 'producto');
+                        setProductoFotoBase64(optimizada.dataUrl);
                       } catch (err) {
-                        alert("Error al comprimir la foto");
+                        alert(err instanceof Error ? err.message : 'No se pudo procesar la foto.');
                       }
                     }
                   }}

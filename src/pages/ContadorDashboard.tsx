@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Comercio, CobroPrepago, Usuario } from '../types';
-import { optimizeImage } from '../utils/imageOptimizer';
+import { optimizarImagen, resumenOptimizacion } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';
+import { cargarComerciosCompletos } from '../utils/comercios';
 
 export const ContadorDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -30,9 +31,7 @@ export const ContadorDashboard: React.FC = () => {
   const fetchData = async () => {
     try {
       // 1. Fetch Comercios
-      const snapComercios = await getDocs(collection(db, 'comercios'));
-      const listComercios: Comercio[] = [];
-      snapComercios.forEach(d => listComercios.push(d.data() as Comercio));
+      const listComercios = await cargarComerciosCompletos();
       setComercios(listComercios);
       if (listComercios.length > 0 && !selectedComercioId) {
         setSelectedComercioId(listComercios[0].id);
@@ -209,39 +208,23 @@ export const ContadorDashboard: React.FC = () => {
 
 
   const handleBorrarCobro = async (cobro: CobroPrepago) => {
-    // Validar si el cobro ya está conciliado o si ya se consumieron premios
     if (cobro.estado === 'VERIFICADO') {
-      alert("No puedes eliminar este cobro porque ya ha sido VERIFICADO y conciliado por el SuperAdmin.");
+      alert("No puedes eliminar este cobro porque ya fue verificado y conciliado por el SuperAdmin.");
       return;
     }
-    if ((cobro.consumidoPremiosBs || 0) > 0) {
-      alert("No puedes eliminar este cobro porque el comercio ya ha utilizado saldo de premios de este depósito para canjes.");
-      return;
-    }
-
-    const confirm = window.confirm(`¿Estás seguro de eliminar el registro de cobro con código "${cobro.codigoDeposito}" de Bs. ${cobro.montoTotal}?`);
-    if (!confirm) return;
+    if (!confirm(`¿Anular el cobro de Bs. ${cobro.montoTotal.toFixed(2)} de "${cobro.nombreComercio}"? Se devolverá el saldo y se quitarán los meses pagados.`)) return;
 
     try {
-      await deleteDoc(doc(db, 'cobros_prepago', cobro.id));
-
-      // Revertir del comercio
-      const com = comercios.find(c => c.id === cobro.comercioId);
-      if (com) {
-        const mesesRestantes = (com.mesesPagados || []).filter(m => !cobro.mesesPagados.includes(m));
-        const saldoRestante = Math.max(0, (com.saldoPremiosBs || 0) - cobro.montoPremios);
-        await updateDoc(doc(db, 'comercios', com.id), {
-          mesesPagados: mesesRestantes,
-          saldoPremiosBs: saldoRestante
-        });
-      }
-
-      setMensaje({ texto: 'Registro de cobro eliminado y saldo revertido correctamente.', tipo: 'success' });
+      // El servidor borra el cobro y revierte saldo y meses en una sola transacción, y se niega
+      // a anular si el comercio ya consumió ese saldo en premios.
+      await invocar('anularCobroPrepago', { cobroId: cobro.id });
+      setMensaje({ texto: 'Cobro anulado y saldo revertido correctamente.', tipo: 'success' });
       fetchData();
-    } catch (err: any) {
-      setMensaje({ texto: 'Error al eliminar cobro: ' + err.message, tipo: 'error' });
+    } catch (err) {
+      setMensaje({ texto: mensajeDeError(err), tipo: 'error' });
     }
   };
+;
 
   if (loading) return <div className="p-8 text-center text-gray-500">Cargando panel de contabilidad...</div>;
 
@@ -404,10 +387,11 @@ export const ContadorDashboard: React.FC = () => {
                     const file = e.target.files?.[0];
                     if (file) {
                       try {
-                        const compressed = await optimizeImage(file, 600, 0.75);
-                        setComprobanteBase64(compressed);
+                        const optimizada = await optimizarImagen(file, 'comprobante');
+                        setComprobanteBase64(optimizada.dataUrl);
+                        setMensaje({ texto: `Comprobante listo: ${resumenOptimizacion(optimizada)}`, tipo: 'success' });
                       } catch (err) {
-                        alert("Error al procesar la imagen del comprobante.");
+                        setMensaje({ texto: err instanceof Error ? err.message : 'No se pudo procesar la imagen.', tipo: 'error' });
                       }
                     }
                   }}

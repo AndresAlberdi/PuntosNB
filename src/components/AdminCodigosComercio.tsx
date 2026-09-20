@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, getDoc, updateDoc, runTransaction } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
+import { invocar, mensajeDeError } from '../utils/backend';
 import type { Comercio, CodigoComercio } from '../types';
 
 interface Props {
@@ -71,75 +72,25 @@ export const AdminCodigosComercio: React.FC<Props> = ({ comercio }) => {
     try {
       setSaving(true);
 
-      // Verify code globally (influencers and commerce)
-      const infSnap = await getDoc(doc(db, 'codigos_influencer', cleanCode));
-      if (infSnap.exists()) {
-        setErrorMsg('Este código ya está siendo usado por un influencer. Elija otro.');
-        setSaving(false);
-        return;
-      }
-      const comSnap = await getDoc(doc(db, 'codigos_comercio', cleanCode));
-      if (comSnap.exists()) {
-        setErrorMsg('Este código ya está siendo usado por un comercio. Elija otro.');
-        setSaving(false);
-        return;
-      }
-
-      // Calculate dates
-      // Treat the selected date as local time midnight
-      const [year, month, day] = fechaInicioStr.split('-').map(Number);
-      const fechaObj = new Date(year, month - 1, day);
-      const fechaInicio = fechaObj.getTime();
-      
-      // Add 30 days
-      const fechaFinObj = new Date(fechaObj);
-      fechaFinObj.setDate(fechaFinObj.getDate() + 30);
-      fechaFinObj.setHours(23, 59, 59, 999);
-      const fechaFin = fechaFinObj.getTime();
-
-      const codigoId = cleanCode;
-
-      // Transaction to deduct balance and create code
-      await runTransaction(db, async (transaction) => {
-        const comercioRef = doc(db, 'comercios', comercio.id);
-        const comercioDoc = await transaction.get(comercioRef);
-        
-        if (!comercioDoc.exists()) {
-          throw new Error('Comercio no existe');
-        }
-        
-        const comercioData = comercioDoc.data() as Comercio;
-        const currentSaldo = comercioData.saldoPremiosBs || 0;
-        
-        if (currentSaldo < costoPorCodigo) {
-          throw new Error('Saldo insuficiente detectado en la transacción.');
-        }
-
-        // Deduct
-        const newSaldo = currentSaldo - costoPorCodigo;
-        transaction.update(comercioRef, { saldoPremiosBs: newSaldo });
-
-        // Create code
-        const codRef = doc(db, 'codigos_comercio', codigoId);
-        const newCodData: CodigoComercio = {
-          id: codigoId,
-          comercioId: comercio.id,
-          puntosPorCanje: puntos,
-          fechaInicio,
-          fechaFin,
-          estado: 'ACTIVO',
-          createdAt: Date.now()
-        };
-        transaction.set(codRef, newCodData);
+      // El servidor comprueba que el código esté libre, cobra el costo configurado del saldo
+      // prepagado y crea el código con su vigencia, todo en una transacción.
+      const [anio, mes, dia] = fechaInicioStr.split('-').map(Number);
+      const res = await invocar<
+        { codigo: string; puntosPorCanje: number; comercioId: string; fechaInicio?: number },
+        { codigo: string; costoBs: number; fechaFin: number }
+      >('crearCodigoComercio', {
+        codigo: cleanCode,
+        puntosPorCanje: puntos,
+        comercioId: comercio.id,
+        fechaInicio: new Date(anio, mes - 1, dia).getTime(),
       });
 
-      setSuccessMsg(`Código ${cleanCode} creado exitosamente.`);
+      setSuccessMsg(`Código ${res.codigo} creado exitosamente. Vence el ${new Date(res.fechaFin).toLocaleDateString()}.`);
       setShowModal(false);
       setNuevoCodigo('');
       cargarCodigos();
-    } catch (e: any) {
-      console.error(e);
-      setErrorMsg(e.message || 'Error al crear el código');
+    } catch (e) {
+      setErrorMsg(mensajeDeError(e));
     } finally {
       setSaving(false);
     }
@@ -148,7 +99,7 @@ export const AdminCodigosComercio: React.FC<Props> = ({ comercio }) => {
   const handleToggleEstado = async (codigo: CodigoComercio) => {
     try {
       const nuevoEstado = codigo.estado === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO';
-      await updateDoc(doc(db, 'codigos_comercio', codigo.id), { estado: nuevoEstado });
+      await invocar('cambiarEstadoCodigoComercio', { codigo: codigo.id, activo: nuevoEstado === 'ACTIVO' });
       cargarCodigos();
     } catch (e) {
       console.error(e);

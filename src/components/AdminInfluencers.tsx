@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, setDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
+import { invocar, mensajeDeError } from '../utils/backend';
 import type { Comercio, Usuario, AsignacionInfluencer } from '../types';
 
 interface AdminInfluencersProps {
@@ -33,7 +34,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
     if (!comercio) return;
     try {
       // Get all influencers
-      const qInfluencers = query(collection(db, 'users'), where('rol', '==', 'influencer'));
+      const qInfluencers = collection(db, 'influencers_publico');
       const snapInf = await getDocs(qInfluencers);
       const infs: Usuario[] = [];
       snapInf.forEach(d => infs.push(d.data() as Usuario));
@@ -67,29 +68,19 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
     }
 
     try {
-      const asignId = `${comercio.id}_${selectedInfluencer}`;
-      const nuevaAsig: AsignacionInfluencer = {
-        id: asignId,
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'invitar',
         comercioId: comercio.id,
         influencerId: selectedInfluencer,
-        puntosParaClientes: Number(puntosAsignar) || 100,
-        ratio: {
-          cliente: Number(ratioCliente) || 10,
-          influencer: Number(ratioInfluencer) || 0
-        },
-        estado: 'PENDIENTE',
-        iniciadoPor: 'COMERCIO',
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-
-      await setDoc(doc(db, 'asignaciones_influencer', asignId), nuevaAsig);
+        ratioCliente: Number(ratioCliente) || 10,
+        ratioInfluencer: Number(ratioInfluencer) || 0,
+      });
       alert("Invitación enviada al influencer con éxito.");
       setSelectedInfluencer('');
       fetchData();
     } catch (err) {
       console.error(err);
-      alert("Error al enviar la invitación.");
+      alert(mensajeDeError(err));
     }
   };
 
@@ -99,13 +90,13 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
     if (!acceptingAsig) return;
 
     try {
-      await updateDoc(doc(db, 'asignaciones_influencer', acceptingAsig.id), {
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'aceptar',
+        comercioId: acceptingAsig.comercioId,
+        influencerId: acceptingAsig.influencerId,
         puntosParaClientes: Number(acceptPuntos) || 100,
-        ratio: {
-          cliente: Number(acceptRatioCli) || 10,
-          influencer: Number(acceptRatioInf) || 0
-        },
-        estado: 'ACEPTADO',
+        ratioCliente: Number(acceptRatioCli) || 10,
+        ratioInfluencer: Number(acceptRatioInf) || 0,
         updatedAt: Date.now()
       });
       alert("Propuesta aceptada. La alianza ahora está ACTIVA.");
@@ -113,7 +104,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
       fetchData();
     } catch (err) {
       console.error(err);
-      alert("Error al aceptar la propuesta.");
+      alert(mensajeDeError(err));
     }
   };
 
@@ -128,19 +119,19 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
     if (!editingRatioAsig) return;
 
     try {
-      await updateDoc(doc(db, 'asignaciones_influencer', editingRatioAsig.id), {
-        ratio: {
-          cliente: Number(editRatioCli) || 1,
-          influencer: Number(editRatioInf) || 0
-        },
-        updatedAt: Date.now()
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'editarRatio',
+        comercioId: editingRatioAsig.comercioId,
+        influencerId: editingRatioAsig.influencerId,
+        ratioCliente: Number(editRatioCli) || 1,
+        ratioInfluencer: Number(editRatioInf) || 0,
       });
       alert("Ratio actualizado con éxito. Tiene efecto inmediato sobre los canjes.");
       setEditingRatioAsig(null);
       fetchData();
     } catch (err) {
       console.error(err);
-      alert("Error al actualizar el ratio.");
+      alert(mensajeDeError(err));
     }
   };
 
@@ -148,14 +139,13 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
   const handleRechazarPropuesta = async (asig: AsignacionInfluencer) => {
     if (!window.confirm("¿Seguro que deseas rechazar esta solicitud de colaboración?")) return;
     try {
-      await updateDoc(doc(db, 'asignaciones_influencer', asig.id), {
-        estado: 'RECHAZADO',
-        updatedAt: Date.now()
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'rechazar', comercioId: asig.comercioId, influencerId: asig.influencerId,
       });
       fetchData();
     } catch (err) {
       console.error(err);
-      alert("Error al rechazar propuesta.");
+      alert(mensajeDeError(err));
     }
   };
 
@@ -166,10 +156,10 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
     if (!window.confirm(`¿Estás seguro de que deseas ${accion} la alianza con este influencer?`)) return;
 
     try {
-      await updateDoc(doc(db, 'asignaciones_influencer', asig.id), {
-        estado: isBloqueado ? 'ACEPTADO' : 'BLOQUEADO',
-        bloqueadoPor: isBloqueado ? null : 'COMERCIO',
-        updatedAt: Date.now()
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: isBloqueado ? 'desbloquear' : 'bloquear',
+        comercioId: asig.comercioId,
+        influencerId: asig.influencerId,
       });
       fetchData();
     } catch (err) {
@@ -183,23 +173,14 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
     if (!window.confirm("ATENCIÓN: ¿Deseas eliminar permanentemente esta alianza? Se borrará el vínculo comercial y sus códigos asociados quedarán inactivos.")) return;
 
     try {
-      await deleteDoc(doc(db, 'asignaciones_influencer', asig.id));
-      
-      // Buscar y desactivar/borrar códigos asociados
-      const qCodigos = query(collection(db, 'codigos_influencer'), 
-        where('influencerId', '==', asig.influencerId), 
-        where('comercioId', '==', comercio.id)
-      );
-      const snapCodigos = await getDocs(qCodigos);
-      for (const d of snapCodigos.docs) {
-        await deleteDoc(d.ref);
-      }
-
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'eliminar', comercioId: asig.comercioId, influencerId: asig.influencerId,
+      });
       alert("Alianza eliminada con éxito.");
       fetchData();
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar la alianza.");
+      alert(mensajeDeError(err));
     }
   };
 
@@ -209,13 +190,15 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
     if (!aumento || isNaN(Number(aumento))) return;
 
     try {
-      await updateDoc(doc(db, 'asignaciones_influencer', asig.id), {
-        puntosParaClientes: asig.puntosParaClientes + Number(aumento),
-        updatedAt: Date.now()
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'recargarBolsa',
+        comercioId: asig.comercioId,
+        influencerId: asig.influencerId,
+        puntosParaClientes: Number(aumento),
       });
       fetchData();
     } catch (err) {
-      alert("Error al aumentar puntos");
+      alert(mensajeDeError(err));
     }
   };
 

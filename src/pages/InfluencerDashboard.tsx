@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
+import { invocar, mensajeDeError } from '../utils/backend';
 import { useAuth } from '../contexts/AuthContext';
 import type { AsignacionInfluencer, CodigoInfluencer, Comercio, Transaccion } from '../types';
 
@@ -78,26 +79,17 @@ export const InfluencerDashboard: React.FC = () => {
     }
 
     try {
-      const asignId = `${selectedComercioAInvitar}_${userData.uid}`;
-      const nuevaAsig: AsignacionInfluencer = {
-        id: asignId,
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'proponer',
         comercioId: selectedComercioAInvitar,
         influencerId: userData.uid,
-        puntosParaClientes: 0,
-        ratio: { cliente: 10, influencer: 5 },
-        estado: 'PENDIENTE',
-        iniciadoPor: 'INFLUENCER',
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-
-      await setDoc(doc(db, 'asignaciones_influencer', asignId), nuevaAsig);
+      });
       alert("Propuesta de colaboración enviada al comercio exitosamente.");
       setSelectedComercioAInvitar('');
       fetchData();
     } catch (err) {
       console.error(err);
-      alert("Error al enviar la propuesta al comercio.");
+      alert(mensajeDeError(err));
     }
   };
 
@@ -168,27 +160,25 @@ export const InfluencerDashboard: React.FC = () => {
         }
       }
 
+      // El servidor comprueba que el código esté libre, que la campaña esté aceptada y lo deja
+      // listo; si el influencer cambió de código, borra el anterior.
       if (modalConfigCodigo.codigoExistenteId && modalConfigCodigo.codigoExistenteId !== fullCode) {
-        await deleteDoc(doc(db, 'codigos_influencer', modalConfigCodigo.codigoExistenteId));
+        await invocar('gestionarCodigoInfluencer', { accion: 'eliminar', codigo: modalConfigCodigo.codigoExistenteId });
       }
 
-      const nuevoCodigo: CodigoInfluencer = {
-        id: fullCode,
-        influencerId: userData.uid,
+      await invocar('gestionarCodigoInfluencer', {
+        accion: 'configurar',
+        codigo: fullCode,
         comercioId: modalConfigCodigo.asig.comercioId,
         puntosPorCanje: pts,
-        estado: 'ACTIVO',
-        createdAt: Date.now(),
-        fechaUltimaRenovacion: Date.now(),
-      };
+      });
 
-      await setDoc(doc(db, 'codigos_influencer', fullCode), nuevoCodigo);
       alert(`¡Código "${fullCode}" configurado con éxito con ${pts} puntos para tus seguidores!`);
       setModalConfigCodigo(null);
       fetchData();
     } catch (err) {
       console.error(err);
-      alert("Error al configurar el código.");
+      alert(mensajeDeError(err));
     }
   };
 
@@ -200,15 +190,14 @@ export const InfluencerDashboard: React.FC = () => {
   const handleEliminarAlianza = async (asig: AsignacionInfluencer) => {
     if (!window.confirm("¿Estás seguro de eliminar esta alianza? Se borrará la colaboración y los códigos asociados.")) return;
     try {
-      await deleteDoc(doc(db, 'asignaciones_influencer', asig.id));
-      const cod = codigos.find(c => c.comercioId === asig.comercioId);
-      if (cod) {
-        await deleteDoc(doc(db, 'codigos_influencer', cod.id));
-      }
+      // Al eliminar la campaña, el servidor borra también los códigos asociados.
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'eliminar', comercioId: asig.comercioId, influencerId: asig.influencerId,
+      });
       alert("Alianza eliminada con éxito.");
       fetchData();
     } catch (err) {
-      alert("Error al eliminar alianza.");
+      alert(mensajeDeError(err));
     }
   };
 
@@ -228,45 +217,32 @@ export const InfluencerDashboard: React.FC = () => {
         return;
       }
 
-      const checkSnap = await getDocs(query(collection(db, 'codigos_influencer'), where('id', '==', cleanCode)));
-      if (!checkSnap.empty) {
-        alert("Este código ya está en uso por otro influencer.");
-        return;
-      }
-
-      const nuevoCodigo: CodigoInfluencer = {
-        id: cleanCode,
-        influencerId: userData!.uid,
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'aceptar', comercioId: asig.comercioId, influencerId: userData!.uid,
+      });
+      await invocar('gestionarCodigoInfluencer', {
+        accion: 'configurar',
+        codigo: cleanCode,
         comercioId: asig.comercioId,
         puntosPorCanje: asig.ratio?.cliente || 10,
-        estado: 'ACTIVO',
-        createdAt: Date.now(),
-        fechaUltimaRenovacion: Date.now(),
-      };
-
-      await setDoc(doc(db, 'codigos_influencer', cleanCode), nuevoCodigo);
-      await updateDoc(doc(db, 'asignaciones_influencer', asig.id), {
-        estado: 'ACEPTADO',
-        updatedAt: Date.now()
       });
 
       alert("¡Invitación aceptada y código activado!");
       fetchData();
     } catch (err) {
-      alert("Error al aceptar invitación.");
+      alert(mensajeDeError(err));
     }
   };
 
   const handleRechazarInvitacion = async (asig: AsignacionInfluencer) => {
     if (!window.confirm("¿Seguro que deseas rechazar esta invitación?")) return;
     try {
-      await updateDoc(doc(db, 'asignaciones_influencer', asig.id), {
-        estado: 'RECHAZADO',
-        updatedAt: Date.now()
+      await invocar('gestionarAsignacionInfluencer', {
+        accion: 'rechazar', comercioId: asig.comercioId, influencerId: userData!.uid,
       });
       fetchData();
     } catch (err) {
-      alert("Error al rechazar invitación");
+      alert(mensajeDeError(err));
     }
   };
 

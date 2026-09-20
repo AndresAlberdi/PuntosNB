@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { Transaccion, Usuario } from '../types';
+import type { Transaccion, InfluencerPublico } from '../types';
 import { isTransaccionInfluencer } from '../utils/reports';
 import { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { format } from 'date-fns';
@@ -26,12 +26,13 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
         setTransacciones(data);
 
         // Cargar nombres de influencers para mapeo
-        const qUsers = query(collection(db, 'users'), where('rol', '==', 'influencer'));
-        const snapUsers = await getDocs(qUsers);
+        // Los nombres salen del perfil público del influencer: el documento completo de `users`
+        // ya no es legible para el comercio (H-16).
+        const snapUsers = await getDocs(collection(db, 'influencers_publico'));
         const uMap: Record<string, string> = {};
         snapUsers.forEach(d => {
-          const u = d.data() as Usuario;
-          uMap[u.uid] = u.nombre || u.emailReal || u.email.split('@')[0];
+          const u = d.data() as InfluencerPublico;
+          uMap[u.uid] = u.nombre || u.uid.slice(0, 6);
         });
         setInfluencersMapData(uMap);
 

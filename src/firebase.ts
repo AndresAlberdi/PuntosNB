@@ -3,7 +3,6 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getFunctions } from "firebase/functions";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
-import { isStaging } from "./utils/env";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -17,18 +16,29 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize App Check with reCAPTCHA Enterprise (solo en producción)
-if (typeof window !== 'undefined' && !isStaging) {
-  const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+// App Check: acredita que las llamadas vienen de esta aplicación y no de un script suelto.
+// Se inicializa en los dos entornos, no solo en producción (H-10). En desarrollo se usa el token
+// de depuración, que solo funciona contra los emuladores o contra un token registrado en consola.
+const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+
+if (typeof window !== 'undefined') {
+  if (import.meta.env.DEV) {
+    // @ts-expect-error: bandera que el SDK de App Check lee del objeto global.
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+
   if (siteKey) {
     try {
       initializeAppCheck(app, {
         provider: new ReCaptchaEnterpriseProvider(siteKey),
-        isTokenAutoRefreshEnabled: true
+        isTokenAutoRefreshEnabled: true,
       });
     } catch (e) {
-      console.warn("Firebase App Check reCAPTCHA Enterprise warning:", e);
+      // No se silencia: si App Check no arranca, conviene saberlo antes de exigirlo.
+      console.error('App Check no pudo inicializarse:', e);
     }
+  } else if (!import.meta.env.DEV) {
+    console.error('Falta VITE_RECAPTCHA_SITE_KEY: la aplicación queda sin App Check.');
   }
 }
 
