@@ -1,16 +1,15 @@
 /**
- * Pruebas de las reglas de Firestore (Fase 0 del hardening).
+ * Matriz de pruebas de las reglas de Firestore (Fase 2).
  *
- * Requieren el emulador de Firestore: se ejecutan con `npm run test:rules`,
- * que levanta el emulador con `firebase emulators:exec`. Si el emulador no
- * está disponible, las pruebas FALLAN; nunca se omiten (H-15).
+ * Se ejecutan con `npm run test:rules`, que levanta el emulador. Si no hay emulador, fallan.
+ *
+ * La primera parte es una matriz rol × colección × operación generada de forma tabular, para que
+ * agregar una colección sea agregar una fila. La segunda comprueba, caso por caso, las listas
+ * blancas de campos y las fronteras entre comercios.
  */
 import { describe, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import {
-  initializeTestEnvironment,
-  assertFails,
-  assertSucceeds,
-  type RulesTestEnvironment,
+  initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
@@ -19,25 +18,38 @@ import { fileURLToPath } from 'node:url';
 
 const aquí = dirname(fileURLToPath(import.meta.url));
 const REGLAS = readFileSync(resolve(aquí, '../../../firestore.rules'), 'utf8');
-
-const HOST = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
-const [host, puerto] = HOST.split(':');
+const [host, puerto] = (process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080').split(':');
 
 let testEnv: RulesTestEnvironment;
 
-// Identidades de prueba
-const UID_CLIENTE = 'cliente_1';
-const UID_CLIENTE_2 = 'cliente_2';
-const UID_ADMIN = 'admin_epico';
-const UID_ADMIN_OTRO = 'admin_pizza';
-const UID_CONTADOR = 'contador_1';
-const UID_SUPER = 'super_1';
-const UID_VENDEDOR = 'vendedor_epico';
 const COMERCIO = 'comercio_epico';
-const COMERCIO_OTRO = 'comercio_pizza';
+const OTRO = 'comercio_pizza';
 
-const como = (uid: string, token: Record<string, unknown> = {}) =>
-  testEnv.authenticatedContext(uid, token).firestore();
+/** Identidades de prueba, con el rol y el comercio en el token, como en producción. */
+const IDENTIDADES = {
+  anonimo: null,
+  cliente: { uid: 'cliente_1', claims: { rol: 'cliente' } },
+  otroCliente: { uid: 'cliente_2', claims: { rol: 'cliente' } },
+  vendedor: { uid: 'vendedor_epico', claims: { rol: 'vendedor', comercioId: COMERCIO } },
+  vendedorAjeno: { uid: 'vendedor_pizza', claims: { rol: 'vendedor', comercioId: OTRO } },
+  admin: { uid: 'admin_epico', claims: { rol: 'admin_comercio', comercioId: COMERCIO } },
+  adminAjeno: { uid: 'admin_pizza', claims: { rol: 'admin_comercio', comercioId: OTRO } },
+  contador: { uid: 'contador_1', claims: { rol: 'contador' } },
+  influencer: { uid: 'influencer_1', claims: { rol: 'influencer' } },
+  otroInfluencer: { uid: 'influencer_2', claims: { rol: 'influencer' } },
+  superadmin: { uid: 'super_1', claims: { rol: 'superadmin' } },
+} as const;
+
+type Quien = keyof typeof IDENTIDADES;
+
+const db = (quien: Quien) => {
+  const identidad = IDENTIDADES[quien];
+  return identidad === null
+    ? testEnv.unauthenticatedContext().firestore()
+    : testEnv.authenticatedContext(identidad.uid, identidad.claims).firestore();
+};
+
+const TODOS = Object.keys(IDENTIDADES) as Quien[];
 
 beforeAll(async () => {
   testEnv = await initializeTestEnvironment({
@@ -46,367 +58,193 @@ beforeAll(async () => {
   });
 });
 
-afterAll(async () => {
-  await testEnv.cleanup();
-});
+afterAll(async () => { await testEnv.cleanup(); });
 
 beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
-    const db = ctx.firestore();
-    await setDoc(doc(db, 'users', UID_CLIENTE), {
-      uid: UID_CLIENTE, email: 'ana@gmail.com', nombre: 'Ana', rol: 'cliente', createdAt: 1,
-    });
-    await setDoc(doc(db, 'users', UID_CLIENTE_2), {
-      uid: UID_CLIENTE_2, email: 'beto@gmail.com', nombre: 'Beto', rol: 'cliente', createdAt: 1,
-    });
-    await setDoc(doc(db, 'users', UID_ADMIN), {
-      uid: UID_ADMIN, email: 'admin@epico.com', nombre: 'Admin Épico', rol: 'admin_comercio',
-      comercioId: COMERCIO, createdAt: 1,
-    });
-    await setDoc(doc(db, 'users', UID_ADMIN_OTRO), {
-      uid: UID_ADMIN_OTRO, email: 'admin@pizza.com', nombre: 'Admin Pizza', rol: 'admin_comercio',
-      comercioId: COMERCIO_OTRO, createdAt: 1,
-    });
-    await setDoc(doc(db, 'users', UID_CONTADOR), {
-      uid: UID_CONTADOR, email: 'contador@hipatia.io', nombre: 'Contador', rol: 'contador', createdAt: 1,
-    });
-    await setDoc(doc(db, 'users', UID_SUPER), {
-      uid: UID_SUPER, email: 'super@hipatia.io', nombre: 'Super', rol: 'superadmin', createdAt: 1,
-    });
-    await setDoc(doc(db, 'users', UID_VENDEDOR), {
-      uid: UID_VENDEDOR, email: 'ventas@epico.com', nombre: 'Ventas', rol: 'vendedor',
-      comercioId: COMERCIO, estado: 'activo', createdAt: 1,
-    });
-    await setDoc(doc(db, 'comercios', COMERCIO), {
-      nombre: 'Epico', nit_rut: '123', reglas: [], premios: [], productos: [],
-      modalidadPago: 'PREPAGO', plan: 'regular', saldoPremiosBs: 190, mensualidadBs: 25,
-      costoPorPremioBs: 1.25, mesesPagados: ['2026-09'], estado: 'activo', createdAt: 1,
-    });
-    await setDoc(doc(db, 'comercios', COMERCIO_OTRO), {
-      nombre: 'Pizza NB', nit_rut: '456', reglas: [], premios: [], productos: [],
-      modalidadPago: 'PILOTO', plan: 'regular', saldoPremiosBs: 0, createdAt: 1,
-    });
+    const d = ctx.firestore();
+    await setDoc(doc(d, 'users', IDENTIDADES.cliente.uid), { uid: IDENTIDADES.cliente.uid, email: 'ana@gmail.com', nombre: 'Ana', rol: 'cliente', telefono: '+59170000000', createdAt: 1 });
+    await setDoc(doc(d, 'users', IDENTIDADES.otroCliente.uid), { uid: IDENTIDADES.otroCliente.uid, email: 'beto@gmail.com', nombre: 'Beto', rol: 'cliente', createdAt: 1 });
+    await setDoc(doc(d, 'users', IDENTIDADES.vendedor.uid), { uid: IDENTIDADES.vendedor.uid, email: 'ventas@epico.com', nombre: 'Ventas', rol: 'vendedor', comercioId: COMERCIO, estado: 'activo', createdAt: 1 });
+    await setDoc(doc(d, 'users', IDENTIDADES.influencer.uid), { uid: IDENTIDADES.influencer.uid, email: 'nat@hipatia.io', nombre: 'Nat', rol: 'influencer', telefono: '+59171111111', prefijoCodigo: 'NAT', createdAt: 1 });
+    await setDoc(doc(d, 'comercios', COMERCIO), { id: COMERCIO, nombre: 'Epico', reglas: [], premios: [], productos: [], estado: 'activo', modalidadPago: 'PREPAGO', operativoHasta: Date.now() + 86400000, puedeCanjearPremios: true, createdAt: 1 });
+    await setDoc(doc(d, 'comercios', OTRO), { id: OTRO, nombre: 'Pizza NB', reglas: [], premios: [], productos: [], estado: 'activo', modalidadPago: 'PILOTO', createdAt: 1 });
+    await setDoc(doc(d, 'comercios_privado', COMERCIO), { id: COMERCIO, nit_rut: '123', razonSocial: 'Epico SRL', plan: 'regular', mensualidadBs: 25, costoPorPremioBs: 1.25, saldoPremiosBs: 200, consumidoPremiosBs: 3, mesesPagados: ['2026-09'] });
+    await setDoc(doc(d, 'influencers_publico', IDENTIDADES.influencer.uid), { uid: IDENTIDADES.influencer.uid, nombre: 'Nat', prefijoCodigo: 'NAT', seguidores: 1000 });
+    await setDoc(doc(d, 'transacciones', 'tx1'), { id: 'tx1', clienteId: IDENTIDADES.cliente.uid, comercioId: COMERCIO, vendedorId: IDENTIDADES.vendedor.uid, puntos: 10, tipo: 'ACUMULACION', fechaHora: 1 });
+    await setDoc(doc(d, 'puntos_saldos', `${IDENTIDADES.cliente.uid}_${COMERCIO}`), { id: `${IDENTIDADES.cliente.uid}_${COMERCIO}`, clienteId: IDENTIDADES.cliente.uid, comercioId: COMERCIO, saldoTotal: 100, updatedAt: 1 });
+    await setDoc(doc(d, 'sesiones_qr', '123456'), { id: '123456', tipo: 'ACUMULACION', creadorId: IDENTIDADES.vendedor.uid, comercioId: COMERCIO, estado: 'PENDIENTE', createdAt: 1, expiresAt: Date.now() + 300000, puntosCalculados: 10 });
+    await setDoc(doc(d, 'cobros_prepago', 'cobro1'), { id: 'cobro1', comercioId: COMERCIO, contadorId: IDENTIDADES.contador.uid, montoTotal: 35, montoPremios: 10, mesesPagados: ['2026-09'], fechaHora: 1 });
+    await setDoc(doc(d, 'asignaciones_influencer', `${COMERCIO}_${IDENTIDADES.influencer.uid}`), { id: `${COMERCIO}_${IDENTIDADES.influencer.uid}`, comercioId: COMERCIO, influencerId: IDENTIDADES.influencer.uid, puntosParaClientes: 500, ratio: { cliente: 10 }, estado: 'ACEPTADO', createdAt: 1, updatedAt: 1 });
+    await setDoc(doc(d, 'codigos_influencer', 'NATGOLD'), { id: 'NATGOLD', influencerId: IDENTIDADES.influencer.uid, comercioId: COMERCIO, puntosPorCanje: 30, estado: 'ACTIVO', fechaUltimaRenovacion: 1, createdAt: 1 });
+    await setDoc(doc(d, 'codigos_comercio', 'ANIVERSARIO'), { id: 'ANIVERSARIO', comercioId: COMERCIO, puntosPorCanje: 20, estado: 'ACTIVO', fechaInicio: 1, fechaFin: Date.now() + 86400000, createdAt: 1 });
+    await setDoc(doc(d, 'canjes_codigo', 'canje1'), { id: 'canje1', clienteId: IDENTIDADES.cliente.uid, comercioId: COMERCIO, codigoId: 'ANIVERSARIO', fechaCanje: 1 });
+    await setDoc(doc(d, 'vendedores_secretos', IDENTIDADES.vendedor.uid), { algoritmo: 'scrypt', hash: 'x', sal: 'y' });
+    await setDoc(doc(d, 'auditoria', 'a1'), { accion: 'prueba', comercioId: COMERCIO });
+    await setDoc(doc(d, 'intentos_login_ip', 'i1'), { intentosFallidos: 1 });
+    await setDoc(doc(d, 'operaciones_idempotentes', 'o1'), { operacion: 'prueba' });
   });
 });
 
-describe('Acceso anónimo', () => {
-  it('rechaza leer usuarios sin autenticación (flujo de PIN del vendedor, H-04)', async () => {
-    const db = testEnv.unauthenticatedContext().firestore();
-    await assertFails(getDoc(doc(db, 'users', UID_VENDEDOR)));
-  });
+// --- Matriz: quién puede leer cada colección ---------------------------------
+// Cada fila declara el documento de referencia y quiénes deben poder leerlo. El resto de las
+// identidades tiene que recibir un rechazo. La escritura directa se prueba en bloque más abajo:
+// salvo las listas blancas, ninguna colección admite escritura desde el cliente.
 
-  it('rechaza leer comercios sin autenticación', async () => {
-    const db = testEnv.unauthenticatedContext().firestore();
-    await assertFails(getDoc(doc(db, 'comercios', COMERCIO)));
-  });
+const MATRIZ: { coleccion: string; documento: string; leen: Quien[] }[] = [
+  { coleccion: 'comercios', documento: COMERCIO, leen: ['cliente', 'otroCliente', 'vendedor', 'vendedorAjeno', 'admin', 'adminAjeno', 'contador', 'influencer', 'otroInfluencer', 'superadmin'] },
+  { coleccion: 'comercios_privado', documento: COMERCIO, leen: ['admin', 'contador', 'superadmin'] },
+  { coleccion: 'influencers_publico', documento: IDENTIDADES.influencer.uid, leen: ['cliente', 'otroCliente', 'vendedor', 'vendedorAjeno', 'admin', 'adminAjeno', 'contador', 'influencer', 'otroInfluencer', 'superadmin'] },
+  { coleccion: 'transacciones', documento: 'tx1', leen: ['cliente', 'vendedor', 'admin', 'superadmin'] },
+  { coleccion: 'puntos_saldos', documento: `${IDENTIDADES.cliente.uid}_${COMERCIO}`, leen: ['cliente', 'vendedor', 'admin', 'superadmin'] },
+  { coleccion: 'sesiones_qr', documento: '123456', leen: ['vendedor', 'admin', 'superadmin'] },
+  { coleccion: 'cobros_prepago', documento: 'cobro1', leen: ['admin', 'contador', 'superadmin'] },
+  { coleccion: 'asignaciones_influencer', documento: `${COMERCIO}_${IDENTIDADES.influencer.uid}`, leen: ['admin', 'influencer', 'superadmin'] },
+  { coleccion: 'codigos_influencer', documento: 'NATGOLD', leen: ['admin', 'influencer', 'superadmin'] },
+  { coleccion: 'codigos_comercio', documento: 'ANIVERSARIO', leen: ['vendedor', 'admin', 'superadmin'] },
+  { coleccion: 'canjes_codigo', documento: 'canje1', leen: ['cliente', 'vendedor', 'admin', 'superadmin'] },
+  { coleccion: 'vendedores_secretos', documento: IDENTIDADES.vendedor.uid, leen: [] },
+  { coleccion: 'auditoria', documento: 'a1', leen: [] },
+  { coleccion: 'intentos_login_ip', documento: 'i1', leen: [] },
+  { coleccion: 'operaciones_idempotentes', documento: 'o1', leen: [] },
+];
+
+describe('Matriz de lectura por rol', () => {
+  for (const fila of MATRIZ) {
+    for (const quien of TODOS) {
+      const permitido = (fila.leen as Quien[]).includes(quien);
+      it(`${quien} ${permitido ? 'SÍ' : 'NO'} puede leer ${fila.coleccion}`, async () => {
+        const lectura = getDoc(doc(db(quien), fila.coleccion, fila.documento));
+        await (permitido ? assertSucceeds(lectura) : assertFails(lectura));
+      });
+    }
+  }
 });
 
-describe('H-01 · Autoescalada de rol', () => {
-  it('un cliente NO puede convertirse en superadmin', async () => {
-    const db = como(UID_CLIENTE);
-    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE), { rol: 'superadmin' }));
-  });
-
-  it('un cliente NO puede asignarse un comercio', async () => {
-    const db = como(UID_CLIENTE);
-    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE), { comercioId: COMERCIO }));
-  });
-
-  it('un cliente NO puede desbloquearse a sí mismo', async () => {
-    const db = como(UID_CLIENTE);
-    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE), { estado: 'activo' }));
-  });
-
-  it('un cliente NO puede ponerse un PIN de vendedor', async () => {
-    const db = como(UID_CLIENTE);
-    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE), { pin: '123456' }));
-  });
-
-  it('un cliente SÍ puede editar su nombre y su teléfono', async () => {
-    const db = como(UID_CLIENTE);
-    await assertSucceeds(updateDoc(doc(db, 'users', UID_CLIENTE), { nombre: 'Ana María', telefono: '+59170000000' }));
-  });
-
-  it('un cliente NO puede modificar el documento de otro usuario', async () => {
-    const db = como(UID_CLIENTE);
-    await assertFails(updateDoc(doc(db, 'users', UID_CLIENTE_2), { nombre: 'Secuestrado' }));
-  });
-
-  it('un admin_comercio NO puede escribir usuarios de otro comercio', async () => {
-    const db = como(UID_ADMIN_OTRO);
-    await assertFails(updateDoc(doc(db, 'users', UID_VENDEDOR), { nombre: 'Ajeno' }));
-  });
-
-  it('un admin_comercio NO puede cambiar el rol de su vendedor', async () => {
-    const db = como(UID_ADMIN);
-    await assertFails(updateDoc(doc(db, 'users', UID_VENDEDOR), { rol: 'superadmin' }));
-  });
-
-  it('un admin_comercio SÍ puede bloquear a su propio vendedor', async () => {
-    const db = como(UID_ADMIN);
-    await assertSucceeds(updateDoc(doc(db, 'users', UID_VENDEDOR), { estado: 'bloqueado' }));
-  });
+describe('Matriz de escritura: el libro mayor es del servidor', () => {
+  for (const fila of MATRIZ) {
+    // `comercios` tiene su propia lista blanca y se prueba aparte.
+    if (fila.coleccion === 'comercios') continue;
+    for (const quien of TODOS) {
+      it(`${quien} NO puede escribir ${fila.coleccion}`, async () => {
+        await assertFails(updateDoc(doc(db(quien), fila.coleccion, fila.documento), { alterado: true }));
+      });
+    }
+  }
 });
 
-describe('H-02 · Toma de cuenta por coincidencia de correo', () => {
-  it('un usuario con el mismo correo NO puede leer el documento ajeno', async () => {
-    const db = como('uid_nuevo', { email: 'admin@epico.com', email_verified: true });
-    await assertFails(getDoc(doc(db, 'users', UID_ADMIN)));
+describe('Perfil propio: lista blanca de campos', () => {
+  it('el cliente edita su nombre y su teléfono', async () => {
+    await assertSucceeds(updateDoc(doc(db('cliente'), 'users', IDENTIDADES.cliente.uid), { nombre: 'Ana María', telefono: '+59171234567' }));
   });
 
-  it('un usuario con el mismo correo NO puede escribir el documento ajeno', async () => {
-    const db = como('uid_nuevo', { email: 'admin@epico.com', email_verified: true });
-    await assertFails(updateDoc(doc(db, 'users', UID_ADMIN), { nombre: 'Heredado' }));
-  });
-});
+  for (const campo of ['rol', 'comercioId', 'estado', 'pin', 'email'] as const) {
+    it(`el cliente NO puede cambiar su ${campo}`, async () => {
+      const valor = campo === 'rol' ? 'superadmin' : campo === 'comercioId' ? COMERCIO : 'algo';
+      await assertFails(updateDoc(doc(db('cliente'), 'users', IDENTIDADES.cliente.uid), { [campo]: valor }));
+    });
+  }
 
-describe('H-03 · Autoaprovisionamiento y alta propia', () => {
-  it('un usuario nuevo SÍ puede crearse a sí mismo como cliente', async () => {
-    const db = como('uid_nuevo', { email: 'nuevo@gmail.com' });
-    await assertSucceeds(setDoc(doc(db, 'users', 'uid_nuevo'), {
+  it('un usuario nuevo se crea como cliente', async () => {
+    const nuevo = testEnv.authenticatedContext('uid_nuevo', { rol: 'cliente' }).firestore();
+    await assertSucceeds(setDoc(doc(nuevo, 'users', 'uid_nuevo'), {
       uid: 'uid_nuevo', email: 'nuevo@gmail.com', nombre: 'Nuevo', rol: 'cliente',
       termsAccepted: true, termsAcceptedAt: 2, createdAt: 2,
     }));
   });
 
-  it('un usuario nuevo NO puede crearse como admin_comercio', async () => {
-    const db = como('uid_nuevo', { email: 'admin@epico-falso.com' });
-    await assertFails(setDoc(doc(db, 'users', 'uid_nuevo'), {
-      uid: 'uid_nuevo', email: 'admin@epico-falso.com', nombre: 'Falso', rol: 'admin_comercio',
+  it('un usuario nuevo NO puede crearse con otro rol', async () => {
+    const nuevo = testEnv.authenticatedContext('uid_nuevo', { rol: 'cliente' }).firestore();
+    await assertFails(setDoc(doc(nuevo, 'users', 'uid_nuevo'), {
+      uid: 'uid_nuevo', email: 'nuevo@gmail.com', nombre: 'Nuevo', rol: 'admin_comercio',
       comercioId: COMERCIO, createdAt: 2,
     }));
   });
 
-  it('un usuario nuevo NO puede crearse como vendedor de un comercio', async () => {
-    const db = como('uid_nuevo', { email: 'ventas@epico.com' });
-    await assertFails(setDoc(doc(db, 'users', 'uid_nuevo'), {
-      uid: 'uid_nuevo', email: 'ventas@epico.com', nombre: 'Falso', rol: 'vendedor',
-      comercioId: COMERCIO, createdAt: 2,
-    }));
+  it('un token sin rol no puede leer nada ajeno', async () => {
+    const sinRol = testEnv.authenticatedContext('uid_sin_rol', {}).firestore();
+    await assertFails(getDoc(doc(sinRol, 'comercios_privado', COMERCIO)));
+    await assertFails(getDoc(doc(sinRol, 'transacciones', 'tx1')));
   });
 
-  it('un usuario nuevo NO puede crearse como superadmin', async () => {
-    const db = como('uid_nuevo', { email: 'quiensea@gmail.com' });
-    await assertFails(setDoc(doc(db, 'users', 'uid_nuevo'), {
-      uid: 'uid_nuevo', email: 'quiensea@gmail.com', nombre: 'Falso', rol: 'superadmin', createdAt: 2,
-    }));
+  it('nadie lee el perfil de otro usuario', async () => {
+    await assertFails(getDoc(doc(db('cliente'), 'users', IDENTIDADES.otroCliente.uid)));
+    await assertFails(getDoc(doc(db('influencer'), 'users', IDENTIDADES.cliente.uid)));
+    await assertFails(getDoc(doc(db('contador'), 'users', IDENTIDADES.cliente.uid)));
   });
 
-  it('un cliente NO puede borrar su documento para recrearlo con otro rol', async () => {
-    const db = como(UID_CLIENTE);
-    await assertFails(deleteDoc(doc(db, 'users', UID_CLIENTE)));
+  it('el teléfono del influencer deja de estar a la vista de todos (H-16)', async () => {
+    await assertFails(getDoc(doc(db('admin'), 'users', IDENTIDADES.influencer.uid)));
+    await assertSucceeds(getDoc(doc(db('admin'), 'influencers_publico', IDENTIDADES.influencer.uid)));
+  });
+
+  it('el administrador SÍ ve a los vendedores de su comercio', async () => {
+    await assertSucceeds(getDoc(doc(db('admin'), 'users', IDENTIDADES.vendedor.uid)));
+    await assertFails(getDoc(doc(db('adminAjeno'), 'users', IDENTIDADES.vendedor.uid)));
   });
 });
 
-describe('H-07 · Campos de facturación del comercio', () => {
-  it('un admin_comercio NO puede acreditarse saldo de premios', async () => {
-    const db = como(UID_ADMIN);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 99999 }));
-  });
-
-  it('un admin_comercio NO puede pasarse a plan premium', async () => {
-    const db = como(UID_ADMIN);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { plan: 'premium' }));
-  });
-
-  it('un admin_comercio NO puede cambiar su modalidad de pago a PILOTO', async () => {
-    const db = como(UID_ADMIN);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { modalidadPago: 'PILOTO' }));
-  });
-
-  it('un admin_comercio NO puede marcarse meses como pagados', async () => {
-    const db = como(UID_ADMIN);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { mesesPagados: ['2026-01', '2026-02'] }));
-  });
-
-  it('un admin_comercio NO puede desbloquear su comercio', async () => {
-    await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      await updateDoc(doc(ctx.firestore(), 'comercios', COMERCIO), { estado: 'bloqueado' });
-    });
-    const db = como(UID_ADMIN);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { estado: 'activo' }));
-  });
-
-  it('un admin_comercio SÍ puede editar sus reglas, premios y productos', async () => {
-    const db = como(UID_ADMIN);
-    await assertSucceeds(updateDoc(doc(db, 'comercios', COMERCIO), {
+describe('Catálogo del comercio: lista blanca de campos', () => {
+  it('el administrador edita reglas, premios y productos de su comercio', async () => {
+    await assertSucceeds(updateDoc(doc(db('admin'), 'comercios', COMERCIO), {
       reglas: [{ id: 'r1', tipo: 'POR_COMPRA', puntosAOtorgar: 10, activa: true }],
-      premios: [{ id: 'p1', nombre: 'Café', descripcion: '', puntosRequeridos: 100, activo: true }],
+      premios: [{ id: 'p1', nombre: 'Café', puntosRequeridos: 100, activo: true }],
+      logoUrl: 'data:image/png;base64,xx',
     }));
   });
 
-  it('un admin_comercio NO puede tocar el comercio ajeno', async () => {
-    const db = como(UID_ADMIN_OTRO);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { reglas: [] }));
-  });
-
-  it('un cliente NO puede modificar ningún comercio', async () => {
-    const db = como(UID_CLIENTE);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 1000 }));
-  });
-
-  it('un contador SÍ puede acreditar un cobro de prepago', async () => {
-    const db = como(UID_CONTADOR);
-    await assertSucceeds(updateDoc(doc(db, 'comercios', COMERCIO), {
-      saldoPremiosBs: 250, mesesPagados: ['2026-09', '2026-10'], modalidadPago: 'PREPAGO',
-    }));
-  });
-
-  it('un contador NO puede cambiar el plan ni la mensualidad', async () => {
-    const db = como(UID_CONTADOR);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { plan: 'premium', mensualidadBs: 0 }));
-  });
-
-  it('un contador NO puede crear ni borrar comercios', async () => {
-    const db = como(UID_CONTADOR);
-    await assertFails(setDoc(doc(db, 'comercios', 'comercio_nuevo'), { nombre: 'Nuevo', nit_rut: '1', reglas: [], premios: [], createdAt: 1 }));
-    await assertFails(deleteDoc(doc(db, 'comercios', COMERCIO_OTRO)));
-  });
-});
-
-describe('H-07 · Consumo del saldo de premios al canjear', () => {
-  it('un admin_comercio SÍ puede descontar el saldo de premios de su comercio', async () => {
-    const db = como(UID_ADMIN);
-    await assertSucceeds(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 188.75 }));
-  });
-
-  it('un admin_comercio NO puede subir el saldo de premios ni un céntimo', async () => {
-    const db = como(UID_ADMIN);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 190.01 }));
-  });
-
-  it('un admin_comercio NO puede descontar el saldo de un comercio ajeno', async () => {
-    const db = como(UID_ADMIN_OTRO);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 100 }));
-  });
-
-  it('un vendedor NO puede tocar el saldo de premios (H-26: rompe el canje en PREPAGO)', async () => {
-    const db = como(UID_VENDEDOR);
-    await assertFails(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 188.75 }));
-  });
-});
-
-describe('Flujos críticos del negocio (siguen operando)', () => {
-  it('acumulación: el vendedor crea la sesión y el cliente la reclama', async () => {
-    const vendedor = como(UID_VENDEDOR);
-    await assertSucceeds(setDoc(doc(vendedor, 'sesiones_qr', 'sesion_acum'), {
-      id: 'sesion_acum', tipo: 'ACUMULACION', creadorId: UID_VENDEDOR, comercioId: COMERCIO,
-      estado: 'PENDIENTE', createdAt: Date.now(), montoFactura: 100, puntosCalculados: 10,
-    }));
-
-    const cliente = como(UID_CLIENTE);
-    await assertSucceeds(updateDoc(doc(cliente, 'sesiones_qr', 'sesion_acum'), { estado: 'USADO' }));
-    await assertSucceeds(setDoc(doc(cliente, 'transacciones', 'tx_acum'), {
-      id: 'tx_acum', fechaHora: Date.now(), clienteId: UID_CLIENTE, comercioId: COMERCIO,
-      vendedorId: UID_VENDEDOR, puntos: 10, tipo: 'ACUMULACION',
-    }));
-    await assertSucceeds(setDoc(doc(cliente, 'puntos_saldos', `${UID_CLIENTE}_${COMERCIO}`), {
-      id: `${UID_CLIENTE}_${COMERCIO}`, clienteId: UID_CLIENTE, comercioId: COMERCIO,
-      saldoTotal: 10, updatedAt: Date.now(),
-    }));
-  });
-
-  it('canje: el cliente crea la sesión y el vendedor la aprueba', async () => {
-    await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      await setDoc(doc(ctx.firestore(), 'puntos_saldos', `${UID_CLIENTE}_${COMERCIO}`), {
-        id: `${UID_CLIENTE}_${COMERCIO}`, clienteId: UID_CLIENTE, comercioId: COMERCIO,
-        saldoTotal: 100, updatedAt: 1,
-      });
+  for (const [campo, valor] of [['estado', 'bloqueado'], ['modalidadPago', 'PILOTO'], ['nombre', 'Otro'], ['operativoHasta', 99999999999], ['puedeCanjearPremios', false]] as const) {
+    it(`el administrador NO puede cambiar ${campo} de su comercio`, async () => {
+      await assertFails(updateDoc(doc(db('admin'), 'comercios', COMERCIO), { [campo]: valor }));
     });
+  }
 
-    const cliente = como(UID_CLIENTE);
-    await assertSucceeds(setDoc(doc(cliente, 'sesiones_qr', 'sesion_canje'), {
-      id: 'sesion_canje', tipo: 'CANJE', creadorId: UID_CLIENTE, comercioId: COMERCIO,
-      estado: 'PENDIENTE', createdAt: Date.now(), premioId: 'p1', puntosCalculados: 50,
-    }));
-
-    const vendedor = como(UID_VENDEDOR);
-    await assertSucceeds(updateDoc(doc(vendedor, 'sesiones_qr', 'sesion_canje'), { estado: 'USADO' }));
-    await assertSucceeds(setDoc(doc(vendedor, 'transacciones', 'tx_canje'), {
-      id: 'tx_canje', fechaHora: Date.now(), clienteId: UID_CLIENTE, comercioId: COMERCIO,
-      vendedorId: UID_VENDEDOR, puntos: -50, tipo: 'CANJE',
-    }));
-    await assertSucceeds(updateDoc(doc(vendedor, 'puntos_saldos', `${UID_CLIENTE}_${COMERCIO}`), {
-      saldoTotal: 50, updatedAt: Date.now(),
-    }));
+  it('el administrador NO puede tocar el comercio ajeno', async () => {
+    await assertFails(updateDoc(doc(db('adminAjeno'), 'comercios', COMERCIO), { reglas: [] }));
   });
 
-  it('código promocional del comercio: el admin lo crea y el cliente lo canjea', async () => {
-    const admin = como(UID_ADMIN);
-    await assertSucceeds(setDoc(doc(admin, 'codigos_comercio', 'ANIVERSARIO'), {
-      id: 'ANIVERSARIO', comercioId: COMERCIO, puntosPorCanje: 20,
-      fechaInicio: Date.now(), fechaFin: Date.now() + 86400000, estado: 'ACTIVO', createdAt: Date.now(),
-    }));
-
-    const cliente = como(UID_CLIENTE);
-    await assertSucceeds(setDoc(doc(cliente, 'canjes_codigos', 'canje_1'), {
-      id: 'canje_1', clienteId: UID_CLIENTE, comercioId: COMERCIO, codigoId: 'ANIVERSARIO', fechaHora: Date.now(),
-    }));
-    await assertSucceeds(setDoc(doc(cliente, 'transacciones', 'tx_codigo'), {
-      id: 'tx_codigo', fechaHora: Date.now(), clienteId: UID_CLIENTE, comercioId: COMERCIO,
-      puntos: 20, tipo: 'CODIGO_COMERCIO',
-    }));
+  it('el vendedor NO edita el catálogo', async () => {
+    await assertFails(updateDoc(doc(db('vendedor'), 'comercios', COMERCIO), { premios: [] }));
   });
 
-  it('cobro de prepago: el contador lo registra y acredita el saldo', async () => {
-    const contador = como(UID_CONTADOR);
-    await assertSucceeds(setDoc(doc(contador, 'cobros_prepago', 'cobro_1'), {
-      id: 'cobro_1', comercioId: COMERCIO, nombreComercio: 'Epico', nitRut: '123', recibeFactura: false,
-      contadorId: UID_CONTADOR, contadorAlias: 'contador', fechaHora: Date.now(),
-      montoTotal: 75, montoMensualidad: 25, mesesPagados: ['2026-10'], montoPremios: 50,
-      cantidadPremiosEquivalentes: 40, codigoDeposito: 'D-1', comprobanteUrl: '',
-    }));
-    await assertSucceeds(updateDoc(doc(contador, 'comercios', COMERCIO), {
-      saldoPremiosBs: 240, mesesPagados: ['2026-09', '2026-10'], modalidadPago: 'PREPAGO',
-    }));
-  });
-});
-
-describe('Colecciones exclusivas del servidor (Fase 1)', () => {
-  const COLECCIONES = ['vendedores_secretos', 'auditoria', 'intentos_login_ip', 'operaciones_idempotentes'];
-
-  beforeEach(async () => {
-    await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      const db = ctx.firestore();
-      await setDoc(doc(db, 'vendedores_secretos', UID_VENDEDOR), { hash: 'x', sal: 'y', algoritmo: 'scrypt' });
-      await setDoc(doc(db, 'auditoria', 'a1'), { accion: 'prueba' });
-      await setDoc(doc(db, 'intentos_login_ip', 'i1'), { intentosFallidos: 1 });
-      await setDoc(doc(db, 'operaciones_idempotentes', 'o1'), { operacion: 'prueba' });
-    });
-  });
-
-  it('ni el superadministrador puede leerlas desde el navegador', async () => {
-    const db = como(UID_SUPER);
-    await assertFails(getDoc(doc(db, 'vendedores_secretos', UID_VENDEDOR)));
-    await assertFails(getDoc(doc(db, 'auditoria', 'a1')));
-    await assertFails(getDoc(doc(db, 'intentos_login_ip', 'i1')));
-    await assertFails(getDoc(doc(db, 'operaciones_idempotentes', 'o1')));
-  });
-
-  it('nadie puede escribirlas', async () => {
-    for (const uid of [UID_SUPER, UID_ADMIN, UID_VENDEDOR, UID_CLIENTE]) {
-      const db = como(uid);
-      for (const coleccion of COLECCIONES) {
-        await assertFails(setDoc(doc(db, coleccion, 'intruso'), { x: 1 }));
-      }
+  it('nadie crea ni borra comercios desde el cliente', async () => {
+    for (const quien of ['superadmin', 'admin', 'contador'] as Quien[]) {
+      await assertFails(setDoc(doc(db(quien), 'comercios', 'comercio_nuevo'), { nombre: 'Nuevo' }));
+      await assertFails(deleteDoc(doc(db(quien), 'comercios', OTRO)));
     }
   });
 
-  it('el hash del PIN no es legible ni por el propio vendedor', async () => {
-    const db = como(UID_VENDEDOR);
-    await assertFails(getDoc(doc(db, 'vendedores_secretos', UID_VENDEDOR)));
+  it('el saldo prepagado no se toca desde el cliente, ni para bajarlo', async () => {
+    await assertFails(updateDoc(doc(db('admin'), 'comercios_privado', COMERCIO), { saldoPremiosBs: 199 }));
+    await assertFails(updateDoc(doc(db('contador'), 'comercios_privado', COMERCIO), { saldoPremiosBs: 500 }));
+    await assertFails(updateDoc(doc(db('superadmin'), 'comercios_privado', COMERCIO), { plan: 'premium' }));
   });
 });
 
-describe('Superadministrador', () => {
-  it('SÍ puede asignar roles y comercios', async () => {
-    const db = como(UID_SUPER);
-    await assertSucceeds(updateDoc(doc(db, 'users', UID_CLIENTE), { rol: 'contador' }));
+describe('Fronteras entre comercios', () => {
+  it('el vendedor ajeno no ve la sesión, la transacción ni el saldo de otro comercio', async () => {
+    await assertFails(getDoc(doc(db('vendedorAjeno'), 'sesiones_qr', '123456')));
+    await assertFails(getDoc(doc(db('vendedorAjeno'), 'transacciones', 'tx1')));
+    await assertFails(getDoc(doc(db('vendedorAjeno'), 'puntos_saldos', `${IDENTIDADES.cliente.uid}_${COMERCIO}`)));
   });
 
-  it('SÍ puede acreditar saldo y cambiar el plan de un comercio', async () => {
-    const db = como(UID_SUPER);
-    await assertSucceeds(updateDoc(doc(db, 'comercios', COMERCIO), { saldoPremiosBs: 500, plan: 'premium' }));
+  it('el influencer ajeno no ve la campaña ni el código de otro', async () => {
+    await assertFails(getDoc(doc(db('otroInfluencer'), 'asignaciones_influencer', `${COMERCIO}_${IDENTIDADES.influencer.uid}`)));
+    await assertFails(getDoc(doc(db('otroInfluencer'), 'codigos_influencer', 'NATGOLD')));
+  });
+
+  it('el cliente no ve las transacciones de otro cliente', async () => {
+    await assertFails(getDoc(doc(db('otroCliente'), 'transacciones', 'tx1')));
+    await assertFails(getDoc(doc(db('otroCliente'), 'puntos_saldos', `${IDENTIDADES.cliente.uid}_${COMERCIO}`)));
+  });
+});
+
+describe('Colección desconocida', () => {
+  it('una colección que nadie declaró queda cerrada', async () => {
+    for (const quien of ['superadmin', 'cliente', 'anonimo'] as Quien[]) {
+      await assertFails(getDoc(doc(db(quien), 'coleccion_nueva', 'x')));
+      await assertFails(setDoc(doc(db(quien), 'coleccion_nueva', 'x'), { a: 1 }));
+    }
   });
 });

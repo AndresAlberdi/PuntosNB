@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, doc, setDoc, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, getDocs, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
@@ -9,6 +9,7 @@ import { COLOR_PALETTES } from '../utils/theme';
 import { checkComercioPrepagoStatus } from '../utils/reports';
 import { optimizeImage } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';
+import { cargarComerciosCompletos } from '../utils/comercios';
 
 const RESERVED_DOMAINS = ['influencer', 'hiinfluencer', 'hiinfluencer.io', 'admin', 'superadmin', 'hipatia', 'puntosnb'];
 
@@ -105,9 +106,8 @@ const SuperAdminDashboard: React.FC = () => {
 
   const cargarComercios = async () => {
     try {
-      const snap = await getDocs(collection(db, 'comercios'));
-      const data: Comercio[] = [];
-      snap.forEach(docSnap => data.push(docSnap.data() as Comercio));
+      // Vista combinada: el perfil público más los datos de facturación de `comercios_privado`.
+      const data = await cargarComerciosCompletos();
       setComercios(data);
       if (data.length > 0 && !qrSimComercioId) {
         setQrSimComercioId(data[0].id);
@@ -425,35 +425,23 @@ const SuperAdminDashboard: React.FC = () => {
     if (!editingInfluencer) return;
     setMsgCard4(null);
 
-    // Validación de prefijo único al editar
     const cleanPrefijo = editInfPrefijo.trim().toUpperCase();
-    if (cleanPrefijo) {
-      const snapUsers = await getDocs(collection(db, 'users'));
-      const prefijoEnUso = snapUsers.docs.some(d => {
-        const u = d.data() as Usuario;
-        return u.uid !== editingInfluencer.uid && u.rol === 'influencer' && u.prefijoCodigo?.trim().toUpperCase() === cleanPrefijo;
-      });
-
-      if (prefijoEnUso) {
-        setMsgCard4({ texto: `El prefijo "${cleanPrefijo}" ya está en uso por otro influencer. Elige uno diferente.`, tipo: 'error' });
-        return;
-      }
-    }
 
     try {
-      await updateDoc(doc(db, 'users', editingInfluencer.uid), {
+      // El servidor valida que el prefijo no esté tomado, actualiza el perfil y refresca el
+      // espejo público que ven los comercios.
+      await invocar('actualizarPerfilInfluencer', {
+        uid: editingInfluencer.uid,
         nombre: editInfNombre,
-        emailReal: editInfEmailReal || null,
-        telefono: editInfTelefono || null,
-        prefijoCodigo: cleanPrefijo || null,
+        telefono: editInfTelefono || undefined,
+        prefijoCodigo: cleanPrefijo || undefined,
       });
 
       setMsgCard4({ texto: 'Influencer actualizado con éxito.', tipo: 'success' });
       setEditingInfluencer(null);
       fetchGlobalUsers();
-    } catch (err: any) {
-      console.error(err);
-      setMsgCard4({ texto: 'Error al actualizar influencer: ' + err.message, tipo: 'error' });
+    } catch (err) {
+      setMsgCard4({ texto: mensajeDeError(err), tipo: 'error' });
     }
   };
 
@@ -491,28 +479,23 @@ const SuperAdminDashboard: React.FC = () => {
     if (!confirm) return;
 
     try {
-      await updateDoc(doc(db, 'cobros_prepago', cobro.id), {
-        estado: 'VERIFICADO',
-        verificadoPor: 'SuperAdmin',
-        fechaVerificacion: Date.now()
-      });
-
+      await invocar('conciliarCobroPrepago', { cobroId: cobro.id });
       setMsgCardCobranzas({ texto: `Cobro con código "${cobro.codigoDeposito}" marcado como VERIFICADO / CONCILIADO.`, tipo: 'success' });
       fetchCobros();
       setModalComprobante(null);
-    } catch (err: any) {
-      setMsgCardCobranzas({ texto: 'Error al verificar cobro: ' + err.message, tipo: 'error' });
+    } catch (err) {
+      setMsgCardCobranzas({ texto: mensajeDeError(err), tipo: 'error' });
     }
   };
 
   const handleToggleEstadoComercio = async (comercio: Comercio) => {
     const nuevoEstado = comercio.estado === 'bloqueado' ? 'activo' : 'bloqueado';
     try {
-      await updateDoc(doc(db, 'comercios', comercio.id), { estado: nuevoEstado });
+      await invocar('cambiarEstadoComercio', { comercioId: comercio.id, bloquear: nuevoEstado === 'bloqueado' });
       setComercios(comercios.map(c => c.id === comercio.id ? { ...c, estado: nuevoEstado } : c));
       setMsgCard1({ texto: `Comercio ${nuevoEstado === 'bloqueado' ? 'bloqueado' : 'desbloqueado'} con éxito.`, tipo: 'success' });
-    } catch (err: any) {
-      setMsgCard1({ texto: 'Error: ' + err.message, tipo: 'error' });
+    } catch (err) {
+      setMsgCard1({ texto: mensajeDeError(err), tipo: 'error' });
     }
   };
 

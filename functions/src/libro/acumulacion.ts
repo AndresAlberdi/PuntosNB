@@ -16,7 +16,8 @@ import { actorDe, exigirRol } from '../comun/sesion';
 import { auditarEnTransaccion } from '../comun/auditoria';
 import { conIdempotencia } from '../comun/idempotencia';
 import { nuevoCodigo, vencimiento } from '../comun/codigos';
-import { calcularPuntos, estadoPrepago, type Comercio } from '../comun/negocio';
+import { calcularPuntos, estadoPrepago } from '../comun/negocio';
+import { leerComercio, leerComercioEnTx } from '../comun/comercio';
 
 const CrearSesion = z.object({
   montoFactura: z.number().nonnegative().max(1_000_000).default(0),
@@ -43,9 +44,9 @@ export const crearSesionAcumulacion = onCall(opcionesCallable, async (req) => {
 
   try {
     return await conIdempotencia(datos.clave, 'crearSesionAcumulacion', actor.uid, async () => {
-      const snapComercio = await db.collection('comercios').doc(comercioId).get();
-      if (!snapComercio.exists) throw noEncontrado('El comercio no existe.');
-      const comercio = snapComercio.data() as Comercio;
+      const vista = await leerComercio(comercioId);
+      if (!vista.existe) throw noEncontrado('El comercio no existe.');
+      const comercio = vista.completo;
 
       const estado = estadoPrepago(comercio);
       if (!estado.puedeOperar) {
@@ -137,16 +138,15 @@ export const reclamarAcumulacion = onCall(opcionesCallable, async (req) => {
       }
 
       const comercioId = sesion.comercioId!;
-      const refComercio = db.collection('comercios').doc(comercioId);
-      const snapComercio = await tx.get(refComercio);
-      if (!snapComercio.exists) throw noEncontrado('El comercio no existe.');
-      if (!estadoPrepago(snapComercio.data() as Comercio).puedeOperar) {
+      const vista = await leerComercioEnTx(tx, comercioId);
+      if (!vista.existe) throw noEncontrado('El comercio no existe.');
+      if (!estadoPrepago(vista.completo).puedeOperar) {
         throw conflicto('El comercio está deshabilitado temporalmente.');
       }
 
       // El bono de registro se entrega una sola vez por cliente y comercio.
       if (sesion.reglaAplicadaId) {
-        const regla = (snapComercio.data() as Comercio).reglas?.find((r) => r.id === sesion.reglaAplicadaId);
+        const regla = vista.completo.reglas?.find((r) => r.id === sesion.reglaAplicadaId);
         if (regla?.tipo === 'POR_REGISTRO') {
           const previas = await tx.get(
             db.collection('transacciones')

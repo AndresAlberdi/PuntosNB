@@ -19,24 +19,36 @@ const PREMIO = { id: 'p_cafe', nombre: 'Café', descripcion: '', puntosRequerido
 
 interface Sesion { codigo: string; puntos: number; expiraEn: number }
 
+/**
+ * Desde la Fase 2 el comercio vive en dos documentos: el público y el privado. Se siembran las
+ * dos mitades, con los montos donde corresponde.
+ */
 async function sembrar(comercio: Partial<Record<string, unknown>> = {}): Promise<void> {
+  const { modalidadPago = 'PILOTO', mesesPagados = [], saldoPremiosBs = 0, costoPorPremioBs = 1.25 } =
+    comercio as { modalidadPago?: string; mesesPagados?: string[]; saldoPremiosBs?: number; costoPorPremioBs?: number };
+
   await db.collection('comercios').doc(COMERCIO).set({
-    id: COMERCIO, nombre: 'Epico', nit_rut: '123',
+    id: COMERCIO, nombre: 'Epico',
     reglas: [REGLA_COMPRA, REGLA_BIENVENIDA], premios: [PREMIO], productos: [],
-    modalidadPago: 'PILOTO', estado: 'activo', mensualidadBs: 25, costoPorPremioBs: 1.25,
-    saldoPremiosBs: 0, consumidoPremiosBs: 0, mesesPagados: [], createdAt: 1, ...comercio,
+    modalidadPago, estado: 'activo', createdAt: 1,
+  });
+  await db.collection('comercios_privado').doc(COMERCIO).set({
+    id: COMERCIO, nit_rut: '123', mensualidadBs: 25, costoPorPremioBs,
+    modalidadPago, saldoPremiosBs, consumidoPremiosBs: 0, mesesPagados,
+    costoPorCodigoComercio: 10,
   });
   await db.collection('comercios').doc(OTRO).set({
-    id: OTRO, nombre: 'Pizza NB', nit_rut: '456', reglas: [], premios: [], productos: [],
+    id: OTRO, nombre: 'Pizza NB', reglas: [], premios: [], productos: [],
     modalidadPago: 'PILOTO', estado: 'activo', createdAt: 1,
   });
+  await db.collection('comercios_privado').doc(OTRO).set({ id: OTRO, nit_rut: '456', modalidadPago: 'PILOTO' });
 }
 
 const comoVendedor = (): Promise<string> => sesionComo(VENDEDOR, { rol: 'vendedor', comercioId: COMERCIO });
 const comoCliente = (): Promise<string> => sesionComo(CLIENTE, { rol: 'cliente' });
 
 beforeEach(async () => {
-  await limpiar('users', 'comercios', 'sesiones_qr', 'transacciones', 'puntos_saldos', 'auditoria',
+  await limpiar('users', 'comercios', 'comercios_privado', 'influencers_publico', 'sesiones_qr', 'transacciones', 'puntos_saldos', 'auditoria',
     'canjes_codigo', 'codigos_influencer', 'codigos_comercio', 'asignaciones_influencer',
     'cobros_prepago', 'operaciones_idempotentes');
   await limpiarCuentas();
@@ -166,9 +178,9 @@ describe('Canje de premios', () => {
     expect(confirmacion.ok).toBe(true);
     expect(confirmacion.datos?.costoBs).toBe(1.25);
 
-    const comercio = (await db.collection('comercios').doc(COMERCIO).get()).data();
-    expect(comercio?.saldoPremiosBs).toBe(8.75);
-    expect(comercio?.consumidoPremiosBs).toBe(1.25);
+    const privado = (await db.collection('comercios_privado').doc(COMERCIO).get()).data();
+    expect(privado?.saldoPremiosBs).toBe(8.75);
+    expect(privado?.consumidoPremiosBs).toBe(1.25);
 
     const saldo = (await db.collection('puntos_saldos').doc(`${CLIENTE}_${COMERCIO}`).get()).data();
     expect(saldo?.saldoTotal).toBe(50);
@@ -289,9 +301,16 @@ describe('Cobro de prepago', () => {
     expect(res.datos?.montoTotal).toBe(100); // 25 × 2 meses + 50 de premios
     expect(res.datos?.saldoPremiosBs).toBe(50);
 
-    const comercio = (await db.collection('comercios').doc(COMERCIO).get()).data();
-    expect(comercio?.modalidadPago).toBe('PREPAGO');
-    expect(comercio?.mesesPagados).toEqual(['2026-10', '2026-11']);
+    const privado = (await db.collection('comercios_privado').doc(COMERCIO).get()).data();
+    expect(privado?.modalidadPago).toBe('PREPAGO');
+    expect(privado?.mesesPagados).toEqual(['2026-10', '2026-11']);
+    // La señal pública queda al día para la interfaz, sin exponer montos. Se pagaron octubre y
+    // noviembre, no el mes corriente, así que el comercio todavía no puede operar.
+    const publico = (await db.collection('comercios').doc(COMERCIO).get()).data();
+    expect(publico?.saldoPremiosBs).toBeUndefined();
+    expect(publico?.mesesPagados).toBeUndefined();
+    expect(publico?.operativoHasta).toBe(0);
+    expect(publico?.puedeCanjearPremios).toBe(false);
   });
 
   it('el reintento con la misma clave no cobra dos veces', async () => {
@@ -311,8 +330,8 @@ describe('Cobro de prepago', () => {
 
     const cobros = await db.collection('cobros_prepago').get();
     expect(cobros.size).toBe(1);
-    const comercio = (await db.collection('comercios').doc(COMERCIO).get()).data();
-    expect(comercio?.saldoPremiosBs).toBe(25);
+    const privado = (await db.collection('comercios_privado').doc(COMERCIO).get()).data();
+    expect(privado?.saldoPremiosBs).toBe(25);
   });
 
   it('rechaza cobrar dos veces el mismo mes', async () => {
@@ -376,9 +395,12 @@ describe('Administración de cuentas', () => {
     }, { idToken: tokenSuper });
 
     expect(res.ok).toBe(true);
-    const comercio = (await db.collection('comercios').doc(res.datos!.comercioId).get()).data();
-    expect(comercio?.modalidadPago).toBe('PILOTO');
-    expect(comercio?.saldoPremiosBs).toBe(0);
-    expect(comercio?.estado).toBe('activo');
+    const publico = (await db.collection('comercios').doc(res.datos!.comercioId).get()).data();
+    const privado = (await db.collection('comercios_privado').doc(res.datos!.comercioId).get()).data();
+    expect(publico?.modalidadPago).toBe('PILOTO');
+    expect(publico?.estado).toBe('activo');
+    expect(publico?.nit_rut).toBeUndefined();
+    expect(privado?.saldoPremiosBs).toBe(0);
+    expect(privado?.nit_rut).toBe('999');
   });
 });

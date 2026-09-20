@@ -15,6 +15,7 @@ import { actorDe, exigirRol } from '../comun/sesion';
 import { auditar } from '../comun/auditoria';
 import { revocarSesiones, sincronizarClaims } from '../comun/claims';
 import { ROLES } from '../comun/tipos';
+import { actualizarDerivados, refPrivado, refPublico } from '../comun/comercio';
 
 const AsignarRol = z.object({
   uid: z.string().trim().min(1).max(128),
@@ -44,6 +45,88 @@ const GuardarComercio = z.object({
   paletteId: z.string().trim().max(40).optional(),
 });
 
+/**
+ * Mantiene el perfil público del influencer.
+ *
+ * Los datos de contacto y el documento completo del influencer dejan de ser legibles por cualquier
+ * autenticado (H-16): en su lugar queda un perfil mínimo con lo que el comercio necesita ver.
+ */
+export async function sincronizarPerfilPublicoInfluencer(uid: string): Promise<void> {
+  const snap = await db.collection('users').doc(uid).get();
+  const ref = db.collection('influencers_publico').doc(uid);
+
+  if (!snap.exists || snap.data()?.rol !== 'influencer') {
+    await ref.delete().catch(() => undefined);
+    return;
+  }
+
+  const d = snap.data() ?? {};
+  await ref.set({
+    uid,
+    nombre: d.nombre ?? '',
+    prefijoCodigo: d.prefijoCodigo ?? '',
+    avatarUrl: d.avatarUrl ?? '',
+    descripcion: d.descripcion ?? '',
+    redesSociales: d.redesSociales ?? [],
+    seguidores: d.seguidores ?? 0,
+    estado: d.estado ?? 'activo',
+  });
+}
+
+const PerfilInfluencer = z.object({
+  uid: z.string().trim().min(1).max(128),
+  nombre: z.string().trim().min(2).max(80).optional(),
+  prefijoCodigo: z.string().trim().max(10).optional(),
+  descripcion: z.string().trim().max(500).optional(),
+  seguidores: z.number().int().min(0).max(1_000_000_000).optional(),
+  redesSociales: z.array(z.string().trim().max(200)).max(10).optional(),
+  telefono: z.string().trim().max(24).optional(),
+});
+
+/** Edita el perfil de un influencer y actualiza su espejo público. */
+export const actualizarPerfilInfluencer = onCall(opcionesCallable, async (req) => {
+  const actor = actorDe(req);
+  exigirRol(actor, 'superadmin');
+  const datos = validar(PerfilInfluencer, req.data);
+
+  try {
+    const ref = db.collection('users').doc(datos.uid);
+    const snap = await ref.get();
+    if (!snap.exists || snap.data()?.rol !== 'influencer') throw noEncontrado('Ese influencer no existe.');
+
+    if (datos.prefijoCodigo) {
+      const repetido = await db.collection('users')
+        .where('rol', '==', 'influencer')
+        .where('prefijoCodigo', '==', datos.prefijoCodigo.toUpperCase())
+        .get();
+      if (repetido.docs.some((d) => d.id !== datos.uid)) {
+        throw conflicto(`El prefijo "${datos.prefijoCodigo.toUpperCase()}" ya lo usa otro influencer.`);
+      }
+    }
+
+    const { uid: _uid, prefijoCodigo, ...resto } = datos;
+    await ref.update({
+      ...resto,
+      ...(prefijoCodigo ? { prefijoCodigo: prefijoCodigo.toUpperCase() } : {}),
+    });
+    await sincronizarPerfilPublicoInfluencer(datos.uid);
+
+    await auditar({
+      accion: 'influencer.perfil_editado',
+      actorUid: actor.uid,
+      actorRol: actor.rol,
+      objetivo: datos.uid,
+      ip: actor.ip,
+      appCheckAppId: actor.appCheckAppId,
+    });
+
+    return { ok: true };
+  } catch (error) {
+    if (error && typeof error === 'object' && 'httpErrorCode' in error) throw error;
+    throw errorInterno(error);
+  }
+});
+
 /** Asigna rol y comercio, y los refleja en el token. Solo el superadministrador. */
 export const asignarRol = onCall(opcionesCallable, async (req) => {
   const actor = actorDe(req);
@@ -70,6 +153,7 @@ export const asignarRol = onCall(opcionesCallable, async (req) => {
       ...(datos.comercioId ? { comercioId: datos.comercioId } : { comercioId: FieldValue.delete() }),
     });
     await sincronizarClaims(datos.uid);
+    await sincronizarPerfilPublicoInfluencer(datos.uid);
 
     // Si pierde privilegios, sus tokens actuales dejan de valer de inmediato.
     const privilegiados = ['superadmin', 'contador', 'admin_comercio'];
@@ -134,32 +218,36 @@ export const guardarComercio = onCall(opcionesCallable, async (req) => {
   const datos = validar(GuardarComercio, req.data);
 
   try {
-    const ref = datos.comercioId
-      ? db.collection('comercios').doc(datos.comercioId)
-      : db.collection('comercios').doc();
+    const ref = datos.comercioId ? refPublico(datos.comercioId) : db.collection('comercios').doc();
     const snap = await ref.get();
 
     if (datos.comercioId && !snap.exists) throw noEncontrado('El comercio no existe.');
 
-    const campos: Record<string, unknown> = {
+    // Lo público: lo que cualquier usuario autenticado puede ver del comercio.
+    const publico: Record<string, unknown> = {
       nombre: datos.nombre,
+      dominio: datos.dominio ?? '',
+      ...(datos.estado ? { estado: datos.estado } : {}),
+      ...(datos.logoUrl !== undefined ? { logoUrl: datos.logoUrl } : {}),
+      ...(datos.paletteId ? { paletteId: datos.paletteId } : {}),
+      ...(datos.modalidadPago ? { modalidadPago: datos.modalidadPago } : {}),
+    };
+
+    // Lo privado: datos fiscales y económicos, fuera del alcance de cualquier cliente.
+    const privado: Record<string, unknown> = {
       nit_rut: datos.nit_rut,
       razonSocial: datos.razonSocial ?? '',
-      dominio: datos.dominio ?? '',
       ...(datos.plan ? { plan: datos.plan } : {}),
       ...(datos.modalidadPago ? { modalidadPago: datos.modalidadPago } : {}),
       ...(datos.mensualidadBs !== undefined ? { mensualidadBs: datos.mensualidadBs } : {}),
       ...(datos.costoPorPremioBs !== undefined ? { costoPorPremioBs: datos.costoPorPremioBs } : {}),
       ...(datos.costoPorCodigoComercio !== undefined ? { costoPorCodigoComercio: datos.costoPorCodigoComercio } : {}),
       ...(datos.recibeFactura !== undefined ? { recibeFactura: datos.recibeFactura } : {}),
-      ...(datos.estado ? { estado: datos.estado } : {}),
-      ...(datos.logoUrl !== undefined ? { logoUrl: datos.logoUrl } : {}),
-      ...(datos.paletteId ? { paletteId: datos.paletteId } : {}),
     };
 
     if (!snap.exists) {
       // Un comercio nuevo nace PILOTO y sin saldo: el prepago lo activa el contador al cobrar.
-      Object.assign(campos, {
+      Object.assign(publico, {
         id: ref.id,
         createdAt: Date.now(),
         reglas: [],
@@ -167,13 +255,27 @@ export const guardarComercio = onCall(opcionesCallable, async (req) => {
         productos: [],
         estado: datos.estado ?? 'activo',
         modalidadPago: datos.modalidadPago ?? 'PILOTO',
+        operativoHasta: null,
+        puedeCanjearPremios: true,
+      });
+      Object.assign(privado, {
+        id: ref.id,
+        modalidadPago: datos.modalidadPago ?? 'PILOTO',
         saldoPremiosBs: 0,
         consumidoPremiosBs: 0,
         mesesPagados: [],
       });
     }
 
-    await ref.set(campos, { merge: true });
+    const lote = db.batch();
+    lote.set(ref, publico, { merge: true });
+    lote.set(refPrivado(ref.id), privado, { merge: true });
+    await lote.commit();
+
+    await db.runTransaction(async (tx) => {
+      const [pub, priv] = await Promise.all([tx.get(ref), tx.get(refPrivado(ref.id))]);
+      actualizarDerivados(tx, ref.id, { ...pub.data(), ...priv.data() });
+    });
 
     await auditar({
       accion: snap.exists ? 'comercio.editado' : 'comercio.creado',
@@ -181,13 +283,49 @@ export const guardarComercio = onCall(opcionesCallable, async (req) => {
       actorRol: actor.rol,
       comercioId: ref.id,
       objetivo: ref.id,
-      antes: snap.exists ? { plan: snap.data()?.plan ?? null, modalidadPago: snap.data()?.modalidadPago ?? null } : null,
+      antes: snap.exists ? { nombre: snap.data()?.nombre ?? null } : null,
       despues: { plan: datos.plan ?? null, modalidadPago: datos.modalidadPago ?? null },
       ip: actor.ip,
       appCheckAppId: actor.appCheckAppId,
     });
 
     return { comercioId: ref.id };
+  } catch (error) {
+    if (error && typeof error === 'object' && 'httpErrorCode' in error) throw error;
+    throw errorInterno(error);
+  }
+});
+
+/** Bloquea o reactiva un comercio. El estado vive en el documento público. */
+export const cambiarEstadoComercio = onCall(opcionesCallable, async (req) => {
+  const actor = actorDe(req);
+  exigirRol(actor, 'superadmin');
+  const datos = validar(
+    z.object({ comercioId: z.string().trim().min(1).max(64), bloquear: z.boolean() }),
+    req.data,
+  );
+
+  try {
+    const ref = refPublico(datos.comercioId);
+    const snap = await ref.get();
+    if (!snap.exists) throw noEncontrado('El comercio no existe.');
+
+    const estado = datos.bloquear ? 'bloqueado' : 'activo';
+    await ref.update({ estado });
+
+    await auditar({
+      accion: datos.bloquear ? 'comercio.bloqueado' : 'comercio.desbloqueado',
+      actorUid: actor.uid,
+      actorRol: actor.rol,
+      comercioId: datos.comercioId,
+      objetivo: datos.comercioId,
+      antes: { estado: snap.data()?.estado ?? 'activo' },
+      despues: { estado },
+      ip: actor.ip,
+      appCheckAppId: actor.appCheckAppId,
+    });
+
+    return { estado };
   } catch (error) {
     if (error && typeof error === 'object' && 'httpErrorCode' in error) throw error;
     throw errorInterno(error);

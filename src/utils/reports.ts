@@ -440,6 +440,14 @@ export const calculateSuperAdminReport = (
  * Helper para verificar el estado de prepago de un comercio.
  * Retorna si el comercio puede operar, si puede canjear premios y los estados de alerta.
  */
+/**
+ * Estado de prepago del comercio.
+ *
+ * Desde la Fase 2 los montos viven en `comercios_privado`, que la mayoría de las pantallas no
+ * puede leer. Para esos casos el servidor deja en el documento público dos señales derivadas
+ * —`operativoHasta` y `puedeCanjearPremios`— que bastan para la interfaz. Cuando sí hay datos
+ * privados (panel del comercio, contador, superadministrador) se calculan los detalles completos.
+ */
 export const checkComercioPrepagoStatus = (
   comercio: Comercio,
   currentDate: Date = new Date()
@@ -455,8 +463,8 @@ export const checkComercioPrepagoStatus = (
   mesActualKey: string;
 } => {
   const mesActualKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-  
-  // Si está en modo PILOTO, tiene acceso libre sin bloqueos
+
+  // Modo PILOTO: acceso libre, sin bloqueos.
   if (!comercio.modalidadPago || comercio.modalidadPago === 'PILOTO') {
     return {
       puedeOperar: true,
@@ -471,50 +479,61 @@ export const checkComercioPrepagoStatus = (
     };
   }
 
-  // Modo PREPAGO:
+  const tieneDatosPrivados = comercio.mesesPagados !== undefined || comercio.saldoPremiosBs !== undefined;
+
+  if (!tieneDatosPrivados) {
+    // Solo las señales públicas: alcanzan para saber si se puede operar y canjear.
+    const hasta = comercio.operativoHasta ?? 0;
+    const puedeOperar = hasta > currentDate.getTime();
+    const diasRestantesMes = puedeOperar ? Math.max(0, Math.ceil((hasta - currentDate.getTime()) / 86400000)) : 0;
+    const puedeCanjearPremios = puedeOperar && comercio.puedeCanjearPremios !== false;
+    return {
+      puedeOperar,
+      puedeCanjearPremios,
+      alertaAmarillaMensualidad: puedeOperar && diasRestantesMes <= 7,
+      alertaRojaMensualidad: !puedeOperar,
+      alertaAmarillaPremios: false,
+      alertaRojaPremios: !puedeCanjearPremios,
+      diasRestantesMes,
+      premiosDisponibles: puedeCanjearPremios ? 9999 : 0,
+      mesActualKey,
+    };
+  }
+
   const mesesPagados = comercio.mesesPagados || [];
   const mesPagado = mesesPagados.includes(mesActualKey);
 
-  // Calcular el último mes consecutivo cubierto
+  // Último mes consecutivo cubierto.
   let ultimoMesDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   if (mesPagado) {
-    while (true) {
+    for (;;) {
       const nextDate = new Date(ultimoMesDate.getFullYear(), ultimoMesDate.getMonth() + 1, 1);
       const nextKey = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
-      if (mesesPagados.includes(nextKey)) {
-        ultimoMesDate = nextDate;
-      } else {
-        break;
-      }
+      if (!mesesPagados.includes(nextKey)) break;
+      ultimoMesDate = nextDate;
     }
   }
 
-  // Fin del periodo prepagado
   const finPeriodoPagado = new Date(ultimoMesDate.getFullYear(), ultimoMesDate.getMonth() + 1, 0, 23, 59, 59);
-  const diffMs = finPeriodoPagado.getTime() - currentDate.getTime();
-  const diasRestantesMes = mesPagado ? Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24))) : 0;
+  const diasRestantesMes = mesPagado
+    ? Math.max(0, Math.ceil((finPeriodoPagado.getTime() - currentDate.getTime()) / 86400000))
+    : 0;
 
-  // Mensualidad
   const puedeOperar = mesPagado;
   const alertaRojaMensualidad = !mesPagado;
   const alertaAmarillaMensualidad = mesPagado && diasRestantesMes <= 7;
 
-  // Premios
   const costoPremio = comercio.costoPorPremioBs && comercio.costoPorPremioBs > 0 ? comercio.costoPorPremioBs : 1.25;
-  const saldoPremiosBs = comercio.saldoPremiosBs || 0;
-  const premiosDisponibles = Math.floor(saldoPremiosBs / costoPremio);
-
+  const premiosDisponibles = Math.floor((comercio.saldoPremiosBs || 0) / costoPremio);
   const puedeCanjearPremios = puedeOperar && premiosDisponibles > 0;
-  const alertaRojaPremios = premiosDisponibles === 0;
-  const alertaAmarillaPremios = premiosDisponibles > 0 && premiosDisponibles < 10;
 
   return {
     puedeOperar,
     puedeCanjearPremios,
     alertaAmarillaMensualidad,
     alertaRojaMensualidad,
-    alertaAmarillaPremios,
-    alertaRojaPremios,
+    alertaAmarillaPremios: premiosDisponibles > 0 && premiosDisponibles < 10,
+    alertaRojaPremios: premiosDisponibles === 0,
     diasRestantesMes,
     premiosDisponibles,
     mesActualKey,

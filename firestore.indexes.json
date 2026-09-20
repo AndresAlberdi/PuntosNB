@@ -1,0 +1,61 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "transacciones",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clienteId", "order": "ASCENDING" },
+        { "fieldPath": "comercioId", "order": "ASCENDING" },
+        { "fieldPath": "reglaAplicadaId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transacciones",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "comercioId", "order": "ASCENDING" },
+        { "fieldPath": "fechaHora", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "canjes_codigo",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clienteId", "order": "ASCENDING" },
+        { "fieldPath": "codigoId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "codigos_influencer",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "influencerId", "order": "ASCENDING" },
+        { "fieldPath": "comercioId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "email", "order": "ASCENDING" },
+        { "fieldPath": "rol", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "rol", "order": "ASCENDING" },
+        { "fieldPath": "prefijoCodigo", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "sesiones_qr",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
+    }
+  ]
+}

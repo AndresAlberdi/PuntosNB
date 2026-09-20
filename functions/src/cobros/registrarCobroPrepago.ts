@@ -14,7 +14,7 @@ import { conflicto, errorInterno, noEncontrado } from '../comun/errores';
 import { actorDe, exigirRol } from '../comun/sesion';
 import { auditarEnTransaccion } from '../comun/auditoria';
 import { conIdempotencia } from '../comun/idempotencia';
-import type { Comercio } from '../comun/negocio';
+import { actualizarDerivados, leerComercioEnTx, refPrivado } from '../comun/comercio';
 
 const Entrada = z.object({
   comercioId: z.string().trim().min(1).max(64),
@@ -38,10 +38,11 @@ export const registrarCobroPrepago = onCall(opcionesCallable, async (req) => {
   try {
     return await conIdempotencia(datos.clave, 'registrarCobroPrepago', actor.uid, async () =>
       db.runTransaction(async (tx) => {
-        const refComercio = db.collection('comercios').doc(datos.comercioId);
-        const snap = await tx.get(refComercio);
-        if (!snap.exists) throw noEncontrado('El comercio no existe.');
-        const comercio = snap.data() as Comercio & { nombre?: string; nit_rut?: string; razonSocial?: string; mensualidadBs?: number };
+        const vista = await leerComercioEnTx(tx, datos.comercioId);
+        if (!vista.existe) throw noEncontrado('El comercio no existe.');
+        const comercio = vista.completo as typeof vista.completo & {
+          nombre?: string; nit_rut?: string; razonSocial?: string; mensualidadBs?: number;
+        };
 
         // El monto no lo decide el cliente: sale de la mensualidad configurada del comercio.
         const mensualidad = comercio.mensualidadBs && comercio.mensualidadBs > 0 ? comercio.mensualidadBs : 25;
@@ -77,10 +78,15 @@ export const registrarCobroPrepago = onCall(opcionesCallable, async (req) => {
           ...(datos.comprobanteUrl ? { comprobanteUrl: datos.comprobanteUrl } : {}),
         });
 
-        tx.update(refComercio, {
-          saldoPremiosBs: Math.round((saldoPrevio + datos.montoPremios) * 100) / 100,
-          mesesPagados: Array.from(new Set([...mesesPrevios, ...datos.mesesPagados])).sort(),
-          modalidadPago: 'PREPAGO',
+        const nuevoSaldo = Math.round((saldoPrevio + datos.montoPremios) * 100) / 100;
+        const nuevosMeses = Array.from(new Set([...mesesPrevios, ...datos.mesesPagados])).sort();
+        tx.set(
+          refPrivado(datos.comercioId),
+          { saldoPremiosBs: nuevoSaldo, mesesPagados: nuevosMeses, modalidadPago: 'PREPAGO' },
+          { merge: true },
+        );
+        actualizarDerivados(tx, datos.comercioId, {
+          ...comercio, saldoPremiosBs: nuevoSaldo, mesesPagados: nuevosMeses, modalidadPago: 'PREPAGO',
         });
 
         auditarEnTransaccion(tx, {

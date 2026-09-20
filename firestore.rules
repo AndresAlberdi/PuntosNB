@@ -2,69 +2,77 @@ rules_version = '2';
 
 // Reglas de Firestore — Hipatia Puntos
 //
-// Fase 0 del plan de hardening (docs/security/HARDENING_PLAN.md): parche de contención.
-// Cierra las puertas de compromiso total (H-01 autoescalada de rol, H-02 toma de cuenta por
-// coincidencia de correo, H-03 autoaprovisionamiento por dominio, H-07 campos de facturación)
-// sin alterar todavía los flujos de puntos, que se mueven al servidor en las fases 1 y 2.
+// Fase 2 del plan de hardening (docs/security/HARDENING_PLAN.md).
+//
+// Tres cambios de fondo respecto de la Fase 0:
+//   1. El rol y el comercio se leen del token firmado (`request.auth.token`), no de un documento
+//      que el propio usuario podría editar. Además desaparecen los `get()` por evaluación, que se
+//      facturaban como lecturas.
+//   2. El libro mayor —transacciones, saldos, sesiones, canjes, cobros y campañas— ya no se
+//      escribe desde el cliente: lo escribe el backend con el Admin SDK, que no pasa por aquí.
+//   3. Lo que el cliente sí puede escribir está acotado a una lista blanca de campos.
+//
+// El comodín final deniega todo lo que no esté declarado arriba.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Utilidades -----------------------------------------------------------
+    // --- Identidad, tomada del token -----------------------------------------
 
-    function isAuth() {
+    function autenticado() {
       return request.auth != null;
     }
 
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    function rol() {
+      return request.auth.token.rol;
     }
 
-    function existeMiUsuario() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    function esRol(r) {
+      return autenticado() && rol() == r;
     }
-
-    function tieneRol(rol) {
-      return isAuth() && existeMiUsuario() && getUserData().rol == rol;
-    }
-
-    function isSuperAdmin() { return tieneRol('superadmin'); }
-    function isAdminComercio() { return tieneRol('admin_comercio'); }
-    function isVendedor() { return tieneRol('vendedor'); }
-    function isCliente() { return tieneRol('cliente'); }
-    function isInfluencer() { return tieneRol('influencer'); }
-    function isContador() { return tieneRol('contador'); }
 
     function miComercio() {
-      return getUserData().comercioId;
+      return request.auth.token.comercioId;
     }
 
-    // Campos que la escritura modifica respecto del documento actual.
-    function cambia(campos) {
+    function esDeMiComercio(comercioId) {
+      return autenticado() && miComercio() == comercioId;
+    }
+
+    function esSuperAdmin() { return esRol('superadmin'); }
+    function esContador() { return esRol('contador'); }
+    function esAdminComercio() { return esRol('admin_comercio'); }
+    function esVendedor() { return esRol('vendedor'); }
+    function esCliente() { return esRol('cliente'); }
+    function esInfluencer() { return esRol('influencer'); }
+
+    /** Personal del comercio: quien atiende la caja y quien lo administra. */
+    function esPersonalDe(comercioId) {
+      return (esVendedor() || esAdminComercio()) && esDeMiComercio(comercioId);
+    }
+
+    /** La escritura solo toca los campos indicados. */
+    function cambiaSolo(campos) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
     }
 
-    // Campos presentes en un documento que se está creando.
     function creaSolo(campos) {
       return request.resource.data.keys().hasOnly(campos);
     }
 
     // --- users ----------------------------------------------------------------
-    // El rol, el comercio y el estado son del sistema: el usuario nunca los escribe.
-    // Se elimina la cláusula de coincidencia por correo (H-02) y el autoaprovisionamiento
-    // deja de ser posible porque un cliente solo puede crearse a sí mismo con rol 'cliente' (H-01, H-03).
+    // El perfil propio se edita con lista blanca. El rol, el comercio y el estado los fija el
+    // servidor. Los datos de los influencers ya no se leen de aquí, sino de su perfil público.
 
     match /users/{userId} {
-      allow read: if isAuth() && (
+      allow read: if autenticado() && (
         request.auth.uid == userId ||
-        isSuperAdmin() ||
-        isContador() ||
-        resource.data.rol == 'influencer' ||
-        (isAdminComercio() && resource.data.comercioId == miComercio())
+        esSuperAdmin() ||
+        (esAdminComercio() && resource.data.comercioId == miComercio())
       );
 
-      // Alta propia al registrarse: siempre como cliente y sin comercio asignado.
-      allow create: if isAuth() && request.auth.uid == userId
+      // Alta propia al registrarse: siempre cliente, sin comercio y sin PIN.
+      allow create: if autenticado() && request.auth.uid == userId
         && request.resource.data.rol == 'cliente'
         && !('comercioId' in request.resource.data)
         && !('pin' in request.resource.data)
@@ -73,189 +81,138 @@ service cloud.firestore {
           'termsAccepted', 'termsAcceptedAt', 'createdAt'
         ]);
 
-      // Alta y baja administrativas.
-      allow create, delete: if isSuperAdmin();
-      allow create: if isAdminComercio()
-        && request.resource.data.rol == 'vendedor'
-        && request.resource.data.comercioId == miComercio();
+      allow update: if autenticado() && request.auth.uid == userId
+        && cambiaSolo(['nombre', 'telefono', 'paletteId', 'avatarUrl', 'termsAccepted', 'termsAcceptedAt']);
 
-      // Edición del propio perfil: solo datos personales.
-      allow update: if isAuth() && request.auth.uid == userId
-        && cambia(['nombre', 'telefono', 'paletteId', 'avatarUrl', 'termsAccepted', 'termsAcceptedAt']);
-
-      // El superadministrador edita cualquier usuario.
-      allow update: if isSuperAdmin();
-
-      // El administrador de comercio solo toca a los vendedores de su propio comercio,
-      // y nunca su rol ni el comercio al que pertenecen.
-      allow update: if isAdminComercio()
-        && resource.data.comercioId == miComercio()
-        && resource.data.rol == 'vendedor'
-        && cambia(['nombre', 'telefono', 'estado', 'pin']);
+      // El superadministrador da de alta cuentas administrativas desde su panel.
+      allow create, update, delete: if esSuperAdmin();
     }
 
-    // --- comercios ------------------------------------------------------------
-    // Los campos de facturación (saldoPremiosBs, plan, modalidadPago, mesesPagados,
-    // estado, costos) quedan fuera del alcance del comercio (H-07).
+    // --- comercios: perfil público -------------------------------------------
+    // Nombre, catálogo, identidad visual y dos señales derivadas que calcula el servidor
+    // (`operativoHasta`, `puedeCanjearPremios`). Ningún dato fiscal ni económico vive aquí.
 
     match /comercios/{comercioId} {
-      allow read: if isAuth();
+      allow read: if autenticado();
 
-      allow create, delete: if isSuperAdmin();
-      allow update: if isSuperAdmin();
+      // El comercio administra su catálogo y su identidad visual, nada más.
+      allow update: if esAdminComercio() && esDeMiComercio(comercioId)
+        && cambiaSolo(['reglas', 'premios', 'productos', 'logoUrl', 'paletteId']);
 
-      // El comercio administra su catálogo y su identidad visual.
-      allow update: if isAdminComercio() && miComercio() == comercioId
-        && cambia(['reglas', 'premios', 'productos', 'logoUrl', 'paletteId']);
-
-      // Consumo del saldo de premios al aprobar un canje: el comercio solo puede bajarlo,
-      // nunca subirlo. Conserva la capacidad que tenía antes del parche sin permitir la
-      // autoacreditación, que es el riesgo real de H-07. En la Fase 1 este descuento pasa a
-      // calcularse en el servidor.
-      allow update: if isAdminComercio() && miComercio() == comercioId
-        && cambia(['saldoPremiosBs'])
-        && request.resource.data.saldoPremiosBs < resource.data.saldoPremiosBs;
-
-      // El contador solo acredita cobros.
-      allow update: if isContador()
-        && cambia(['saldoPremiosBs', 'mesesPagados', 'modalidadPago']);
+      // El alta, la baja y todo lo demás pasan por el backend.
+      allow create, delete: if false;
     }
 
-    // --- cobros_prepago -------------------------------------------------------
+    // --- comercios_privado: datos fiscales y económicos -----------------------
+    // NIT, razón social, plan, mensualidad, costos, saldo prepagado y meses pagados.
+    // Solo lo lee quien lo necesita; no lo escribe nadie desde el cliente (H-07, H-16).
 
-    match /cobros_prepago/{cobroId} {
-      allow read: if isAuth() && (
-        isSuperAdmin() ||
-        isContador() ||
-        (isAdminComercio() && miComercio() == resource.data.comercioId)
-      );
-      allow create: if isAuth() && (isSuperAdmin() || isContador());
-      allow update: if isAuth() && (isSuperAdmin() || (isContador() && resource.data.contadorId == request.auth.uid));
-      allow delete: if isAuth() && (isSuperAdmin() || (isContador() && resource.data.contadorId == request.auth.uid));
+    match /comercios_privado/{comercioId} {
+      allow read: if esSuperAdmin() || esContador() || (esAdminComercio() && esDeMiComercio(comercioId));
+      allow write: if false;
     }
 
-    // --- Colecciones exclusivas del servidor ----------------------------------
-    // Secretos de vendedor, auditoría, control de intentos e idempotencia: el cliente no las
-    // lee ni las escribe nunca, ni siquiera el superadministrador desde el navegador. Solo el
-    // Admin SDK, que no pasa por estas reglas, opera sobre ellas.
+    // --- influencers_publico ---------------------------------------------------
+    // Perfil mínimo del influencer para que un comercio pueda invitarlo: nombre, prefijo,
+    // descripción y redes. Su teléfono y su correo se quedan en `users`.
 
-    match /vendedores_secretos/{uid} {
-      allow read, write: if false;
+    match /influencers_publico/{influencerId} {
+      allow read: if autenticado();
+      allow write: if false;
     }
 
-    match /auditoria/{asientoId} {
-      allow read, write: if false;
-    }
-
-    match /intentos_login_ip/{id} {
-      allow read, write: if false;
-    }
-
-    match /operaciones_idempotentes/{id} {
-      allow read, write: if false;
-    }
-
-    // --- Libro mayor ----------------------------------------------------------
-    // Sin cambios en la Fase 0: estos flujos se mueven a Cloud Functions en la Fase 1
-    // y las reglas se cierran en la Fase 2 (H-05, H-06).
+    // --- Libro mayor: solo lectura, y solo de lo propio -----------------------
 
     match /transacciones/{txId} {
-      allow read: if isAuth() && (
-        isSuperAdmin() ||
-        resource == null ||
-        (isCliente() && resource.data.clienteId == request.auth.uid) ||
-        (isInfluencer() && (resource.data.clienteId == request.auth.uid || resource.data.influencerId == request.auth.uid)) ||
-        ((isAdminComercio() || isVendedor()) && miComercio() == resource.data.comercioId)
+      allow read: if autenticado() && (
+        esSuperAdmin() ||
+        resource.data.clienteId == request.auth.uid ||
+        resource.data.influencerId == request.auth.uid ||
+        esPersonalDe(resource.data.comercioId)
       );
-      allow create: if isAuth() && (
-        isSuperAdmin() ||
-        isVendedor() ||
-        isAdminComercio() ||
-        ((isCliente() || isInfluencer()) && request.resource.data.clienteId == request.auth.uid)
-      );
-      allow update, delete: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
+      allow write: if false;
     }
 
     match /puntos_saldos/{saldoId} {
-      allow read: if isAuth() && (
-        isSuperAdmin() ||
-        resource == null ||
-        ((isCliente() || isInfluencer()) && resource.data.clienteId == request.auth.uid) ||
-        ((isAdminComercio() || isVendedor()) && miComercio() == resource.data.comercioId)
+      allow read: if autenticado() && (
+        esSuperAdmin() ||
+        resource.data.clienteId == request.auth.uid ||
+        esPersonalDe(resource.data.comercioId)
       );
-      allow create: if isAuth() && (
-        isSuperAdmin() ||
-        isVendedor() ||
-        isAdminComercio() ||
-        ((isCliente() || isInfluencer()) && request.resource.data.clienteId == request.auth.uid)
-      );
-      allow update: if isAuth() && (
-        isSuperAdmin() ||
-        isVendedor() ||
-        isAdminComercio() ||
-        ((isCliente() || isInfluencer()) && resource.data.clienteId == request.auth.uid && request.resource.data.clienteId == request.auth.uid)
-      );
-      allow delete: if isAuth() && (isSuperAdmin() || isVendedor() || isAdminComercio());
+      allow write: if false;
     }
 
     match /sesiones_qr/{sesionId} {
-      allow read, write: if isAuth();
+      // Quien la creó sigue su estado; el personal del comercio la ve para cobrarla.
+      allow read: if autenticado() && (
+        esSuperAdmin() ||
+        resource.data.creadorId == request.auth.uid ||
+        esPersonalDe(resource.data.comercioId)
+      );
+      allow write: if false;
     }
 
-    // --- Influencers y códigos ------------------------------------------------
+    match /cobros_prepago/{cobroId} {
+      allow read: if autenticado() && (
+        esSuperAdmin() ||
+        esContador() ||
+        (esAdminComercio() && esDeMiComercio(resource.data.comercioId))
+      );
+      allow write: if false;
+    }
+
+    // --- Campañas de influencer y códigos -------------------------------------
 
     match /asignaciones_influencer/{asignacionId} {
-      allow read: if isAuth();
-      allow update: if isAuth() && (
-        isSuperAdmin() ||
-        isCliente() ||
-        (isAdminComercio() && miComercio() == resource.data.comercioId) ||
-        (isInfluencer() && request.auth.uid == resource.data.influencerId)
+      allow read: if autenticado() && (
+        esSuperAdmin() ||
+        (esAdminComercio() && esDeMiComercio(resource.data.comercioId)) ||
+        (esInfluencer() && resource.data.influencerId == request.auth.uid)
       );
-      allow create: if isAuth() && (
-        isSuperAdmin() ||
-        (isAdminComercio() && miComercio() == request.resource.data.comercioId) ||
-        (isInfluencer() && request.auth.uid == request.resource.data.influencerId)
-      );
-      allow delete: if isAuth() && (
-        isSuperAdmin() ||
-        (isAdminComercio() && miComercio() == resource.data.comercioId) ||
-        (isInfluencer() && request.auth.uid == resource.data.influencerId)
-      );
+      allow write: if false;
     }
 
     match /codigos_influencer/{codigoId} {
-      allow read: if isAuth();
-      allow create: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == request.resource.data.influencerId));
-      allow update: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == resource.data.influencerId));
-      allow delete: if isAuth() && (isSuperAdmin() || (isInfluencer() && request.auth.uid == resource.data.influencerId));
-    }
-
-    match /canjes_codigo/{canjeId} {
-      allow read: if isAuth();
-      allow create: if isAuth() && (isSuperAdmin() || (isCliente() && request.resource.data.clienteId == request.auth.uid));
-      allow update, delete: if isSuperAdmin();
+      allow read: if autenticado() && (
+        esSuperAdmin() ||
+        (esInfluencer() && resource.data.influencerId == request.auth.uid) ||
+        (esAdminComercio() && esDeMiComercio(resource.data.comercioId))
+      );
+      allow write: if false;
     }
 
     match /codigos_comercio/{codigoId} {
-      allow read: if isAuth();
-      allow create: if isAuth() && (isSuperAdmin() || (isAdminComercio() && miComercio() == request.resource.data.comercioId));
-      allow update, delete: if isAuth() && (isSuperAdmin() || (isAdminComercio() && miComercio() == resource.data.comercioId));
+      allow read: if autenticado() && (
+        esSuperAdmin() ||
+        esPersonalDe(resource.data.comercioId)
+      );
+      allow write: if false;
     }
 
-    match /canjes_codigos/{canjeId} {
-      allow read: if isAuth();
-      allow create: if isAuth() && (isSuperAdmin() || (isCliente() && request.resource.data.clienteId == request.auth.uid));
-      allow update, delete: if isSuperAdmin();
+    match /canjes_codigo/{canjeId} {
+      allow read: if autenticado() && (
+        esSuperAdmin() ||
+        resource.data.clienteId == request.auth.uid ||
+        esPersonalDe(resource.data.comercioId)
+      );
+      allow write: if false;
     }
 
-    // Cualquier otra colección: solo el superadministrador, y nunca las colecciones del
-    // servidor. Pasa a `false` en la Fase 2, cuando el libro mayor se escriba únicamente
-    // desde Cloud Functions.
-    match /{coleccion}/{documento=**} {
-      allow read, write: if isSuperAdmin() && !(coleccion in [
-        'vendedores_secretos', 'auditoria', 'intentos_login_ip', 'operaciones_idempotentes'
-      ]);
+    // --- Colecciones exclusivas del servidor ----------------------------------
+    // Secretos de vendedor, auditoría, control de intentos e idempotencia. No se leen ni se
+    // escriben desde el cliente, ni siquiera con sesión de superadministrador.
+
+    match /vendedores_secretos/{uid} { allow read, write: if false; }
+    match /auditoria/{asientoId} { allow read, write: if false; }
+    match /intentos_login_ip/{id} { allow read, write: if false; }
+    match /operaciones_idempotentes/{id} { allow read, write: if false; }
+
+    // --- Denegación por defecto ------------------------------------------------
+    // Cualquier colección que no esté declarada arriba queda cerrada, incluidas las que se
+    // agreguen en el futuro: se abren explícitamente o no se abren.
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
