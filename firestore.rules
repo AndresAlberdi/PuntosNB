@@ -95,9 +95,12 @@ service cloud.firestore {
     match /comercios/{comercioId} {
       allow read: if autenticado();
 
-      // El comercio administra su catálogo y su identidad visual, nada más.
+      // El comercio administra su catálogo y su identidad visual, nada más. El logotipo llega
+      // reducido desde el navegador; el límite evita que alguien guarde la imagen original y la
+      // haga viajar en cada lectura del comercio.
       allow update: if esAdminComercio() && esDeMiComercio(comercioId)
-        && cambiaSolo(['reglas', 'premios', 'productos', 'logoUrl', 'paletteId']);
+        && cambiaSolo(['reglas', 'premios', 'productos', 'logoUrl', 'paletteId'])
+        && (!('logoUrl' in request.resource.data) || request.resource.data.logoUrl.size() < 40000);
 
       // El alta, la baja y todo lo demás pasan por el backend.
       allow create, delete: if false;

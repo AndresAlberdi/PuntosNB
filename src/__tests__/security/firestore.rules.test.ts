@@ -200,6 +200,18 @@ describe('Catálogo del comercio: lista blanca de campos', () => {
     });
   }
 
+  it('el administrador NO puede guardar un logotipo sin reducir', async () => {
+    // El navegador reduce el logotipo a 25 KB antes de enviarlo. Una imagen sin optimizar viajaría
+    // en cada lectura del comercio, que hacen todos los clientes.
+    const enorme = 'data:image/png;base64,' + 'A'.repeat(60_000);
+    await assertFails(updateDoc(doc(db('admin'), 'comercios', COMERCIO), { logoUrl: enorme }));
+  });
+
+  it('el administrador SÍ puede guardar un logotipo ya reducido', async () => {
+    const reducido = 'data:image/webp;base64,' + 'A'.repeat(30_000);
+    await assertSucceeds(updateDoc(doc(db('admin'), 'comercios', COMERCIO), { logoUrl: reducido }));
+  });
+
   it('el administrador NO puede tocar el comercio ajeno', async () => {
     await assertFails(updateDoc(doc(db('adminAjeno'), 'comercios', COMERCIO), { reglas: [] }));
   });

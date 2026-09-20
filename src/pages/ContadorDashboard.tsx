@@ -3,7 +3,7 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Comercio, CobroPrepago, Usuario } from '../types';
-import { optimizeImage } from '../utils/imageOptimizer';
+import { optimizarImagen, resumenOptimizacion } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';
 import { cargarComerciosCompletos } from '../utils/comercios';
 
@@ -387,10 +387,11 @@ export const ContadorDashboard: React.FC = () => {
                     const file = e.target.files?.[0];
                     if (file) {
                       try {
-                        const compressed = await optimizeImage(file, 600, 0.75);
-                        setComprobanteBase64(compressed);
+                        const optimizada = await optimizarImagen(file, 'comprobante');
+                        setComprobanteBase64(optimizada.dataUrl);
+                        setMensaje({ texto: `Comprobante listo: ${resumenOptimizacion(optimizada)}`, tipo: 'success' });
                       } catch (err) {
-                        alert("Error al procesar la imagen del comprobante.");
+                        setMensaje({ texto: err instanceof Error ? err.message : 'No se pudo procesar la imagen.', tipo: 'error' });
                       }
                     }
                   }}

@@ -8,7 +8,7 @@ import { CRMSection } from '../components/CRMSection';
 import { AdminInfluencers } from '../components/AdminInfluencers';
 import { AdminCodigosComercio } from '../components/AdminCodigosComercio';
 import { checkComercioPrepagoStatus } from '../utils/reports';
-import { optimizeImage } from '../utils/imageOptimizer';
+import { optimizarImagen } from '../utils/imageOptimizer';
 
 const AdminDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -632,10 +632,10 @@ const AdminDashboard: React.FC = () => {
                     const file = e.target.files?.[0];
                     if (file) {
                       try {
-                        const compressed = await optimizeImage(file, 300, 0.75);
-                        setProductoFotoBase64(compressed);
+                        const optimizada = await optimizarImagen(file, 'producto');
+                        setProductoFotoBase64(optimizada.dataUrl);
                       } catch (err) {
-                        alert("Error al comprimir la foto");
+                        alert(err instanceof Error ? err.message : 'No se pudo procesar la foto.');
                       }
                     }
                   }}
