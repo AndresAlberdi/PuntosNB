@@ -446,6 +446,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .github/gitleaks.toml
+          # La versión que trae la acción por defecto (8.24) interpreta las listas de excepción
+          # de otra manera: exige que se cumplan todas las condiciones de un bloque a la vez.
+          # Con esta, la allowlist del archivo de configuración se respeta tal como está escrita.
+          GITLEAKS_VERSION: '8.28.0'
           # Obligatoria SOLO cuando el repositorio pertenece a una organización
           # (licencia gratuita en gitleaks.io). En cuentas personales queda vacía.
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
