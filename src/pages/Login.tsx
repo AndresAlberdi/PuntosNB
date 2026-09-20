@@ -328,7 +328,7 @@ const Login: React.FC = () => {
       <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-sm border border-gray-100">
         <div className="flex items-center justify-center gap-2 mb-6 text-brand-primary">
           <img src="/logo-hipatia.png" alt="Hipatia Logo" className="w-10 h-10 object-contain" />
-          <h2 className="text-2xl font-bold tracking-tight">Hipatia{isStaging ? ` (pruebas v${APP_VERSION})` : ''}</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Hipatia{isStaging ? ` (pruebas ${APP_VERSION})` : ''}</h2>
         </div>
         
         {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm font-medium">{error}</div>}

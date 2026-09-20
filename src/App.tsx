@@ -16,7 +16,7 @@ import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'fireb
 import { db } from './firebase';
 import { COLOR_PALETTES, CLIENT_AVATARS, getPaletteStyle } from './utils/theme';
 import { LoadingScreen } from './components/LoadingScreen';
-import { isStaging, APP_TITLE, APP_VERSION } from './utils/env';
+import { isStaging, APP_TITLE, APP_VERSION, VERSION_VISIBLE } from './utils/env';
 import { checkComercioPrepagoStatus } from './utils/reports';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: RolUsuario[] }) => {
@@ -246,9 +246,15 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               />
               <span className="font-black text-xl text-gray-800 tracking-tight flex items-center gap-1.5">
                 Hipatia <span className="text-brand-primary font-bold">Puntos</span>
-                {isStaging && (
+                {isStaging ? (
                   <span className="text-[11px] font-black text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full border border-purple-200 uppercase tracking-tight">
-                    (pruebas v{APP_VERSION})
+                    (pruebas {APP_VERSION})
+                  </span>
+                ) : (
+                  // En producción la versión va discreta, pero visible: permite saber qué está
+                  // corriendo un comercio sin preguntar nada.
+                  <span className="text-[10px] font-medium text-gray-400 tracking-tight" title={`Compilado el ${VERSION_VISIBLE}`}>
+                    {APP_VERSION}
                   </span>
                 )}
               </span>

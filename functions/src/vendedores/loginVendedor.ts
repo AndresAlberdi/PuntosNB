@@ -10,7 +10,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { z } from 'zod';
 import { auth, db } from '../comun/firebase';
-import { opcionesCallable } from '../comun/config';
+import { opcionesLogin } from '../comun/config';
 import { validar } from '../comun/validacion';
 import { conflicto, demasiadosIntentos, errorInterno } from '../comun/errores';
 import { verificarPin, type SecretoPin, PIN_VALIDO } from '../comun/pin';
@@ -28,7 +28,7 @@ const Entrada = z.object({
 /** Mensaje único para usuario inexistente, PIN incorrecto y cuenta sin PIN: no se enumera nada. */
 const CREDENCIAL_INVALIDA = 'Usuario o PIN incorrectos.';
 
-export const loginVendedor = onCall(opcionesCallable, async (req) => {
+export const loginVendedor = onCall(opcionesLogin, async (req) => {
   const { usuario, pin } = validar(Entrada, req.data);
   const ip = req.rawRequest?.ip ?? null;
   const refIp = refIntentosIp(ip);
