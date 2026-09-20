@@ -15,6 +15,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
@@ -169,7 +170,8 @@ try {
   const correoCliente = `cliente.${marca}@${SUFIJO}`;
   const correoVendedor = `vendedor.${marca}@${SUFIJO}`;
 
-  const contrasena = `Prueba-${marca}-${Math.random().toString(36).slice(2, 10)}`;
+  // Cuentas reales, aunque sean de prueba: la contraseña se genera con azar criptográfico.
+  const contrasena = `Prueba-${marca}-${randomBytes(12).toString('base64url')}`;
   const correoSuper = `super.${marca}@${SUFIJO}`;
   await auth.createUser({ uid: uidSuper, email: correoSuper, password: contrasena, displayName: 'Prueba Superadmin' });
   await auth.createUser({ uid: uidCliente, email: correoCliente, password: contrasena, displayName: 'Prueba Cliente' });
