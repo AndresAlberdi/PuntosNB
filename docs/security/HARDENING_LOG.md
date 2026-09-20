@@ -9,7 +9,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 |---|---|---|---|
 | 0 — Línea base y contención | **cerrada** | `hardening/fase-0-linea-base` | 19-sep-2026 |
 | 1 — Backend de confianza | **cerrada**: desplegada y probada en los dos entornos | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
-| 2 — Cierre de reglas y App Check | no iniciada | — | — |
+| 2 — Cierre de reglas y App Check | construida; falta desplegar | `hardening/fase-2-reglas-appcheck` | 19-sep-2026 |
 | 3 — Superficie web y limpieza | no iniciada | — | — |
 | 4 — Cadena de suministro y CI/CD | no iniciada | — | — |
 | 5 — Operación y resiliencia | no iniciada | — | — |
@@ -448,3 +448,99 @@ cuando ya no se use el entorno local contra producción.
 Matiz que conviene tener presente: la restricción por referente **no es una barrera de seguridad**.
 La prueba de extremo a extremo de esta sesión entró sin navegador, enviando la cabecera `Referer`.
 La barrera real es App Check, que se activa en la Fase 2.
+
+
+---
+
+## 19-sep-2026 · Sesión 1 · Fase 2 — Cierre de reglas y App Check
+
+Rama `hardening/fase-2-reglas-appcheck`, desde la de Fase 1.
+
+### Reposición a Epico (decisión de Andrés)
+
+Antes de empezar la fase se repusieron los **10 Bs** que faltaban en el saldo de premios de Epico
+(H-25). Se hizo con `scripts/admin/ajustar-saldo-premios.mjs`, que escribe el ajuste y su asiento de
+auditoría en una sola transacción, con el motivo y quién lo autorizó. No se inventó un cobro: lo
+ocurrido fue una pérdida de saldo, no un pago. Verificado después: Epico queda en 200 Bs, exactamente
+lo cobrado en premios.
+
+Queda una decisión pendiente, menor y comercial: ni Epico (3 Bs) ni Hamburguesas NB (5 Bs) tienen
+descontados los premios que sí entregaron, porque el descuento nunca llegó a aplicarse (H-26). Puede
+dejarse así —a favor del comercio— o regularizarse con el mismo script.
+
+### Reglas basadas en claims
+
+Las reglas dejan de leer Firestore para saber quién es quien: el rol y el comercio salen de
+`request.auth.token`. Desaparecen los `get()` por evaluación —que se facturaban como lecturas— y,
+sobre todo, desaparece la posibilidad de que un documento editable decida un permiso.
+
+- **Comodín final en `false`.** Una colección nueva nace cerrada; se abre explícitamente o no se abre.
+- **El libro mayor es de solo lectura para el cliente**, y solo de lo propio: cada quien ve sus
+  transacciones, sus saldos y los de su comercio.
+- **Listas blancas** para lo único que el cliente escribe: su perfil (nombre, teléfono, paleta,
+  avatar, aceptación de términos) y el catálogo del comercio (reglas, premios, productos, logo,
+  paleta).
+
+### División del comercio
+
+`comercios/{id}` conserva el perfil público. `comercios_privado/{id}` recibe NIT, razón social,
+plan, mensualidad, costos, saldo prepagado y meses pagados, y solo lo leen el superadministrador,
+el contador y el administrador de ese comercio.
+
+Para que la interfaz siga funcionando sin ver montos, el servidor deja en el documento público dos
+señales derivadas: `operativoHasta` y `puedeCanjearPremios`. `checkComercioPrepagoStatus` usa las
+señales cuando no hay datos privados y el cálculo completo cuando los hay.
+
+Los influencers pasan a tener un perfil público mínimo en `influencers_publico`: su teléfono y su
+correo dejan de estar a la vista de cualquier comercio (H-16).
+
+### Lo que faltaba mover al servidor
+
+Funciones nuevas: `crearCodigoComercio` y `cambiarEstadoCodigoComercio` (el código promocional se
+cobra del saldo en la misma transacción en que se crea), `gestionarAsignacionInfluencer` y
+`gestionarCodigoInfluencer` (la bolsa de puntos es moneda: la pone el comercio, nunca el
+influencer), `anularCobroPrepago` —que se niega a anular si el comercio ya gastó ese saldo— y
+`conciliarCobroPrepago`, `cambiarEstadoComercio` y `actualizarPerfilInfluencer`.
+
+### App Check
+
+La aplicación lo inicializa ahora en **los dos entornos**, no solo en producción, con token de
+depuración en desarrollo, y deja de silenciar los errores de arranque (H-10). Las funciones ya
+aceptan exigirlo con la variable `EXIGIR_APP_CHECK`.
+
+Lo que falta es de consola y está en `docs/security/CHECKLIST_APPCHECK.md`: registrar las
+aplicaciones con reCAPTCHA Enterprise, observar las métricas y activar la exigencia cuando más del
+95 % de las solicitudes se vean verificadas durante dos días.
+
+### TTL e índices
+
+`firestore.indexes.json` queda versionado, con los índices compuestos que usan las consultas del
+backend y con la política **TTL sobre `sesiones_qr.expiresAt`**: las sesiones vencidas se borran
+solas en lugar de acumularse (hay 56 en pruebas, 24 de ellas pendientes desde hace más de un día).
+
+### Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `tsc` cliente y functions | limpios |
+| `eslint` cliente | 76 problemas (69 errores) preexistentes; eran 94 al empezar el hardening |
+| `eslint` functions | limpio |
+| `npm test` | 40 pruebas |
+| `npm run test:rules` | **345 pruebas**, matriz rol × colección × operación |
+| `npm run test:functions` | **50 pruebas** de integración |
+| `build:prod` y `build:staging` | correctos |
+
+La matriz de reglas cubre once identidades (incluida la anónima y una con token sin rol) contra
+quince colecciones, en lectura y escritura, más los casos de lista blanca y de frontera entre
+comercios. El plan pedía sesenta casos como objetivo.
+
+### Pendiente para cerrar la fase
+
+El despliegue, en este orden, que evita dejar la interfaz sin datos en ningún momento:
+
+1. Funciones (las nuevas no afectan al cliente viejo).
+2. *Hosting* con el cliente nuevo, que todavía lee los montos del documento público.
+3. Reglas e índices.
+4. Migración `scripts/admin/migrar-fase2.mjs`, que separa los documentos y crea los perfiles
+   públicos de influencer.
+5. Prueba de extremo a extremo y revisión de los cuatro flujos.
