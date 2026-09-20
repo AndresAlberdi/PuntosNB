@@ -134,6 +134,27 @@ service cloud.firestore {
       allow delete: if isAuth() && (isSuperAdmin() || (isContador() && resource.data.contadorId == request.auth.uid));
     }
 
+    // --- Colecciones exclusivas del servidor ----------------------------------
+    // Secretos de vendedor, auditoría, control de intentos e idempotencia: el cliente no las
+    // lee ni las escribe nunca, ni siquiera el superadministrador desde el navegador. Solo el
+    // Admin SDK, que no pasa por estas reglas, opera sobre ellas.
+
+    match /vendedores_secretos/{uid} {
+      allow read, write: if false;
+    }
+
+    match /auditoria/{asientoId} {
+      allow read, write: if false;
+    }
+
+    match /intentos_login_ip/{id} {
+      allow read, write: if false;
+    }
+
+    match /operaciones_idempotentes/{id} {
+      allow read, write: if false;
+    }
+
     // --- Libro mayor ----------------------------------------------------------
     // Sin cambios en la Fase 0: estos flujos se mueven a Cloud Functions en la Fase 1
     // y las reglas se cierran en la Fase 2 (H-05, H-06).
@@ -228,10 +249,13 @@ service cloud.firestore {
       allow update, delete: if isSuperAdmin();
     }
 
-    // Cualquier otra colección: solo el superadministrador. Pasa a `false` en la Fase 2,
-    // cuando el libro mayor se escriba únicamente desde Cloud Functions.
-    match /{document=**} {
-      allow read, write: if isSuperAdmin();
+    // Cualquier otra colección: solo el superadministrador, y nunca las colecciones del
+    // servidor. Pasa a `false` en la Fase 2, cuando el libro mayor se escriba únicamente
+    // desde Cloud Functions.
+    match /{coleccion}/{documento=**} {
+      allow read, write: if isSuperAdmin() && !(coleccion in [
+        'vendedores_secretos', 'auditoria', 'intentos_login_ip', 'operaciones_idempotentes'
+      ]);
     }
   }
 }

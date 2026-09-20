@@ -32,8 +32,8 @@ async function sembrar(comercio: Partial<Record<string, unknown>> = {}): Promise
   });
 }
 
-const comoVendedor = () => sesionComo(VENDEDOR, { rol: 'vendedor', comercioId: COMERCIO });
-const comoCliente = () => sesionComo(CLIENTE, { rol: 'cliente' });
+const comoVendedor = (): Promise<string> => sesionComo(VENDEDOR, { rol: 'vendedor', comercioId: COMERCIO });
+const comoCliente = (): Promise<string> => sesionComo(CLIENTE, { rol: 'cliente' });
 
 beforeEach(async () => {
   await limpiar('users', 'comercios', 'sesiones_qr', 'transacciones', 'puntos_saldos', 'auditoria',
