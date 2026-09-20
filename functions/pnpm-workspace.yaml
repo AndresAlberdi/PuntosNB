@@ -1,5 +1,0 @@
-# Mismo criterio que en la raíz: ningún paquete ejecuta scripts al instalarse.
-allowBuilds:
-  protobufjs: false
-  re2: false
-  '@firebase/util': false

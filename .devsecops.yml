@@ -37,47 +37,47 @@ seguridad:
       herramienta: gitleaks
       justificacion: "Configuración web pública de Firebase (clave de API y clave de sitio de reCAPTCHA); no es un secreto."
       aprobado_por: "Andres Alberdi"
-      creado: 2026-09-20
-      vence: 2027-03-20
+      creado: "2026-09-20"
+      vence: "2027-03-20"
     - id: "c93dcd2297c05a1164fd3b1ae8bf185abce0fd81:.env.staging:generic-api-key:9"
       herramienta: gitleaks
       justificacion: "Configuración web pública de Firebase (clave de API y clave de sitio de reCAPTCHA); no es un secreto."
       aprobado_por: "Andres Alberdi"
-      creado: 2026-09-20
-      vence: 2027-03-20
+      creado: "2026-09-20"
+      vence: "2027-03-20"
     - id: "af5d952856e633723e5612d9acbcd8f9a17c3986:.env.production:generic-api-key:9"
       herramienta: gitleaks
       justificacion: "Configuración web pública de Firebase (clave de API y clave de sitio de reCAPTCHA); no es un secreto."
       aprobado_por: "Andres Alberdi"
-      creado: 2026-09-20
-      vence: 2027-03-20
+      creado: "2026-09-20"
+      vence: "2027-03-20"
     - id: "d3a37766ef30b415665f85dc4a5269bd2c993a7e:.env.production:gcp-api-key:2"
       herramienta: gitleaks
       justificacion: "Configuración web pública de Firebase (clave de API y clave de sitio de reCAPTCHA); no es un secreto."
       aprobado_por: "Andres Alberdi"
-      creado: 2026-09-20
-      vence: 2027-03-20
+      creado: "2026-09-20"
+      vence: "2027-03-20"
     - id: "3f3929a8a3624084d90e10d6ed0ef8fb674e222e:.env.production:gcp-api-key:2"
       herramienta: gitleaks
       justificacion: "Configuración web pública de Firebase (clave de API y clave de sitio de reCAPTCHA); no es un secreto."
       aprobado_por: "Andres Alberdi"
-      creado: 2026-09-20
-      vence: 2027-03-20
+      creado: "2026-09-20"
+      vence: "2027-03-20"
     - id: "d3a37766ef30b415665f85dc4a5269bd2c993a7e:.env.staging:gcp-api-key:2"
       herramienta: gitleaks
       justificacion: "Configuración web pública de Firebase (clave de API y clave de sitio de reCAPTCHA); no es un secreto."
       aprobado_por: "Andres Alberdi"
-      creado: 2026-09-20
-      vence: 2027-03-20
+      creado: "2026-09-20"
+      vence: "2027-03-20"
     - id: "3f3929a8a3624084d90e10d6ed0ef8fb674e222e:.env.staging:gcp-api-key:2"
       herramienta: gitleaks
       justificacion: "Configuración web pública de Firebase (clave de API y clave de sitio de reCAPTCHA); no es un secreto."
       aprobado_por: "Andres Alberdi"
-      creado: 2026-09-20
-      vence: 2027-03-20
+      creado: "2026-09-20"
+      vence: "2027-03-20"
     - id: "3bf460ae4d063682ab00054006452ebed05f93d4:src/firebase.ts:gcp-api-key:6"
       herramienta: gitleaks
       justificacion: "Configuración web pública de Firebase (clave de API y clave de sitio de reCAPTCHA); no es un secreto."
       aprobado_por: "Andres Alberdi"
-      creado: 2026-09-20
-      vence: 2027-03-20
+      creado: "2026-09-20"
+      vence: "2027-03-20"
