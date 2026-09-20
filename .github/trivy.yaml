@@ -1,0 +1,109 @@
+# =============================================================================
+# trivy.yaml — Configuración base de Trivy (fs, image, config)
+# Versión: 2.1 | Fecha: 2026-09-12 | Destino: .github/trivy.yaml
+# -----------------------------------------------------------------------------
+# Los workflows pasan `trivy-config: .github/trivy.yaml`. Los parámetros
+# explícitos (flags como --severity o --exit-code, y variables TRIVY_*) tienen
+# prioridad sobre este archivo —medido con Trivy 0.70.0—; aquí van los valores
+# comunes y las exclusiones.
+# Referencia: https://trivy.dev/latest/docs/references/configuration/config-file/
+#
+# 2.1 (2026-09-12): corregido el comentario sobre `severity`, que afirmaba lo
+# contrario de lo que hace Trivy; quitada la lista de escáneres de
+# misconfiguración (dos entradas inválidas hacían que Trivy la descartara
+# entera); `vulnerability.type` pasa a `pkg.types`; se incluyen las
+# dependencias de desarrollo. Una copia que diga 2.0 está desactualizada.
+# =============================================================================
+
+# Tiempo máximo por escaneo (imágenes grandes o monorepos)
+timeout: 10m
+
+# NO se declara `severity` aquí. Es deliberado, aunque no por la razón que daba
+# la versión 2.0.
+#
+# Precedencia medida (Trivy 0.70.0): `--severity` y `TRIVY_SEVERITY` le ganan a
+# este archivo. Un `severity` aquí solo pesa cuando nadie pasa la severidad por
+# otra vía, y ahí haría justo lo que no queremos: fijar un umbral distinto del
+# `bloquear_en` de `.devsecops.yml`.
+#
+# La trampa real está en trivy-action: con `format: sarif` BORRA
+# `TRIVY_SEVERITY` salvo que se pase `limit-severities-for-sarif: true`
+# (entrypoint.sh de v0.36.0). Sin ese parámetro Trivy vuelve a todas las
+# severidades y, con `exit-code: 1`, bloquea por un hallazgo LOW. Así se vio en
+# novuchat-site (2026-09-02, CVE-2026-41907 MEDIA en `uuid`) y en
+# FirmasNoCualificadas (AWS-0099 y AWS-0124, LOW). `_reusable-security.yml` lo
+# pasa desde esta versión.
+#
+# Síntoma para reconocerlo: `seguridad-estatica` en rojo con un resumen que solo
+# lista MEDIUM o LOW.
+
+# Código de salida cuando hay hallazgos de las severidades indicadas.
+# security-local.sh lo anula con --exit-code 0 y aplica el umbral al consolidar.
+exit-code: 1
+
+# Escáneres por defecto para `trivy fs` (los workflows los acotan con --scanners)
+scan:
+  scanners:
+    - vuln
+    - misconfig
+    - secret
+  skip-dirs:
+    - node_modules
+    - .git
+    - dist
+    - build
+    - coverage
+    - .venv
+    - venv
+    - .terraform
+  skip-files:
+    - "**/*.min.js"
+    - "**/*.map"
+
+pkg:
+  # Tipos: os (paquetes del SO de la imagen) y library (dependencias de la app).
+  # Antes era `vulnerability.type`, que Trivy 0.70 marca como obsoleta.
+  types:
+    - os
+    - library
+  # Incluye devDependencies (medido con npm y pnpm). Corren en el CI con acceso
+  # a secretos al instalar, compilar y probar: un paquete malicioso ahí es un
+  # ataque de cadena de suministro. Sin esto, un paquete que solo tiene
+  # dependencias de desarrollo —un SDK, por ejemplo— no se analiza.
+  include-dev-deps: true
+
+vulnerability:
+  # No bloquear por CVEs sin parche disponible: no hay acción posible salvo
+  # cambiar la imagen base. Se registran en el informe.
+  ignore-unfixed: true
+
+misconfiguration:
+  include-non-failures: false
+  # Sin lista de escáneres: se usan los de Trivy por defecto (terraform,
+  # dockerfile, kubernetes, helm, cloudformation, azure-arm, ansible…).
+  # La 2.0 declaraba `dockercompose` y `github-actions`, que Trivy 0.70 no
+  # reconoce: registraba «Invalid misconfiguration scanners provided, using
+  # default scanners» y descartaba la lista entera. Quitar solo esas dos
+  # entradas habría ACHICADO la cobertura: la lista pasa a respetarse, y no
+  # incluía cloudformation ni azure-arm. Los workflows de GitHub Actions los
+  # revisa Checkov (reglas CKV_GHA_*).
+
+secret:
+  # Gitleaks es el escáner principal de secretos; Trivy actúa como red de
+  # seguridad en imágenes (capas con .env, claves, tokens).
+  config: .github/trivy-secret.yaml # opcional; si no existe se ignora
+
+db:
+  # Se descarga la base de vulnerabilidades en cada run (caché en el runner).
+  # Para reducir descargas en repos con muchos runs, considere un mirror OCI.
+  skip-update: false
+
+cache:
+  # Recuerde ignorar este directorio en git (.gitignore: .trivy-cache/)
+  dir: .trivy-cache
+
+# Excepciones (D5): la ÚNICA fuente es `seguridad.excepciones[]` del manifiesto
+# .devsecops.yml. El archivo .trivyignore.yaml se GENERA en runtime desde el
+# manifiesto (_reusable-security.yml y security-local.sh); NO se edita a mano
+# ni se versiona.
+ignorefile: .trivyignore.yaml # generado desde .devsecops.yml

@@ -30,3 +30,17 @@ dist-ssr
 !.env.staging
 !.env.production
 
+.deploy-log/
+.security-reports/
+*.pem
+*.key
+serviceAccountKey*.json
+*-sa-key.json
+tfplan*
+.terraform/
+*.tfstate*
+*.auto.tfvars
+secrets.tfvars
+.trivy-cache/
+.trivyignore.yaml
+.gitleaksignore

@@ -1,0 +1,193 @@
+# =============================================================================
+# release.yml — Versionado SemVer, CHANGELOG, tag anotado y GitHub Release
+# Versión: 2.0 | Fecha: 2026-08-24
+# -----------------------------------------------------------------------------
+# Producción SOLO se despliega desde un tag vX.Y.Z (00-gobernanza/02-flujo-git).
+# Este workflow NO escribe en main (D2: el ruleset de main no tiene bypass).
+# Crea el tag de forma reproducible:
+#   1. Calcula la siguiente versión a partir del último tag v* (patch | minor |
+#      major elegido a mano, o `auto` por Conventional Commits: `feat:` → minor,
+#      `!`/`BREAKING CHANGE` → major, resto → patch).
+#   2. Genera el CHANGELOG del rango de tags desde `git log`; va al CUERPO de
+#      la GitHub Release y se adjunta como asset `CHANGELOG-vX.Y.Z.md`.
+#      No se versiona ningún CHANGELOG.md en main.
+#   3. Crea el tag anotado y la GitHub Release (immutable releases si la org
+#      lo activó).
+#   4. Disparo de producción:
+#      - Con `secrets.RELEASE_TOKEN` (PAT fine-grained `contents: write`, u
+#        opcionalmente token de GitHub App): el push del tag SÍ dispara
+#        `on: push: tags` de los ci-*.yml y no hace falta nada más.
+#      - Sin RELEASE_TOKEN (los tags creados con GITHUB_TOKEN no disparan
+#        eventos push): se lanza `gh workflow run vars.WORKFLOW_PRODUCCION
+#        --ref vX.Y.Z` con los inputs tag/confirmar que exigen los ci-*.yml.
+#
+# Modo B0 (privado Free): sin Environments, el tag es la única compuerta.
+# Exija tags FIRMADOS: ruleset sobre `refs/tags/v*` con "Require signed
+# commits" + "Restrict creations" a un equipo, y cree el tag con `git tag -s`
+# desde una máquina con llave GPG/SSH (este workflow no firma: no debe haber
+# llaves privadas de firma en el repositorio; si se necesita, use un secreto
+# GPG_PRIVATE_KEY importado en runtime y borrado al final, y limite quién
+# puede ejecutar el workflow con el ruleset de la rama).
+# =============================================================================
+name: Release (SemVer)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tipo:
+        description: Incremento de versión
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      prerelease:
+        description: Marcar como pre-release (no despliega a producción)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Crear versión y tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Solo desde main: evita publicar versiones desde ramas de trabajo.
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write # crear tag y Release
+      actions: write  # gh workflow run (disparar producción)
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout con historial y tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # Si existe RELEASE_TOKEN el push del tag dispara `on: push: tags`
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Calcular siguiente versión SemVer
+        id: version
+        env:
+          TIPO_ENTRADA: ${{ inputs.tipo }}
+        run: |
+          set -euo pipefail
+          ultimo=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo "v0.0.0")
+          base=${ultimo#v}
+          IFS=. read -r mayor menor parche <<< "$base"
+          rango="${ultimo}..HEAD"
+          [[ "$ultimo" == "v0.0.0" ]] && rango="HEAD"
+          commits=$(git log --format='%s%n%b' "$rango")
+          if [[ -z "$(git log --format=%h "$rango")" ]]; then
+            echo "::error::No hay commits nuevos desde $ultimo"; exit 1
+          fi
+          tipo="$TIPO_ENTRADA"
+          if [[ "$tipo" == "auto" ]]; then
+            if grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING CHANGE:' <<< "$commits"; then tipo="major"
+            elif grep -qE '^feat(\([^)]*\))?:' <<< "$commits"; then tipo="minor"
+            else tipo="patch"; fi
+          fi
+          case "$tipo" in
+            major) mayor=$((mayor+1)); menor=0; parche=0 ;;
+            minor) menor=$((menor+1)); parche=0 ;;
+            patch) parche=$((parche+1)) ;;
+          esac
+          version="v${mayor}.${menor}.${parche}"
+          if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+            echo "::error::El tag $version ya existe"; exit 1
+          fi
+          {
+            echo "version=$version"; echo "anterior=$ultimo"; echo "tipo=$tipo"; echo "rango=$rango"
+          } >> "$GITHUB_OUTPUT"
+          echo "Versión: $ultimo → $version ($tipo)"
+
+      - name: Generar CHANGELOG agrupado por tipo (Conventional Commits)
+        id: changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ANTERIOR: ${{ steps.version.outputs.anterior }}
+          RANGO: ${{ steps.version.outputs.rango }}
+        run: |
+          set -euo pipefail
+          seccion() { # $1=título $2=regex de tipo
+            local lineas
+            lineas=$(git log --no-merges --format='- %s (%h)' "$RANGO" | grep -E "^- $2" || true)
+            [[ -n "$lineas" ]] && printf '### %s\n%s\n\n' "$1" "$lineas"
+          }
+          {
+            echo "## $VERSION ($(date -u +%Y-%m-%d))"
+            [[ "$ANTERIOR" != "v0.0.0" ]] && echo "Cambios desde $ANTERIOR — [comparar](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${ANTERIOR}...${VERSION})"
+            echo ""
+            seccion "Cambios incompatibles" '[a-z]+(\([^)]*\))?!:'
+            seccion "Funcionalidades" 'feat(\([^)]*\))?:'
+            seccion "Correcciones" 'fix(\([^)]*\))?:'
+            seccion "Seguridad" '(sec|security)(\([^)]*\))?:'
+            seccion "Rendimiento" 'perf(\([^)]*\))?:'
+            seccion "Refactorización" 'refactor(\([^)]*\))?:'
+            seccion "Documentación" 'docs(\([^)]*\))?:'
+            seccion "Mantenimiento" '(chore|build|ci|test|style)(\([^)]*\))?:'
+            seccion "Otros" '[^a-z]|[a-z]+[^:(!]*$'
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
+          # Copia con nombre versionado: se adjunta como ASSET de la Release
+          # (D2: no se versiona ningún CHANGELOG.md en main).
+          cp RELEASE_NOTES.md "CHANGELOG-${VERSION}.md"
+
+      - name: Crear y publicar el tag anotado (sin tocar main)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Tag ANOTADO (con autor, fecha y mensaje). release.yml no firma tags:
+          # si vars.TAG_FIRMADO_REQUERIDO == 'true', cree el tag con `git tag -s`
+          # desde la estación del responsable (no debe haber llaves privadas de
+          # firma en el repositorio).
+          git tag -a "$VERSION" -F RELEASE_NOTES.md
+          # Con RELEASE_TOKEN (token del checkout) este push dispara
+          # `on: push: tags` en los ci-*.yml; con GITHUB_TOKEN no genera eventos.
+          git push origin "refs/tags/$VERSION"
+
+      - name: Crear GitHub Release (changelog en el cuerpo y como asset)
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          body_path: RELEASE_NOTES.md
+          files: CHANGELOG-${{ steps.version.outputs.version }}.md
+          prerelease: ${{ inputs.prerelease }}
+          make_latest: ${{ !inputs.prerelease }}
+          generate_release_notes: false
+
+      - name: Comprobar si existe RELEASE_TOKEN
+        id: rt
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [[ -n "${RELEASE_TOKEN:-}" ]]; then
+            echo "existe=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "existe=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Disparar despliegue a producción (respaldo sin RELEASE_TOKEN)
+        # Solo si NO hay RELEASE_TOKEN (el push del tag no generó eventos), hay
+        # vars.WORKFLOW_PRODUCCION (p. ej. ci-node-firebase.yml) y no es
+        # pre-release (los prerelease nunca despliegan producción).
+        if: steps.rt.outputs.existe == 'false' && vars.WORKFLOW_PRODUCCION != '' && !inputs.prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          WF: ${{ vars.WORKFLOW_PRODUCCION }}
+        run: |
+          set -euo pipefail
+          # tag + confirmar=DESPLEGAR son los inputs que exigen los ci-*.yml
+          # (D3); quien ejecuta release.yml debe estar en vars.APROBADORES_PROD.
+          gh workflow run "$WF" --ref "$VERSION" -f "tag=$VERSION" -f confirmar=DESPLEGAR
+          echo "Despliegue de producción lanzado: $WF @ $VERSION" >> "$GITHUB_STEP_SUMMARY"

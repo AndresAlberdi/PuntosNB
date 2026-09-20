@@ -1,0 +1,110 @@
+# =============================================================================
+# gitleaks.toml — Configuración de Gitleaks para _reusable-security.yml,
+#                 pre-commit y security-local.sh
+# Versión: 2.0 | Fecha: 2026-08-24 | Destino: .github/gitleaks.toml
+# -----------------------------------------------------------------------------
+# Extiende la configuración por defecto de Gitleaks (≈170 reglas: AWS, GCP,
+# GitHub, Slack, claves privadas, JWT, etc.) y añade:
+#   - Reglas propias para credenciales de OCI y GCP que el default no cubre
+#     bien (config de OCI con fingerprint + OCID, JSON de service account).
+#   - Allowlist de rutas de pruebas/fixtures/documentación (con cuidado:
+#     un secreto real en un fixture sigue siendo un secreto; la allowlist solo
+#     evita falsos positivos de datos claramente sintéticos).
+# Sintaxis de Gitleaks >= 8.21 ([[allowlists]]). Verificar con:
+#   gitleaks detect --config .github/gitleaks.toml --redact -v
+# =============================================================================
+title = "Estándar DevSecOps — Gitleaks"
+
+[extend]
+useDefault = true
+# Para desactivar reglas del default con justificación (ID exacto):
+# disabledRules = ["generic-api-key"]
+
+# -----------------------------------------------------------------------------
+# Reglas propias
+# -----------------------------------------------------------------------------
+
+[[rules]]
+id = "oci-api-key-config"
+description = "Bloque de configuración de OCI (~/.oci/config) con fingerprint y OCIDs"
+regex = '''(?i)fingerprint\s*=\s*([0-9a-f]{2}:){15}[0-9a-f]{2}'''
+keywords = ["fingerprint"]
+tags = ["oci", "config"]
+
+[[rules]]
+id = "oci-ocid-user-or-tenancy"
+description = "OCID de usuario/tenancy fuera de IaC (suele acompañar a una API key en archivos de config)"
+regex = '''ocid1\.(user|tenancy)\.oc1\.\.[a-z0-9]{40,}'''
+keywords = ["ocid1.user", "ocid1.tenancy"]
+tags = ["oci", "identificador"]
+# Los OCID por sí solos no son secretos, pero en un ~/.oci/config o .env
+# copiado al repo delatan una credencial completa. Se permiten en IaC y en
+# el manifiesto, donde son referencias legítimas.
+[[rules.allowlists]]
+paths = ['''(^|/)infra/.*\.tf$''', '''\.tfvars(\.example)?$''', '''(^|/)\.devsecops\.yml$''']
+
+[[rules]]
+id = "oci-auth-token"
+description = "Auth token de OCI (usado para OCIR/Docker login)"
+regex = '''(?i)(oci[_-]?auth[_-]?token|OCIR_TOKEN)\s*[:=]\s*['"]?[A-Za-z0-9#$%&()*+,\-.:;<=>?@\[\]^_{|}~]{20,}['"]?'''
+keywords = ["oci_auth_token", "OCIR_TOKEN", "oci-auth-token"]
+tags = ["oci", "token"]
+
+[[rules]]
+id = "gcp-service-account-json"
+description = "JSON de service account de GCP (type service_account + private_key_id)"
+regex = '''"type"\s*:\s*"service_account"'''
+keywords = ["service_account"]
+tags = ["gcp", "credencial"]
+# El estándar prohíbe JSON de SA en repositorios: siempre WIF.
+
+[[rules]]
+id = "gcp-api-key"
+description = "Clave de API de Google (AIza...) fuera de archivos de configuración pública de Firebase"
+regex = '''AIza[0-9A-Za-z\-_]{35}'''
+keywords = ["AIza"]
+tags = ["gcp", "api-key"]
+[[rules.allowlists]]
+# Las API keys web de Firebase son públicas por diseño (se protegen con App
+# Check y restricciones de referer); se permiten solo en estos archivos.
+paths = ['''(^|/)firebase(-config)?\.(js|ts|json)$''', '''(^|/)\.env\.(staging|production)\.example$''']
+
+[[rules]]
+id = "firebase-token-ci"
+description = "FIREBASE_TOKEN de `firebase login:ci` (deprecado y prohibido por el estándar)"
+regex = '''1//0[A-Za-z0-9_\-]{40,}'''
+keywords = ["1//0"]
+tags = ["firebase", "token"]
+
+# -----------------------------------------------------------------------------
+# Allowlist global (aplica a todas las reglas)
+# -----------------------------------------------------------------------------
+[[allowlists]]
+description = "Rutas de pruebas, fixtures, documentación y artefactos generados"
+paths = [
+  '''(^|/)(test|tests|__tests__|spec|fixtures|__fixtures__|mocks|__mocks__)/''',
+  '''\.(test|spec)\.(js|jsx|ts|tsx|py)$''',
+  '''(^|/)docs?/.*\.md$''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)pnpm-lock\.yaml$''',
+  '''(^|/)yarn\.lock$''',
+  '''(^|/)poetry\.lock$''',
+  '''(^|/)uv\.lock$''',
+  '''(^|/)go\.sum$''',
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)coverage/''',
+  '''\.min\.(js|css)$''',
+  '''\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|pdf)$''',
+  '''(^|/)\.gitleaks\.toml$''',
+  '''(^|/)\.github/gitleaks\.toml$''',
+]
+
+[[allowlists]]
+description = "Valores claramente sintéticos usados en ejemplos y plantillas"
+regexes = [
+  '''(?i)(ejemplo|example|dummy|placeholder|changeme|xxxxxxxx|REEMPLAZAR|<[A-Z_]+>)''',
+  '''AKIAIOSFODNN7EXAMPLE''',
+  '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
+]
+stopwords = ["ejemplo", "example", "placeholder", "sample"]

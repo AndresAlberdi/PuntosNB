@@ -1,0 +1,715 @@
+# =============================================================================
+# ci-node-firebase.yml — Pipeline completo SPA Node/React (Vite/Vitest)
+#                        → Firebase Hosting + reglas de Firestore
+# Versión: 2.0 | Fecha: 2026-08-24
+# -----------------------------------------------------------------------------
+# Flujo (ver 00-gobernanza/02-flujo-git-y-versionado.md):
+#   PR → main ............ preparar, calidad, seguridad-estatica, construir
+#   push main ............ + desplegar-staging → dast-y-humo
+#   push tag v* .......... + desplegar-produccion (Environment production)
+#                            → post-despliegue (health check + rollback)
+#   workflow_dispatch .... Modo B0: producción manual con confirmar=DESPLEGAR
+#
+# Identidad: Workload Identity Federation (sin JSON de service account).
+# FirebaseExtended/action-hosting-deploy NO se usa porque solo acepta JSON de
+# SA; en su lugar google-github-actions/auth (impersonación) + firebase-tools
+# fijado, que soporta ADC (external_account) desde 15.x.
+#
+# Secretos: GCP_WIF_PROVIDER, GCP_SA_DEPLOY_STAGING, GCP_SA_DEPLOY_PROD
+#           (+ GITLEAKS_LICENSE / SNYK_TOKEN opcionales, heredados)
+# Variables: MODO, APROBADORES_PROD, TAG_FIRMADO_REQUERIDO, GCP_PROJECT_ID_STAGING,
+#            GCP_PROJECT_ID_PROD, STAGING_URL, PROD_URL, HEALTH_PATH,
+#            NODE_VERSION (22), COVERAGE_MIN (70), GHAS_ENABLED, BLOQUEAR_EN,
+#            FIREBASE_DEPLOY_ONLY ('hosting,firestore:rules'),
+#            FIREBASE_SITE_ID, FIREBASE_PREVIEW ('true' para canales de PR)
+# =============================================================================
+name: CI/CD Node → Firebase
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag vX.Y.Z ya creado (debe ser ancestro de main)
+        type: string
+        required: true
+      confirmar:
+        description: Escriba DESPLEGAR para publicar en producción desde el tag
+        type: string
+        required: true
+
+# Mínimo global; cada job eleva lo que necesita.
+permissions:
+  contents: read
+
+# Un solo run activo por rama/tag. En producción NO se cancela un despliegue
+# en curso (concurrency propia en el job).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: ${{ vars.NODE_VERSION || '22' }}
+  # firebase-tools fijado: verificar en npm antes de subir de versión (hubo una
+  # regresión de ADC en 15.22.2, jun-2026).
+  FIREBASE_TOOLS_VERSION: '15.28.1'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fase 0 — preparar: detecta el gestor de paquetes y calienta la caché.
+  # ---------------------------------------------------------------------------
+  preparar:
+    name: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      pm: ${{ steps.pm.outputs.pm }}
+      instalar: ${{ steps.pm.outputs.instalar }}
+      # true si package.json define el script test:rules (pruebas de Firestore)
+      hay_test_rules: ${{ steps.pm.outputs.hay_test_rules }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # En workflow_dispatch se analiza/despliega el tag aprobado (D3)
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Detectar gestor de paquetes
+        id: pm
+        run: |
+          set -euo pipefail
+          if   [[ -f pnpm-lock.yaml ]]; then pm=pnpm; instalar="pnpm install --frozen-lockfile"
+          elif [[ -f yarn.lock ]];      then pm=yarn; instalar="yarn install --immutable"
+          else                                pm=npm;  instalar="npm ci"; fi
+          hay_test_rules=$(jq -r 'if .scripts["test:rules"] then "true" else "false" end' package.json)
+          {
+            echo "pm=$pm"; echo "instalar=$instalar"; echo "hay_test_rules=$hay_test_rules"
+          } >> "$GITHUB_OUTPUT"
+          echo "Gestor: $pm | test:rules: $hay_test_rules"
+
+      - name: Habilitar corepack (pnpm/yarn)
+        if: steps.pm.outputs.pm != 'npm'
+        run: corepack enable
+
+      - name: Node.js con caché
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ steps.pm.outputs.pm }}
+
+      - name: Instalar dependencias (calienta la caché para los demás jobs)
+        run: ${{ steps.pm.outputs.instalar }}
+
+  # ---------------------------------------------------------------------------
+  # Fase 1 — calidad: lint + pruebas con cobertura mínima + reglas Firestore.
+  # ---------------------------------------------------------------------------
+  calidad:
+    name: calidad
+    needs: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COVERAGE_MIN: ${{ vars.COVERAGE_MIN || 70 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # En workflow_dispatch se analiza/despliega el tag aprobado (D3)
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Habilitar corepack
+        if: needs.preparar.outputs.pm != 'npm'
+        run: corepack enable
+
+      - name: Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ needs.preparar.outputs.pm }}
+
+      - name: Instalar dependencias
+        run: ${{ needs.preparar.outputs.instalar }}
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Verificación de tipos (si existe el script)
+        run: npm run typecheck --if-present
+
+      - name: Pruebas unitarias con cobertura (Vitest)
+        # json-summary es lo que lee el umbral; text es para el log.
+        run: >-
+          npm test --
+          --run --coverage
+          --coverage.reporter=text --coverage.reporter=json-summary
+
+      - name: Umbral de cobertura (COVERAGE_MIN=${{ env.COVERAGE_MIN }} %)
+        run: |
+          set -euo pipefail
+          archivo=coverage/coverage-summary.json
+          if [[ ! -f "$archivo" ]]; then
+            echo "::error::No existe $archivo. Habilite coverage en vitest.config (provider v8/istanbul)."
+            exit 1
+          fi
+          lineas=$(jq -r '.total.lines.pct' "$archivo")
+          echo "Cobertura de líneas: $lineas % (mínimo $COVERAGE_MIN %)"
+          echo "### Cobertura: $lineas % (mínimo $COVERAGE_MIN %)" >> "$GITHUB_STEP_SUMMARY"
+          if (( $(echo "$lineas < $COVERAGE_MIN" | bc -l) )); then
+            echo "::error::Cobertura $lineas % por debajo del mínimo $COVERAGE_MIN %"
+            exit 1
+          fi
+
+      - name: Pruebas de reglas de Firestore (emulador)
+        if: needs.preparar.outputs.hay_test_rules == 'true'
+        # El emulador necesita Java (preinstalado en ubuntu-latest).
+        run: >-
+          npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
+          emulators:exec --only firestore --project demo-pruebas
+          "npm run test:rules"
+
+  # ---------------------------------------------------------------------------
+  # Fase 2 — seguridad-estatica: reusable OSS (todos los modos).
+  # NOTA: en el repositorio del proyecto la ruta es local
+  # (./.github/workflows/_reusable-security.yml); bootstrap-repo.sh copia el
+  # archivo. se mapean GITLEAKS_LICENSE y SNYK_TOKEN si existen.
+  # subir_sarif: solo cuando Code Scanning está disponible (público o GHAS).
+  # ---------------------------------------------------------------------------
+  seguridad-estatica:
+    name: seguridad-estatica
+    needs: preparar
+    permissions:
+      contents: read
+      # security-events: write solo lo usa el reusable cuando subir_sarif = true
+      # (Code Scanning en Modo A/B). No se concede pull-requests: write: los
+      # escáneres no comentan en el PR.
+      security-events: write
+      actions: read
+    uses: ./.github/workflows/_reusable-security.yml
+    with:
+      ruta: '.'
+      stack: node
+      bloquear_en: ${{ vars.BLOQUEAR_EN || 'CRITICAL,HIGH' }}
+      subir_sarif: ${{ github.event.repository.visibility == 'public' || vars.GHAS_ENABLED == 'true' }}
+      ref: ${{ inputs.tag || '' }}
+    # Mínimo privilegio: solo los dos secretos que el reusable declara en
+    # `on.workflow_call.secrets` (ambos opcionales). `secrets: inherit`
+    # pasaba también los de despliegue, que ningún escáner necesita.
+    secrets:
+      GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Fase 3 — construir: build de producción (Vite). APP_ENV selecciona el
+  # archivo .env.<ambiente> que Vite carga con --mode. El artifact dist/ se
+  # reutiliza en staging y producción (se despliega lo que se probó).
+  # ---------------------------------------------------------------------------
+  construir:
+    name: construir
+    needs: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        # Se construyen ambos ambientes en paralelo: el de producción solo
+        # se usa si el run es de tag/dispatch, pero cuesta ~1 min y simplifica.
+        ambiente: [staging, production]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # En workflow_dispatch se analiza/despliega el tag aprobado (D3)
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Habilitar corepack
+        if: needs.preparar.outputs.pm != 'npm'
+        run: corepack enable
+
+      - name: Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ needs.preparar.outputs.pm }}
+
+      - name: Instalar dependencias
+        run: ${{ needs.preparar.outputs.instalar }}
+
+      - name: Build (${{ matrix.ambiente }})
+        env:
+          APP_ENV: ${{ matrix.ambiente }}
+          VITE_APP_VERSION: ${{ github.ref_name }}-${{ github.sha }}
+        run: npm run build -- --mode "$APP_ENV"
+
+      - name: Guardar dist/
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dist-${{ matrix.ambiente }}
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Vista previa en PR (opcional, vars.FIREBASE_PREVIEW == 'true'). Solo para
+  # PRs del mismo repositorio (nunca de forks: no reciben secretos ni OIDC).
+  # Requiere que el proveedor WIF de staging confíe en `pull_request`.
+  # ---------------------------------------------------------------------------
+  previsualizar:
+    name: previsualizar (canal de PR)
+    needs: [calidad, construir]
+    # `github.actor != 'dependabot[bot]'`: las PR de Dependabot corren con un
+    # almacén de secretos APARTE y no reciben los del repositorio, así que la
+    # autenticación federada se queda sin `workload_identity_provider` y el job
+    # falla siempre («Secret source: Dependabot»). No es un defecto que
+    # corregir: es lo que impide que una PR de actualización de dependencias
+    # alcance la nube. Concederle esos secretos abriría justo el vector de
+    # cadena de suministro que el `cooldown` de dependabot.yml viene a cerrar.
+    #
+    # La compuerta no se debilita: `compuerta-pr` solo exige `calidad` y
+    # `seguridad-estatica`, y ambas corren igual, como Semgrep, Trivy, Gitleaks
+    # y CodeQL. Aplique el mismo `if` a cualquier job de PR que use
+    # credenciales de nube en los demás pipelines.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+      && vars.FIREBASE_PREVIEW == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - name: Checkout (firebase.json)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # En workflow_dispatch se analiza/despliega el tag aprobado (D3)
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Descargar dist/
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: dist-staging
+          path: dist
+
+      - name: Autenticar en GCP (WIF + impersonación)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_DEPLOY_STAGING }}
+
+      - name: Desplegar canal de vista previa (expira en 7 días)
+        id: canal
+        env:
+          PROYECTO: ${{ vars.GCP_PROJECT_ID_STAGING }}
+          CANAL: pr-${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          npm i -g "firebase-tools@${FIREBASE_TOOLS_VERSION}"
+          firebase hosting:channel:deploy "$CANAL" --project "$PROYECTO" \
+            --expires 7d --non-interactive --json | tee canal.json
+          url=$(jq -r '.result | to_entries[0].value.url' canal.json)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Comentar URL en el PR
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          URL_CANAL: ${{ steps.canal.outputs.url }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Vista previa desplegada: ${process.env.URL_CANAL} (expira en 7 días)`
+            });
+
+  # ---------------------------------------------------------------------------
+  # Fase 4 — desplegar-staging: automático en cada push a main.
+  # ---------------------------------------------------------------------------
+  desplegar-staging:
+    name: desplegar-staging
+    needs: [calidad, seguridad-estatica, construir]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # token OIDC para WIF
+    steps:
+      - name: Checkout (firebase.json, firestore.rules)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # En workflow_dispatch se analiza/despliega el tag aprobado (D3)
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Descargar dist/
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: dist-staging
+          path: dist
+
+      - name: Autenticar en GCP (WIF + impersonación de la SA de deploy)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_DEPLOY_STAGING }}
+
+      - name: Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Preparar el gestor de paquetes para el hook `predeploy`
+        # `firebase deploy` ejecuta los hooks `predeploy` de firebase.json. En
+        # cuanto FIREBASE_DEPLOY_ONLY incluye `functions` —lo normal en un
+        # proyecto Firebase— ese hook compila las Functions con el gestor del
+        # proyecto, y estos jobs solo preparaban Node:
+        #
+        #   /bin/sh: 1: pnpm: not found
+        #   Error: functions predeploy error: exit code 127
+        #
+        # Lo grave es CUÁNDO falla: en producción, después de la compuerta de
+        # aprobación del Environment. Se aprueba el pase y solo entonces se
+        # descubre que el despliegue no puede ni empezar.
+        # Detectado en novuchat-site (2026-09-03).
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare --activate
+          # `functions/` suele traer su propio lockfile: no es del workspace.
+          if [[ -f functions/package.json ]]; then
+            if   [[ -f functions/pnpm-lock.yaml ]];    then pnpm --dir functions install --frozen-lockfile
+            elif [[ -f functions/yarn.lock ]];         then (cd functions && yarn install --frozen-lockfile)
+            elif [[ -f functions/package-lock.json ]]; then npm ci --prefix functions
+            fi
+          fi
+
+      - name: Conservar copia de la versión actual (canal "previa" para rollback)
+        # D7: antes de CADA deploy a live (staging y producción) se clona el
+        # contenido en vivo a un canal "previa". El rollback es clonar de vuelta.
+        continue-on-error: true
+        env:
+          PROYECTO: ${{ vars.GCP_PROJECT_ID_STAGING }}
+          SITIO: ${{ vars.GCP_PROJECT_ID_STAGING }}
+        run: |
+          npm i -g "firebase-tools@${FIREBASE_TOOLS_VERSION}"
+          firebase hosting:channel:create previa --project "$PROYECTO" --expires 30d \
+            --non-interactive >/dev/null 2>&1 || true
+          firebase hosting:clone "$SITIO:live" "$SITIO:previa" --project "$PROYECTO"
+
+      - name: Desplegar hosting + reglas (staging)
+        env:
+          PROYECTO: ${{ vars.GCP_PROJECT_ID_STAGING }}
+          SOLO: ${{ vars.FIREBASE_DEPLOY_ONLY || 'hosting,firestore:rules' }}
+          URL_STAGING: ${{ vars.STAGING_URL }}
+        run: |
+          set -euo pipefail
+          # `firebase deploy` PUEDE SALIR CON CÓDIGO 0 HABIENDO FALLADO: rotula
+          # los fallos de Functions como avisos y continúa, y la versión de
+          # hosting se queda en CREATED sin pasar nunca a FINALIZED. En
+          # novuchat-site (2026-09-03) este paso dio VERDE con las dos Functions
+          # sin desplegar y el sitio en 404, diciendo «Producción desplegada».
+          # Lo destapó el health check posterior. Un despliegue que miente es
+          # peor que uno que falla: el acta de producción se firma con lo que
+          # dice el pipeline.
+          firebase deploy --only "$SOLO" --project "$PROYECTO" --non-interactive \
+            --message "staging ${GITHUB_SHA::7} (run ${GITHUB_RUN_ID})" 2>&1 \
+            | tee /tmp/despliegue.log
+          if grep -qiE 'failed to create function|failed to update function|Build failed with status|Deploy failed|had HTTP Error' /tmp/despliegue.log; then
+            echo "::error::firebase deploy terminó con código 0 pero su registro contiene fallos: el despliegue NO está completo."
+            exit 1
+          fi
+
+          echo "### Staging desplegado: $URL_STAGING" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Fase 5 — dast-y-humo: contra staging recién desplegado.
+  # ---------------------------------------------------------------------------
+  dast-y-humo:
+    name: dast-y-humo
+    needs: desplegar-staging
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_reusable-dast.yml
+    with:
+      url_objetivo: ${{ vars.STAGING_URL }}
+      reglas: .github/zap-rules.tsv
+      escaneo_completo: false
+      ruta_salud: ${{ vars.HEALTH_PATH || '/healthz' }}
+
+  # ---------------------------------------------------------------------------
+  # Fase 6 — desplegar-produccion (D3): push de tag v* estable (nunca
+  # prerelease) en Modo A/B, o workflow_dispatch con confirmar=DESPLEGAR
+  # (obligatorio en Modo B0, donde no hay Environments con revisores). El step
+  # "Verificar aprobación" valida tag, ancestro de main, aprobador y firma.
+  # ---------------------------------------------------------------------------
+  desplegar-produccion:
+    name: desplegar-produccion
+    needs: [calidad, seguridad-estatica, construir]
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        && !contains(github.ref_name, '-') && vars.MODO != 'B0')
+      || (github.event_name == 'workflow_dispatch' && inputs.confirmar == 'DESPLEGAR')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: ${{ vars.PROD_URL }}
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false # nunca interrumpir un despliegue a producción
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # En workflow_dispatch se analiza/despliega el tag aprobado (D3)
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # historial y tags completos para verificar la aprobación
+
+      # D3 — Verificación de aprobación previa a producción (todos los modos).
+      - name: Verificar aprobación
+        env:
+          EVENTO: ${{ github.event_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          APROBADORES: ${{ vars.APROBADORES_PROD }}
+          FIRMA_REQUERIDA: ${{ vars.TAG_FIRMADO_REQUERIDO }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          if [[ "$EVENTO" == "workflow_dispatch" ]]; then
+            # 1) El tag existe
+            git rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+              || { echo "::error::El tag '$TAG' no existe en el repositorio"; exit 1; }
+            # 2) No es prerelease (v1.2.0-rc.1 nunca despliega producción)
+            [[ "$TAG" != *-* ]] \
+              || { echo "::error::'$TAG' es un prerelease y no despliega producción"; exit 1; }
+            # 3) El tag es ancestro de origin/main (código ya integrado)
+            git merge-base --is-ancestor "$TAG" origin/main \
+              || { echo "::error::'$TAG' no es ancestro de origin/main"; exit 1; }
+            # 4) Quien ejecuta está en vars.APROBADORES_PROD (lista separada por comas)
+            lista=",$(echo "$APROBADORES" | tr -d ' '),"
+            [[ "$lista" == *",$ACTOR,"* ]] \
+              || { echo "::error::'$ACTOR' no está en vars.APROBADORES_PROD"; exit 1; }
+            # 5) Firma del tag (obligatoria si vars.TAG_FIRMADO_REQUERIDO == 'true')
+            if [[ "$FIRMA_REQUERIDA" == "true" ]]; then
+              git tag -v "$TAG" \
+                || { echo "::error::El tag '$TAG' no tiene firma verificable (TAG_FIRMADO_REQUERIDO=true)"; exit 1; }
+            fi
+          else
+            # push de tag: ancestro de main y no prerelease
+            git merge-base --is-ancestor "$TAG" origin/main \
+              || { echo "::error::El tag '$TAG' no es ancestro de origin/main"; exit 1; }
+            [[ "$TAG" != *-* ]] \
+              || { echo "::error::'$TAG' es un prerelease y no despliega producción"; exit 1; }
+          fi
+          echo "Aprobación verificada: $TAG por $ACTOR ($EVENTO)"
+
+      - name: Descargar dist/
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: dist-production
+          path: dist
+
+      - name: Autenticar en GCP (WIF + impersonación, SA de producción)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_DEPLOY_PROD }}
+
+      - name: Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Preparar el gestor de paquetes para el hook `predeploy`
+        # `firebase deploy` ejecuta los hooks `predeploy` de firebase.json. En
+        # cuanto FIREBASE_DEPLOY_ONLY incluye `functions` —lo normal en un
+        # proyecto Firebase— ese hook compila las Functions con el gestor del
+        # proyecto, y estos jobs solo preparaban Node:
+        #
+        #   /bin/sh: 1: pnpm: not found
+        #   Error: functions predeploy error: exit code 127
+        #
+        # Lo grave es CUÁNDO falla: en producción, después de la compuerta de
+        # aprobación del Environment. Se aprueba el pase y solo entonces se
+        # descubre que el despliegue no puede ni empezar.
+        # Detectado en novuchat-site (2026-09-03).
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare --activate
+          # `functions/` suele traer su propio lockfile: no es del workspace.
+          if [[ -f functions/package.json ]]; then
+            if   [[ -f functions/pnpm-lock.yaml ]];    then pnpm --dir functions install --frozen-lockfile
+            elif [[ -f functions/yarn.lock ]];         then (cd functions && yarn install --frozen-lockfile)
+            elif [[ -f functions/package-lock.json ]]; then npm ci --prefix functions
+            fi
+          fi
+
+      - name: Conservar copia de la versión actual (canal "previa" para rollback)
+        # Clona el contenido en vivo a un canal de vista previa de larga
+        # duración. Si el health check posterior falla, post-despliegue lo
+        # vuelve a clonar sobre live. Ver 01-seguridad/06-rollback-e-incidentes.md.
+        continue-on-error: true
+        env:
+          PROYECTO: ${{ vars.GCP_PROJECT_ID_PROD }}
+          SITIO: ${{ vars.FIREBASE_SITE_ID || vars.GCP_PROJECT_ID_PROD }}
+        run: |
+          npm i -g "firebase-tools@${FIREBASE_TOOLS_VERSION}"
+          firebase hosting:channel:create previa --project "$PROYECTO" --expires 30d \
+            --non-interactive >/dev/null 2>&1 || true
+          firebase hosting:clone "$SITIO:live" "$SITIO:previa" --project "$PROYECTO"
+
+      - name: Desplegar hosting + reglas (producción)
+        env:
+          PROYECTO: ${{ vars.GCP_PROJECT_ID_PROD }}
+          SOLO: ${{ vars.FIREBASE_DEPLOY_ONLY || 'hosting,firestore:rules' }}
+          URL_PROD: ${{ vars.PROD_URL }}
+        run: |
+          set -euo pipefail
+          # `firebase deploy` PUEDE SALIR CON CÓDIGO 0 HABIENDO FALLADO: rotula
+          # los fallos de Functions como avisos y continúa, y la versión de
+          # hosting se queda en CREATED sin pasar nunca a FINALIZED. En
+          # novuchat-site (2026-09-03) este paso dio VERDE con las dos Functions
+          # sin desplegar y el sitio en 404, diciendo «Producción desplegada».
+          # Lo destapó el health check posterior. Un despliegue que miente es
+          # peor que uno que falla: el acta de producción se firma con lo que
+          # dice el pipeline.
+          firebase deploy --only "$SOLO" --project "$PROYECTO" --non-interactive \
+            --message "producción ${GITHUB_REF_NAME} (run ${GITHUB_RUN_ID})" 2>&1 \
+            | tee /tmp/despliegue.log
+          if grep -qiE 'failed to create function|failed to update function|Build failed with status|Deploy failed|had HTTP Error' /tmp/despliegue.log; then
+            echo "::error::firebase deploy terminó con código 0 pero su registro contiene fallos: el despliegue NO está completo."
+            exit 1
+          fi
+
+          echo "### Producción desplegada: $URL_PROD (${GITHUB_REF_NAME})" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Fase 7 — post-despliegue: health check con reintentos; si falla, rollback
+  # y registro del Deployment. El Environment ya crea un Deployment de GitHub;
+  # aquí se registra además el resultado de la verificación (útil en Modo B0).
+  # ---------------------------------------------------------------------------
+  post-despliegue:
+    name: post-despliegue
+    needs: desplegar-produccion
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      deployments: write
+    steps:
+      - name: Health check de producción (10 intentos, 15 s)
+        id: salud
+        env:
+          URL: ${{ vars.PROD_URL }}
+          RUTA_SALUD: ${{ vars.HEALTH_PATH || '/healthz' }}
+        run: |
+          set -uo pipefail
+          for i in $(seq 1 10); do
+            codigo=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -L "${URL%/}${RUTA_SALUD}" || echo 000)
+            # Una SPA estática puede no exponer /healthz: 404 en la ruta de salud
+            # se acepta si / responde 200.
+            if [[ "$codigo" == "404" ]]; then
+              codigo=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -L "${URL%/}/" || echo 000)
+            fi
+            [[ "$codigo" == "200" ]] && { echo "ok=true" >> "$GITHUB_OUTPUT"; echo "OK ($i)"; exit 0; }
+            echo "Intento $i: $codigo"; sleep 15
+          done
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          echo "::error::Producción no responde 200 tras 10 intentos"
+
+      - name: Autenticar en GCP para rollback
+        if: steps.salud.outputs.ok == 'false'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_DEPLOY_PROD }}
+
+      - name: Rollback de hosting (clonar canal "previa" sobre live)
+        if: steps.salud.outputs.ok == 'false'
+        env:
+          PROYECTO: ${{ vars.GCP_PROJECT_ID_PROD }}
+          SITIO: ${{ vars.FIREBASE_SITE_ID || vars.GCP_PROJECT_ID_PROD }}
+        run: |
+          set -euo pipefail
+          npm i -g "firebase-tools@${FIREBASE_TOOLS_VERSION}"
+          # Único procedimiento de rollback del estándar (D7): clonar el canal
+          # "previa" guardado antes del deploy sobre live. Si el canal no
+          # existe, el rollback es MANUAL: consola Firebase → Hosting →
+          # Historial de versiones → "Revertir" (ver 06-rollback-e-incidentes.md).
+          # Las reglas de Firestore se revierten con `git revert` + nuevo tag.
+          if firebase hosting:clone "$SITIO:previa" "$SITIO:live" --project "$PROYECTO"; then
+            echo "::warning::ROLLBACK ejecutado: live restaurado desde el canal 'previa'."
+          else
+            echo "::error::Rollback automático no disponible. Ejecute el rollback manual: consola Firebase → Hosting → Historial → Revertir. Ver 01-seguridad/06-rollback-e-incidentes.md"
+          fi
+
+      - name: Registrar resultado del despliegue
+        if: always()
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          SALUD_OK: ${{ steps.salud.outputs.ok }}
+          URL_PROD: ${{ vars.PROD_URL }}
+        with:
+          script: |
+            const ok = process.env.SALUD_OK === 'true';
+            const { data: d } = await github.rest.repos.createDeployment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              ref: context.ref, environment: 'production', auto_merge: false,
+              required_contexts: [], transient_environment: false,
+              description: `Verificación post-despliegue ${context.ref}`
+            });
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner, repo: context.repo.repo,
+              deployment_id: d.id, state: ok ? 'success' : 'failure',
+              environment_url: process.env.URL_PROD,
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              description: ok ? 'Health check correcto' : 'Health check fallido; rollback intentado'
+            });
+            core.summary.addHeading('Post-despliegue')
+              .addRaw(ok ? 'Producción verificada correctamente.' : 'FALLO de verificación: revise el rollback.')
+              .write();
+            if (!ok) core.setFailed('Health check de producción fallido');
+
+  # ---------------------------------------------------------------------------
+  # compuerta-pr (D1): ÚNICO status check que exigen los rulesets de main.
+  # Agrega calidad y seguridad-estatica (con o sin matriz) en un solo contexto
+  # estable; falla si cualquiera de sus needs no terminó en success.
+  # ---------------------------------------------------------------------------
+  compuerta-pr:
+    name: compuerta-pr
+    needs: [calidad, seguridad-estatica]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verificar resultados de calidad y seguridad-estatica
+        env:
+          R_CALIDAD: ${{ needs.calidad.result }}
+          R_SEGURIDAD: ${{ needs.seguridad-estatica.result }}
+        run: |
+          set -euo pipefail
+          echo "calidad=$R_CALIDAD | seguridad-estatica=$R_SEGURIDAD"
+          for r in "$R_CALIDAD" "$R_SEGURIDAD"; do
+            if [[ "$r" != "success" ]]; then
+              echo "::error::compuerta-pr bloqueada: algún job requerido no terminó en success"
+              exit 1
+            fi
+          done
+          echo "compuerta-pr: aprobada"

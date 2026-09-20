@@ -1,0 +1,51 @@
+# =============================================================================
+# CODEOWNERS — Revisores obligatorios por ruta
+# Versión: 2.0 | Fecha: 2026-08-24 | Destino: .github/CODEOWNERS
+# -----------------------------------------------------------------------------
+# Con la rama main protegida y "Require review from Code Owners" activo
+# (ruleset), ningún cambio en estas rutas se fusiona sin la aprobación del
+# equipo dueño. En Modo B0 (privado Free) los rulesets básicos existen pero la
+# revisión de Code Owners NO se exige: el archivo sigue siendo útil para
+# asignar revisores automáticamente.
+# Reemplace @AndresAlberdi por equipos reales (o @usuario en cuentas personales).
+# La última regla que coincide gana; el orden importa.
+# =============================================================================
+
+# Propietario por defecto de todo el repositorio
+*                                   @AndresAlberdi
+
+# Pipeline, seguridad y configuración de CI: exige al equipo de plataforma
+/.github/                           @AndresAlberdi
+/.github/workflows/                 @AndresAlberdi
+/.github/CODEOWNERS                 @AndresAlberdi
+/.github/dependabot.yml             @AndresAlberdi
+/.github/gitleaks.toml              @AndresAlberdi
+/.pre-commit-config.yaml            @AndresAlberdi
+/.devsecops.yml                     @AndresAlberdi
+
+# Reglas de acceso a datos: cualquier cambio requiere seguridad
+/firestore.rules                    @AndresAlberdi
+/storage.rules                      @AndresAlberdi
+/firebase.json                      @AndresAlberdi
+
+# Infraestructura como código y contenedores
+/infra/                             @AndresAlberdi
+/Dockerfile                         @AndresAlberdi
+/.aws/                              @AndresAlberdi
+/docker-compose*.yml                @AndresAlberdi
+
+# Dependencias (revisar cambios de lockfile en PRs no generados por Dependabot)
+/package.json                       @AndresAlberdi
+/package-lock.json                  @AndresAlberdi
+/pnpm-lock.yaml                     @AndresAlberdi
+/requirements*.txt                  @AndresAlberdi
+/pyproject.toml                     @AndresAlberdi
+
+# Autenticación, autorización y manejo de secretos en la aplicación
+/src/auth/                          @AndresAlberdi
+/src/**/seguridad/                  @AndresAlberdi
+/api/auth/                          @AndresAlberdi
+
+# Documentación del estándar y runbooks
+/docs/                              @AndresAlberdi
+/CHANGELOG.md                       @AndresAlberdi
