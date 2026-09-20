@@ -135,9 +135,24 @@ creado con esa pantalla queda imposibilitado de entrar. Se corrige en la Fase 1 
   uno), efecto de la auto-recuperación por correo que se elimina en esta fase. Sus saldos quedan
   fragmentados entre UID. Requiere una migración de consolidación, propuesta para la Fase 1.
 - **H-24 (media):** tres de 36 transacciones no tienen un vendedor válido de su comercio.
-- **H-25 (alta):** `Hamburguesas NB` (saldo 150 Bs) y `Epico` (saldo 190 Bs) tienen saldo de premios
-  **sin ningún cobro registrado** en `cobros_prepago`, que está vacío. El saldo se acreditó por fuera
-  del flujo de cobranza. Encaja con H-07 y se cierra al mover la acreditación a Cloud Functions.
+- **H-25 (media) — corregido el 19-sep-2026 tras un error de medición.** La primera versión de esta
+  entrada decía que el saldo de premios se había acreditado «sin ningún cobro registrado» porque
+  `cobros_prepago` estaba vacío. **Era falso**: el script forense buscaba el campo `montoBs`, que no
+  existe —el correcto es `montoPremios`—, y la corrección del script se aplicó antes de medir
+  producción pero después de medir pruebas, de modo que el informe se escribió con la salida vieja.
+  Con el dato correcto, `puntosnb` tiene tres cobros reales de fines de agosto y el cuadro es este:
+
+  | Comercio | Cobrado en premios | Saldo declarado | Canjes | Consumo que correspondía | Descuadre |
+  |---|---|---|---|---|---|
+  | Hamburguesas NB | 150 Bs | 150 Bs | 4 | 5 Bs | el saldo **nunca bajó** |
+  | Epico | 200 Bs | 190 Bs | 2 | 3 Bs | faltan 10 Bs, y solo 3 se explican por canjes |
+
+  Lo que muestran los números es H-26 visto desde los datos —el descuento por canje no llegó a
+  aplicarse nunca— y, en Epico, 10 Bs menos de lo cobrado que los canjes no explican. Es compatible
+  con la escritura de saldo que hacía el navegador (`saldo leído + monto`, sobre un dato que podía
+  estar desactualizado): dos pestañas o dos cobros seguidos pierden una actualización. La cobranza
+  atómica de la Fase 1 cierra esa puerta; **queda pendiente decidir con Andrés si esos 10 Bs se
+  reponen** a Epico.
 - Los saldos de puntos sí cuadran: 17 saldos contra 36 transacciones, **cero descuadres**.
 - 24 de 56 sesiones QR llevan más de 24 horas en `PENDIENTE` (sin TTL; previsto en la Fase 2).
 
