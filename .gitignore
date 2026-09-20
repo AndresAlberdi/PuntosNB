@@ -44,3 +44,6 @@ secrets.tfvars
 .trivy-cache/
 .trivyignore.yaml
 .gitleaksignore
+
+# Informes de cobertura generados por vitest
+coverage/

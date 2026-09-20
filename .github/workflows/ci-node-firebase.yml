@@ -171,6 +171,27 @@ jobs:
           emulators:exec --only firestore --project demo-pruebas
           "npm run test:rules"
 
+      # Las funciones tienen sus propias pruebas de integración: recorren el libro mayor
+      # contra los emuladores de Functions, Firestore y Auth. Sin ellas, el pipeline dejaría
+      # pasar un cambio que rompa la acumulación, el canje o la cobranza.
+      - name: Compilar las funciones
+        if: hashFiles('functions/package.json') != ''
+        run: |
+          if [[ -f functions/pnpm-lock.yaml ]]; then
+            corepack enable
+            pnpm --dir functions install --frozen-lockfile --ignore-workspace
+          else
+            npm ci --prefix functions
+          fi
+          npm --prefix functions run build
+
+      - name: Pruebas de integración de las funciones (emuladores)
+        if: hashFiles('functions/package.json') != ''
+        run: >-
+          npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
+          emulators:exec --only functions,firestore,auth --project demo-pruebas-funciones
+          "npm run test:functions"
+
   # ---------------------------------------------------------------------------
   # Fase 2 — seguridad-estatica: reusable OSS (todos los modos).
   # NOTA: en el repositorio del proyecto la ruta es local

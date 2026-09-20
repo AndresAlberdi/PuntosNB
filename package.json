@@ -5,15 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:prod",
+    "build": "pnpm build:prod",
     "build:prod": "tsc -b && vite build --mode production",
     "build:staging": "tsc -b && vite build --mode staging",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-hipatia-reglas \"vitest run --config vitest.rules.config.ts\"",
-    "test:all": "npm run test && npm run test:rules && npm run test:functions",
-    "test:functions": "npm --prefix functions run build && firebase emulators:exec --only functions,firestore,auth --project demo-hipatia-funciones \"vitest run --config functions/vitest.config.ts\""
+    "test:rules": "vitest run --config vitest.rules.config.ts",
+    "test:all": "pnpm test && pnpm test:rules:local && pnpm test:functions:local",
+    "test:functions": "vitest run --config functions/vitest.config.ts",
+    "typecheck": "tsc -b",
+    "test:rules:local": "firebase emulators:exec --only firestore --project demo-hipatia-reglas \"pnpm test:rules\"",
+    "test:functions:local": "pnpm --dir functions build && firebase emulators:exec --only functions,firestore,auth --project demo-hipatia-funciones \"pnpm test:functions\""
   },
   "dependencies": {
     "@yudiel/react-qr-scanner": "^2.6.0",
@@ -37,11 +40,13 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "autoprefixer": "^10.5.0",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "firebase-admin": "^14.4.0",
+    "firebase-tools": "15.27.0",
     "globals": "^17.6.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.15",
@@ -54,5 +59,6 @@
   "overrides": {
     "protobufjs": "^7.6.5",
     "brace-expansion": "^5.0.7"
-  }
+  },
+  "packageManager": "pnpm@11.25.0"
 }
