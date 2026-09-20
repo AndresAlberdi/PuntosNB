@@ -1,0 +1,201 @@
+# =============================================================================
+# _reusable-dast.yml — Fase 5 "dast-y-humo" (workflow reutilizable)
+# Versión: 2.0 | Fecha: 2026-08-24
+# -----------------------------------------------------------------------------
+# Propósito: verificar la aplicación YA DESPLEGADA (normalmente staging):
+#   1. humo: la URL responde 200 con reintentos y expone cabeceras de seguridad
+#      (HSTS y CSP). Si no, falla antes de gastar minutos en ZAP.
+#   2. zap: OWASP ZAP baseline (pasivo, ~2-5 min) o full-scan (activo, puede
+#      tardar >30 min y generar carga; usar solo contra staging).
+#
+# Cómo se invoca:
+#   dast-y-humo:
+#     needs: desplegar-staging
+#     uses: ./.github/workflows/_reusable-dast.yml
+#     with:
+#       url_objetivo: ${{ vars.STAGING_URL }}
+#       reglas: .github/zap-rules.tsv
+#       escaneo_completo: false
+# =============================================================================
+name: DAST y humo (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      url_objetivo:
+        description: URL base de la aplicación desplegada (https://...)
+        type: string
+        required: true
+      reglas:
+        description: Ruta al rules.tsv de ZAP (ID<TAB>IGNORE|WARN|FAIL<TAB>nota)
+        type: string
+        default: '.github/zap-rules.tsv'
+      escaneo_completo:
+        description: true = ZAP full-scan (activo); false = baseline (pasivo)
+        type: boolean
+        default: false
+      ruta_salud:
+        description: Path del health check (además de /)
+        type: string
+        default: '/healthz'
+      exigir_cabeceras:
+        description: Fallar si faltan HSTS o CSP en la respuesta de /
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # humo: smoke test HTTP. Reintenta hasta 10 veces (CDN/DNS pueden tardar en
+  # propagar tras un deploy). Verifica 200 en / y en ruta_salud, y presencia de
+  # Strict-Transport-Security y Content-Security-Policy.
+  # ---------------------------------------------------------------------------
+  humo:
+    name: Prueba de humo HTTP
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verificar disponibilidad con reintentos
+        env:
+          URL: ${{ inputs.url_objetivo }}
+          RUTA_SALUD: ${{ inputs.ruta_salud }}
+        run: |
+          set -euo pipefail
+          url="${URL%/}"
+          comprobar() {
+            local destino="$1" intento codigo
+            for intento in $(seq 1 10); do
+              codigo=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -L "$destino" || echo 000)
+              if [[ "$codigo" == "200" ]]; then
+                echo "OK  $destino -> $codigo (intento $intento)"; return 0
+              fi
+              echo "Esperando $destino -> $codigo (intento $intento/10)"; sleep 15
+            done
+            echo "::error::$destino no respondió 200 tras 10 intentos"; return 1
+          }
+          comprobar "$url/"
+          # El health check es opcional para SPAs estáticas: si devuelve 404 se
+          # avisa pero no se bloquea; cualquier 5xx sí bloquea.
+          codigo=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -L "$url$RUTA_SALUD" || echo 000)
+          case "$codigo" in
+            200) echo "OK  $url$RUTA_SALUD -> 200" ;;
+            404) echo "::warning::$url$RUTA_SALUD devolvió 404 (defina un health check o cambie ruta_salud)" ;;
+            *)   echo "::error::$url$RUTA_SALUD devolvió $codigo"; exit 1 ;;
+          esac
+
+      - name: Verificar cabeceras de seguridad (HSTS y CSP)
+        if: inputs.exigir_cabeceras
+        env:
+          URL: ${{ inputs.url_objetivo }}
+        run: |
+          set -euo pipefail
+          cabeceras=$(curl -sSI -L --max-time 15 "${URL%/}/" | tr -d '\r' | tr '[:upper:]' '[:lower:]')
+          faltan=0
+          for h in strict-transport-security content-security-policy; do
+            if grep -q "^$h:" <<< "$cabeceras"; then
+              echo "OK  $h presente"
+            else
+              echo "::error::Falta la cabecera $h (configúrela en firebase.json / ingress / middleware)"
+              faltan=1
+            fi
+          done
+          # Recomendadas (solo aviso)
+          for h in x-content-type-options referrer-policy permissions-policy; do
+            grep -q "^$h:" <<< "$cabeceras" || echo "::warning::Se recomienda la cabecera $h"
+          done
+          exit $faltan
+
+  # ---------------------------------------------------------------------------
+  # zap: OWASP ZAP.
+  #
+  # CORREGIDO EN ESTE PROYECTO (2026-09-03). El comentario original decía que
+  # «fail_action: true → el job falla si alguna regla marcada FAIL en rules.tsv
+  # dispara», y `zap-rules.tsv` documenta lo mismo: FAIL falla, WARN reporta sin
+  # fallar. La acción no se comporta así: con `fail_action: true` falla ante
+  # CUALQUIER alerta, incluidas las WARN. En la práctica el job daba rojo con
+  # FAIL-NEW: 0 y PASS: 61, solo por nueve avisos informativos —cabeceras de
+  # caché, Sec-Fetch-Dest, `style-src unsafe-inline` que ya está documentado y
+  # aceptado en docs/csp.md—.
+  #
+  # Silenciar los avisos con IGNORE habría hecho pasar el job perdiendo su
+  # visibilidad. En su lugar la acción ya no decide: se evalúa el informe contra
+  # las reglas, que es lo que el estándar dice que debería ocurrir.
+  #
+  # allow_issue_writing: false → no crea issues. El informe HTML/MD se guarda
+  # como artifact (ZAP no emite SARIF de forma nativa).
+  # ---------------------------------------------------------------------------
+  zap:
+    name: OWASP ZAP (${{ inputs.escaneo_completo && 'full-scan' || 'baseline' }})
+    needs: humo
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.escaneo_completo && 90 || 20 }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (para leer rules.tsv)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolver archivo de reglas
+        id: reglas
+        env:
+          REGLAS: ${{ inputs.reglas }}
+        run: |
+          if [[ -f "$REGLAS" ]]; then
+            echo "archivo=$REGLAS" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No existe $REGLAS; ZAP usará su configuración por defecto (todo WARN)."
+            echo "archivo=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: ZAP baseline (pasivo)
+        if: inputs.escaneo_completo == false
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        with:
+          target: ${{ inputs.url_objetivo }}
+          rules_file_name: ${{ steps.reglas.outputs.archivo }}
+          # -a: incluye reglas alfa; -j: usa el spider AJAX (SPAs); -m: minutos de spider
+          cmd_options: '-a -j -m 3'
+          fail_action: false
+          allow_issue_writing: false
+          artifact_name: informe-zap-baseline
+
+      - name: ZAP full-scan (activo; solo staging)
+        if: inputs.escaneo_completo
+        uses: zaproxy/action-full-scan@3c58388149901b9a03b7718852c5ba889646c27c # v0.13.0
+        with:
+          target: ${{ inputs.url_objetivo }}
+          rules_file_name: ${{ steps.reglas.outputs.archivo }}
+          cmd_options: '-a -j -m 5'
+          fail_action: false
+          allow_issue_writing: false
+          artifact_name: informe-zap-full
+
+      - name: Evaluar el informe contra zap-rules.tsv
+        if: always()
+        env:
+          REGLAS: ${{ steps.reglas.outputs.archivo }}
+        run: |
+          informe=$(find . -maxdepth 3 -name 'report_json.json' | head -1)
+          if [[ -z "$informe" ]]; then
+            # Falla en CERRADO a propósito. Un control que pasa solo porque no
+            # encontró qué evaluar no es un control: es el mismo agujero que
+            # este paso vino a tapar, con otra forma.
+            echo "::error::ZAP no dejó report_json.json. No se puede evaluar el informe, así que el resultado no vale."
+            exit 1
+          fi
+          python3 .github/scripts/evaluar-zap.py "$informe" "${REGLAS:-}"
+
+      - name: Resumen
+        if: always()
+        env:
+          URL: ${{ inputs.url_objetivo }}
+          COMPLETO: ${{ inputs.escaneo_completo }}
+        run: |
+          {
+            echo "## DAST — $URL"
+            echo "- Modo ZAP: $([[ "$COMPLETO" == "true" ]] && echo full-scan || echo baseline)"
+            echo "- Informe: artifact informe-zap-* (report_html.html / report_md.md)"
+            echo "- Para silenciar una alerta justificada: editar .github/zap-rules.tsv (IGNORE) con nota y fecha."
+          } >> "$GITHUB_STEP_SUMMARY"

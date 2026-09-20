@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seguridad-general/devsecops.schema.json",
+  "title": "Manifiesto .devsecops.yml (estándar DevSecOps v2.0)",
+  "description": "Describe los componentes desplegables de un proyecto y su política de seguridad. Lo consumen deploy.sh, ci-multicloud.yml, bootstrap-repo.sh y los agentes de Claude Code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "proyecto", "modo", "componentes"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "proyecto": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,40}$",
+      "description": "Identificador corto del proyecto (minúsculas, dígitos y guiones)."
+    },
+    "modo": {
+      "type": "string",
+      "enum": ["A", "B", "B0"],
+      "description": "A = público/desarrollo; B = privado con GitHub Code Security y Secret Protection; B0 = privado sin licencias (transitorio, máximo 30 días)."
+    },
+    "fecha_modo": {
+      "type": "string",
+      "format": "date",
+      "description": "Fecha de entrada en el modo actual. Obligatoria en B0 para controlar el límite de 30 días."
+    },
+    "aprobadores": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+$" },
+      "description": "Logins de GitHub autorizados a ejecutar el workflow_dispatch de producción en Modo B0."
+    },
+    "produccion": {
+      "type": "boolean",
+      "default": true,
+      "description": "false para repositorios que nunca despliegan a producción (bibliotecas, laboratorios)."
+    },
+    "cobertura_minima": { "type": "integer", "minimum": 0, "maximum": 100, "default": 70 },
+    "componentes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nombre", "ruta", "stack", "proveedor", "ambientes"],
+        "properties": {
+          "nombre": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,30}$" },
+          "ruta": { "type": "string", "description": "Directorio relativo del componente (./ para la raíz)." },
+          "stack": { "type": "string", "enum": ["node", "python", "docker", "terraform", "static"] },
+          "proveedor": { "type": "string", "enum": ["firebase", "cloudrun", "ecs", "oci", "ninguno"] },
+          "ambientes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "staging": { "$ref": "#/$defs/ambiente" },
+              "production": { "$ref": "#/$defs/ambiente" }
+            }
+          }
+        }
+      }
+    },
+    "seguridad": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dast": { "type": "boolean", "default": true },
+        "zap_reglas": { "type": "string", "default": ".github/zap-rules.tsv" },
+        "bloquear_en": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
+          "default": ["CRITICAL", "HIGH"],
+          "allOf": [
+            { "contains": { "const": "CRITICAL" } },
+            { "contains": { "const": "HIGH" } }
+          ],
+          "description": "Severidades que bloquean el pipeline; CRITICAL y HIGH son obligatorias (el estándar no permite relajarlas)."
+        },
+        "excepciones": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "herramienta", "justificacion", "aprobado_por", "creado", "vence"],
+            "properties": {
+              "id": { "type": "string", "description": "CVE, GHSA o identificador de regla (p. ej. CVE-2026-1234, CKV_GCP_62)." },
+              "herramienta": { "type": "string", "enum": ["gitleaks", "semgrep", "trivy", "osv-scanner", "checkov", "npm-audit", "pip-audit", "snyk", "zap", "codeql", "pnpm"] },
+              "componente": { "type": "string" },
+              "justificacion": { "type": "string", "minLength": 20 },
+              "aprobado_por": { "type": "string" },
+              "creado": { "type": "string", "format": "date" },
+              "vence": { "type": "string", "format": "date", "description": "Fecha máxima de vigencia; vencida la excepción, el hallazgo vuelve a bloquear." }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "ambiente": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proyecto"],
+      "properties": {
+        "proyecto": { "type": "string", "description": "GCP project ID, alias de cuenta AWS o nombre del compartment OCI." },
+        "url": { "type": "string", "pattern": "^https://", "description": "URL pública del ambiente; la usan el health check y el DAST." },
+        "servicio": { "type": "string", "description": "Nombre del servicio Cloud Run o ECS." },
+        "region": { "type": "string" },
+        "repositorio": { "type": "string", "description": "Repositorio de imágenes (Artifact Registry o ECR)." },
+        "cluster": { "type": "string", "description": "Clúster ECS." },
+        "stack_id": { "type": "string", "pattern": "^ocid1\\.ormstack\\.", "description": "OCID del stack de OCI Resource Manager." },
+        "compartimento": { "type": "string", "pattern": "^ocid1\\.compartment\\.", "description": "OCID del compartment OCI." },
+        "site": { "type": "string", "description": "Sitio de Firebase Hosting (solo multi-sitio)." }
+      }
+    }
+  }
+}

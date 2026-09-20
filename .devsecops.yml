@@ -1,0 +1,29 @@
+# Manifiesto del estándar DevSecOps (esquema: 02-pipelines/config/devsecops.schema.json;
+# convenciones: 00-gobernanza/00-convenciones.md; generado por bootstrap-repo.sh v2.0)
+version: 1
+proyecto: hipatia-puntos
+modo: A            # A | B | B0 (ver 00-gobernanza/03-ambientes-modos-y-aprobaciones.md)
+# La cobertura que mide Vitest es la del código de interfaz, donde las pruebas son pocas.
+# Lo que de verdad está cubierto vive en dos suites aparte que este número no refleja:
+# 347 pruebas de reglas de Firestore y 50 de integración de las Cloud Functions.
+# 50 es el piso real de hoy; conviene subirlo a medida que la interfaz gane pruebas.
+cobertura_minima: 50
+componentes:
+  - nombre: hipatia-puntos
+    ruta: ./
+    stack: node
+    proveedor: firebase
+    ambientes:
+      staging:
+        proyecto: puntosnb
+        url: https://puntosnb.web.app
+        region: us-central1
+      production:
+        proyecto: hipatia-puntos
+        url: https://hipatia-puntos.web.app
+        region: us-central1
+seguridad:
+  dast: true
+  zap_reglas: .github/zap-rules.tsv
+  bloquear_en: [CRITICAL, HIGH]   # se puede endurecer (añadir MEDIUM), nunca relajar
+  excepciones: []                 # id, herramienta, componente, justificacion, aprobado_por, creado, vence

@@ -1,0 +1,120 @@
+# =============================================================================
+# codeql.yml — SAST avanzado con CodeQL (solo Modo A público o Modo B con GHAS)
+# Versión: 2.0 | Fecha: 2026-08-24
+# -----------------------------------------------------------------------------
+# Por qué está separado de ci-*.yml: CodeQL solo funciona gratis en repositorios
+# públicos o con licencia "GitHub Code Security" (Modo B). En Modo B0 (privado
+# Free) este workflow se salta solo (condición `if` del job) y la cobertura SAST
+# la da Semgrep CE en _reusable-security.yml (regla de paridad).
+#
+# Variables usadas:
+#   vars.GHAS_ENABLED     'true' cuando se compró Code Security (Modo B)
+#   vars.CODEQL_LENGUAJES lista separada por comas, p. ej.
+#                         'javascript-typescript,python' (por defecto JS/TS)
+# =============================================================================
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Semanal, lunes 03:17 UTC (minuto no redondo para evitar picos de cola)
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # preparar: convierte la variable CODEQL_LENGUAJES en una matriz JSON. Se
+  # hace en un job aparte porque `strategy.matrix` no admite funciones de
+  # cadena (split) directamente sobre `vars`.
+  # ---------------------------------------------------------------------------
+  preparar:
+    name: Preparar matriz de lenguajes
+    # Condición Modo A/B. En Modo B0 el workflow queda en "skipped".
+    if: github.event.repository.visibility == 'public' || vars.GHAS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      lenguajes: ${{ steps.matriz.outputs.lenguajes }}
+    steps:
+      - name: Construir matriz
+        id: matriz
+        env:
+          LENGUAJES: ${{ vars.CODEQL_LENGUAJES || 'javascript-typescript' }}
+        run: |
+          # 'javascript-typescript,python' -> ["javascript-typescript","python"]
+          json=$(printf '%s' "$LENGUAJES" | tr -d ' ' | jq -R -c 'split(",")')
+          echo "lenguajes=$json" >> "$GITHUB_OUTPUT"
+          echo "Lenguajes CodeQL: $json"
+
+  # ---------------------------------------------------------------------------
+  # analizar: un job por lenguaje. build-mode: none evita compilar (válido para
+  # JS/TS, Python, Ruby, Go, y desde 2024 también Java/C# sin build). Para C/C++
+  # cambie a build-mode: autobuild o manual.
+  # ---------------------------------------------------------------------------
+  analizar:
+    name: CodeQL (${{ matrix.lenguaje }})
+    needs: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write # subir resultados a Code Scanning
+      actions: read          # necesario en repos privados para el estado del run
+      packages: read         # packs de consultas publicados en GHCR
+    strategy:
+      fail-fast: false
+      matrix:
+        lenguaje: ${{ fromJson(needs.preparar.outputs.lenguajes) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          languages: ${{ matrix.lenguaje }}
+          build-mode: none
+          # security-extended añade consultas de menor precisión pero mayor
+          # cobertura; cámbielo a 'security-and-quality' si quiere calidad.
+          queries: security-extended
+
+      - name: Analizar
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          category: /language:${{ matrix.lenguaje }}
+
+  # ---------------------------------------------------------------------------
+  # revision-dependencias: dependency review de GitHub. Compara las dependencias
+  # que el PR añade/actualiza contra la base de vulnerabilidades y falla si
+  # introduce una con severidad high o critical. Solo existe en pull_request y
+  # solo funciona en Modo A (público) o Modo B (GHAS); en B0 la cobertura SCA
+  # la dan Trivy fs + npm audit / pip-audit del reusable (OSV-Scanner es
+  # informativo).
+  # ---------------------------------------------------------------------------
+  revision-dependencias:
+    name: Revisión de dependencias (PR)
+    if: >-
+      github.event_name == 'pull_request'
+      && (github.event.repository.visibility == 'public' || vars.GHAS_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5
+        with:
+          fail-on-severity: high

@@ -1,0 +1,992 @@
+# =============================================================================
+# _reusable-security.yml — Fase 2 "seguridad-estatica" (workflow reutilizable)
+# Versión: 2.2 | Fecha: 2026-09-12
+# -----------------------------------------------------------------------------
+# Propósito: concentrar en un solo lugar todas las comprobaciones de seguridad
+# estática que corren en TODOS los modos (A público, B privado con licencias,
+# B0 privado sin licencias). Usa únicamente herramientas OSS, por lo que el
+# resultado no cambia al cambiar la visibilidad del repositorio (regla de
+# paridad del estándar).
+#
+# Cómo se invoca (desde ci-*.yml del proyecto):
+#   seguridad-estatica:
+#     uses: ./.github/workflows/_reusable-security.yml
+#     with: { ruta: ., stack: auto, subir_sarif: <bool>, ref: <tag o vacío> }
+#     secrets:
+#       GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+#       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+#
+# No use `secrets: inherit`: pasaría al reusable todos los secretos del caller,
+# incluidos los de despliegue, que ningún escáner necesita (mínimo privilegio;
+# semgrep yaml.github-actions.security.secrets-inherit lo reporta como HIGH).
+#
+# Jobs (paralelos): preparar → secretos | sast | sca | iac | snyk → resumen
+# Bloquea el pipeline cuando encuentra hallazgos de severidad >= bloquear_en.
+#
+# Excepciones (D5): la ÚNICA fuente es `seguridad.excepciones[]` del manifiesto
+# `.devsecops.yml`. El job `preparar` la lee, descarta las vencidas y genera en
+# runtime (nunca se versionan) los archivos de ignorado por herramienta:
+#   .trivyignore.yaml (Trivy fs/config), .gitleaksignore (Gitleaks),
+#   lista --skip-check (Checkov), --exclude-rule (Semgrep), --ignore-vuln
+#   (pip-audit). Los jobs posteriores los reciben por outputs y artifact.
+# =============================================================================
+name: Seguridad estática (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      ruta:
+        description: Directorio del componente a analizar (monorepo permitido)
+        type: string
+        default: '.'
+      stack:
+        description: node | python | docker | terraform | auto
+        type: string
+        default: 'auto'
+      bloquear_en:
+        description: Severidades que bloquean (lista separada por comas)
+        type: string
+        default: 'CRITICAL,HIGH'
+      subir_sarif:
+        description: >-
+          true = subir SARIF a Code Scanning (requiere repo público o GHAS);
+          false = guardar SARIF como artifact
+        type: boolean
+        default: false
+      ref:
+        description: >-
+          Ref a analizar (el caller pasa inputs.tag en workflow_dispatch);
+          vacío = ref del evento
+        type: string
+        default: ''
+    secrets:
+      GITLEAKS_LICENSE:
+        description: Licencia gratuita de Gitleaks (solo repos de organización)
+        required: false
+      SNYK_TOKEN:
+        description: Token de Snyk (opcional; activa el job snyk)
+        required: false
+
+# Permisos mínimos a nivel de workflow. Cada job eleva solo lo que necesita.
+# Nota: en un workflow reutilizable los permisos efectivos nunca superan los
+# que el caller concede al job que lo invoca.
+permissions:
+  contents: read
+
+env:
+  REF: ${{ inputs.ref || github.ref }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # preparar: detecta el stack, qué escáneres aplican y genera los archivos de
+  # excepciones vigentes desde .devsecops.yml. Publica outputs para que los
+  # demás jobs decidan con `if:` (los secretos no están disponibles en
+  # `jobs.<id>.if`, por eso la disponibilidad de Snyk se calcula aquí).
+  # ---------------------------------------------------------------------------
+  preparar:
+    name: Detectar stack y excepciones
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      stack: ${{ steps.detectar.outputs.stack }}
+      hay_node: ${{ steps.detectar.outputs.hay_node }}
+      hay_python: ${{ steps.detectar.outputs.hay_python }}
+      hay_iac: ${{ steps.detectar.outputs.hay_iac }}
+      snyk_disponible: ${{ steps.snyk.outputs.disponible }}
+      config_semgrep: ${{ steps.detectar.outputs.config_semgrep }}
+      # Excepciones vigentes (D5): listas listas para pasar a cada herramienta
+      checkov_skip: ${{ steps.excepciones.outputs.checkov_skip }}
+      semgrep_exclude: ${{ steps.excepciones.outputs.semgrep_exclude }}
+      pip_ignore: ${{ steps.excepciones.outputs.pip_ignore }}
+      npm_audit_ignore: ${{ steps.excepciones.outputs.npm_audit_ignore }}
+      hay_excepciones: ${{ steps.excepciones.outputs.hay_excepciones }}
+      # Identifican al componente dentro del run (ver el paso de excepciones).
+      slug: ${{ steps.excepciones.outputs.slug }}
+      sufijo_sarif: ${{ steps.excepciones.outputs.sufijo_sarif }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Detectar stack y archivos de IaC
+        id: detectar
+        shell: bash
+        working-directory: ${{ inputs.ruta }}
+        env:
+          STACK_ENTRADA: ${{ inputs.stack }}
+        run: |
+          set -euo pipefail
+          hay_node=false; hay_python=false; hay_iac=false
+          [[ -f package.json ]] && hay_node=true
+          { [[ -f pyproject.toml ]] || [[ -f requirements.txt ]]; } && hay_python=true
+          # IaC: Terraform, Dockerfile o manifiestos Kubernetes en cualquier nivel.
+          # -print -quit y no `find | grep -q .`: con pipefail, grep sale en la
+          # primera línea, find recibe SIGPIPE si le queda salida y el `if` da
+          # falso (medido: con 2000 .tf, 20 de 20 veces; el job iac se saltaba
+          # sin aviso). Lo prueba pruebas-workflows/deteccion_iac.py.
+          if [[ -n "$(find . -not -path '*/node_modules/*' \
+               \( -name '*.tf' -o -name 'Dockerfile*' -o -path '*/k8s/*.y*ml' \) -print -quit)" ]]; then
+            hay_iac=true
+          fi
+          stack="$STACK_ENTRADA"
+          if [[ "$stack" == "auto" ]]; then
+            if   $hay_node;   then stack=node
+            elif $hay_python; then stack=python
+            elif [[ -f Dockerfile ]]; then stack=docker
+            elif [[ -n "$(find . -name '*.tf' -print -quit)" ]]; then stack=terraform
+            else stack=desconocido; fi
+          fi
+          # Reglas propias de Semgrep (bootstrap-repo.sh las copia a .github/)
+          config_semgrep=""
+          [[ -f "$GITHUB_WORKSPACE/.github/semgrep.yml" ]] && config_semgrep="--config .github/semgrep.yml"
+          {
+            echo "stack=$stack"
+            echo "hay_node=$hay_node"
+            echo "hay_python=$hay_python"
+            echo "hay_iac=$hay_iac"
+            echo "config_semgrep=$config_semgrep"
+          } >> "$GITHUB_OUTPUT"
+          echo "Stack detectado: $stack (node=$hay_node python=$hay_python iac=$hay_iac)"
+
+      # Valida .devsecops.yml contra el esquema ANTES de leerlo. Un manifiesto
+      # inválido se detectaba recién al fallar algo aguas abajo, o no se
+      # detectaba nunca: nada lo validaba, ni aquí ni en security-local.sh.
+      # Casos reales que esto atrapa: una fecha sin comillas (YAML la convierte
+      # en date y el esquema exige string), una `herramienta` fuera del enum y
+      # una vigencia por encima del máximo que fija la política.
+      - name: Validar .devsecops.yml contra el esquema
+        id: manifiesto
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .devsecops.yml ]]; then
+            echo "Sin .devsecops.yml: nada que validar (el manifiesto es opcional)."
+            exit 0
+          fi
+          if [[ ! -f .github/devsecops.schema.json ]]; then
+            echo "::warning::Hay .devsecops.yml pero falta .github/devsecops.schema.json; no se valida. Ejecute bootstrap-repo.sh para copiarlo."
+            exit 0
+          fi
+          # Version fija, por el mismo motivo que las acciones se fijan por SHA:
+          # una version mutable permite que un tercero sustituya el artefacto
+          # entre la verificacion y el uso. Aqui pesa mas que en otros sitios,
+          # porque este paquete se ejecuta DENTRO del workflow de seguridad.
+          # Para actualizarlo, ver README de 02-pipelines, seccion 8.
+          python3 -m pip install --quiet jsonschema==4.26.0
+          python3 - <<'PY'
+          import datetime as dt, json, sys, yaml
+          from jsonschema import Draft202012Validator
+
+          with open(".devsecops.yml", encoding="utf-8") as f:
+              manifiesto = yaml.safe_load(f) or {}
+          with open(".github/devsecops.schema.json", encoding="utf-8") as f:
+              esquema = json.load(f)
+
+          errores = sorted(Draft202012Validator(esquema).iter_errors(manifiesto),
+                           key=lambda e: list(e.absolute_path))
+          # Los fallos propios (posteriores al esquema) se cuentan aparte: mezclar
+          # dicts del manifiesto dentro de `errores`, que contiene objetos
+          # ValidationError, funcionaba solo porque despues nadie lo recorre.
+          fallos_propios = 0
+          for e in errores:
+              ruta = ".".join(str(x) for x in e.absolute_path) or "(raíz)"
+              print(f"::error file=.devsecops.yml::{ruta}: {e.message}")
+              # Una fecha sin comillas es el error más frecuente y su mensaje
+              # ("is not of type 'string'") no dice cómo arreglarlo.
+              if isinstance(e.instance, dt.date):
+                  print(f"::error file=.devsecops.yml::{ruta}: entrecomille la fecha "
+                        f'(`{e.path[-1] if e.path else "campo"}: "{e.instance}"`); '
+                        "YAML convierte una fecha sin comillas en un objeto date.")
+
+          avisos = 0
+          # `componente` debe nombrar un componente declarado: el job que lee las
+          # excepciones descarta las que no coinciden, así que un nombre erróneo
+          # —una ruta de archivo, por ejemplo— desactiva la excepción sin avisar.
+          declarados = {c.get("nombre") for c in (manifiesto.get("componentes") or [])}
+          for e in (manifiesto.get("seguridad", {}) or {}).get("excepciones", []) or []:
+              comp = e.get("componente")
+              if comp and comp not in declarados:
+                  print(f"::error file=.devsecops.yml::Excepción {e.get('id')}: componente '{comp}' no está "
+                        f"declarado en `componentes[].nombre` ({', '.join(sorted(declarados)) or 'ninguno'}). "
+                        "La excepción se descartaría sin aviso; use un nombre declarado o quite el campo.")
+                  fallos_propios += 1
+
+          # Vigencia: la política admite 90 días para CRITICAL/HIGH y 180 para
+          # MEDIUM. La entrada no declara severidad, así que solo se bloquea lo
+          # que excede el techo absoluto; entre 90 y 180 se avisa.
+          for e in (manifiesto.get("seguridad", {}) or {}).get("excepciones", []) or []:
+              try:
+                  creado = dt.date.fromisoformat(str(e["creado"]))
+                  vence = dt.date.fromisoformat(str(e["vence"]))
+              except (KeyError, ValueError):
+                  continue   # el esquema ya reportó lo que falte o esté mal formado
+              dias = (vence - creado).days
+              if dias > 180:
+                  print(f"::error file=.devsecops.yml::Excepción {e.get('id')}: {dias} días de vigencia; "
+                        "el máximo es 90 (CRITICAL/HIGH) o 180 (MEDIUM).")
+                  fallos_propios += 1
+              elif dias > 90:
+                  avisos += 1
+                  print(f"::warning file=.devsecops.yml::Excepción {e.get('id')}: {dias} días de vigencia; "
+                        "solo admisible si el hallazgo es MEDIUM (CRITICAL/HIGH: máximo 90).")
+
+          if errores or fallos_propios:
+              sys.exit(1)
+          if avisos:
+              print(f"✓ .devsecops.yml valida contra el esquema, con {avisos} aviso(s) de vigencia.")
+          else:
+              print("✓ .devsecops.yml valida contra el esquema y las vigencias están dentro de límite.")
+          PY
+
+      # B0 (privado sin CodeQL ni secret scanning) es transitorio: 30 días,
+      # con fallo a los 45 (03-ambientes-modos-y-aprobaciones.md §5.1). Hasta
+      # ahora solo lo comprobaba ci-multicloud.yml, así que un repositorio con
+      # cualquier otro ci-* podía quedarse en B0 indefinidamente sin aviso. Se
+      # comprueba aquí porque todos los ci-* llaman a este reusable, y en un
+      # paso propio porque el anterior termina antes si falta el esquema.
+      # `produccion: false` exime: es el único B0 permanente que admite §5.1.
+      # Pruebas: 02-pipelines/pruebas-workflows/fecha_modo.py.
+      - name: Límite del Modo B0 (fecha_modo)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime as dt, pathlib, sys, yaml
+
+          if not pathlib.Path(".devsecops.yml").is_file():
+              sys.exit(0)   # sin manifiesto no hay modo declarado
+          with open(".devsecops.yml", encoding="utf-8") as f:
+              m = yaml.safe_load(f) or {}
+          if m.get("modo") != "B0":
+              sys.exit(0)
+          # Solo el booleano exime: un "false" entrecomillado lo rechaza el
+          # esquema, y aquí no debe bastar para saltarse el límite.
+          if m.get("produccion") is False:
+              print("Modo B0 permanente (produccion: false): sin límite de días (§5.1).")
+              sys.exit(0)
+
+          def fallar(mensaje):
+              print(f"::error file=.devsecops.yml::{mensaje}")
+              sys.exit(1)
+
+          fecha = m.get("fecha_modo")
+          if fecha is None or fecha == "":
+              fallar("modo B0 exige fecha_modo (fecha de entrada al modo, AAAA-MM-DD), "
+                     "salvo que el repositorio declare produccion: false.")
+          # Sin comillas YAML entrega un date; con comillas, un str. El esquema
+          # no comprueba `format: date`, así que un texto cualquiera llega aquí.
+          if isinstance(fecha, dt.datetime):
+              fecha = fecha.date()
+          elif not isinstance(fecha, dt.date):
+              try:
+                  fecha = dt.date.fromisoformat(str(fecha).strip())
+              except ValueError:
+                  fallar(f"fecha_modo '{fecha}' no es una fecha AAAA-MM-DD.")
+          dias = (dt.date.today() - fecha).days
+          # Un día de margen: el runner usa UTC y bootstrap-repo.sh, la fecha
+          # local. Más allá de eso, una fecha futura solo sirve para estirar el plazo.
+          if dias < -1:
+              fallar(f"fecha_modo {fecha} está en el futuro; debe ser la fecha real de entrada en B0.")
+          if dias >= 45:
+              fallar(f"Modo B0 lleva {dias} días (máximo 45): migre a Modo B o vuelva a público (§5.1).")
+          if dias >= 30:
+              print(f"::warning file=.devsecops.yml::Modo B0 lleva {dias} días (límite 30); "
+                    "planifique la salida: a los 45 este paso falla.")
+          else:
+              print(f"Modo B0: {max(dias, 0)} de 30 días (desde {fecha}).")
+          PY
+
+      # Lee seguridad.excepciones[] del manifiesto (si existe). Solo las
+      # excepciones VIGENTES (vence >= hoy) y aplicables al componente (campo
+      # `componente` vacío o igual al componente cuya `ruta` es inputs.ruta)
+      # se convierten en archivos/listas de ignorado. Las vencidas se descartan
+      # con aviso: el hallazgo vuelve a bloquear hasta renovarla en el PR.
+      - name: Generar excepciones vigentes desde .devsecops.yml
+        id: excepciones
+        shell: bash
+        env:
+          RUTA: ${{ inputs.ruta }}
+        run: |
+          set -euo pipefail
+          mkdir -p excepciones-generadas
+          python3 - <<'PY'
+          import datetime as dt, hashlib, os, pathlib, re, yaml
+          hoy = dt.date.today()
+          ruta = os.path.normpath(os.environ["RUTA"])
+          m = {}
+          if pathlib.Path(".devsecops.yml").is_file():
+              with open(".devsecops.yml", encoding="utf-8") as f:
+                  m = yaml.safe_load(f) or {}
+          nombre = None
+          for c in m.get("componentes", []) or []:
+              if os.path.normpath(c.get("ruta", "./")) == ruta:
+                  nombre = c.get("nombre")
+          vigentes, trivy_vuln, trivy_misc, gitleaks = [], [], [], []
+          checkov, semgrep, pip, npm_audit = [], [], [], []
+          for e in (m.get("seguridad", {}) or {}).get("excepciones", []) or []:
+              if e.get("componente") and e["componente"] != nombre:
+                  continue
+              vence = e.get("vence")
+              if not isinstance(vence, dt.date):
+                  vence = dt.date.fromisoformat(str(vence))
+              if vence < hoy:
+                  print(f"::warning::Excepción vencida descartada: {e['id']} ({e['herramienta']}, venció {vence})")
+                  continue
+              vigentes.append(e)
+              h, i = e["herramienta"], str(e["id"])
+              if h == "trivy":
+                  destino = trivy_vuln if i.upper().startswith(("CVE-", "GHSA-")) else trivy_misc
+                  destino.append(f'  - id: {i}\n    statement: "{e["justificacion"]} (aprobó {e["aprobado_por"]})"\n    expired_at: {vence}')
+              elif h == "checkov":
+                  checkov.append(i)
+              elif h == "semgrep":
+                  semgrep.append(f"--exclude-rule {i}")
+              elif h == "pip-audit":
+                  pip.append(f"--ignore-vuln {i}")
+              elif h == "npm-audit":
+                  # Solo IDs: el paso de pnpm audit los compara con el JSON.
+                  # Nunca como `pnpm audit --ignore`, que escribe configuración.
+                  npm_audit.append(i)
+              elif h == "gitleaks":
+                  # El comentario va en su PROPIA línea: gitleaks compara la
+                  # línea completa contra la huella, así que un comentario al
+                  # final impide que la excepción coincida jamás.
+                  gitleaks.append(f"# vence {vence}: {e['justificacion']}")
+                  gitleaks.append(i)
+          d = pathlib.Path("excepciones-generadas")
+          (d / "trivyignore.yaml").write_text(
+              "# Generado por _reusable-security.yml desde .devsecops.yml. NO editar ni versionar.\n"
+              + "vulnerabilities:\n" + ("\n".join(trivy_vuln) + "\n" if trivy_vuln else "  []\n")
+              + "misconfigurations:\n" + ("\n".join(trivy_misc) + "\n" if trivy_misc else "  []\n"), encoding="utf-8")
+          (d / "gitleaksignore").write_text(
+              "# Generado desde .devsecops.yml (fingerprints commit:archivo:regla:linea). NO versionar.\n"
+              + "".join(l + "\n" for l in gitleaks), encoding="utf-8")
+          # Identificador del componente dentro del run. ci-multicloud.yml llama a
+          # este reusable en una matriz, un job por componente, y sin él todo lo
+          # que se sube se llamaba igual en todos: el artifact de excepciones (con
+          # overwrite, un componente podía descargar las de otro), los SARIF de B0
+          # (upload-artifact falla ante un nombre repetido) y la categoría de Code
+          # Scanning (un análisis reemplazaba al del otro componente).
+          # Parte legible más hash de la ruta normalizada: "apps/web" y "apps-web"
+          # no chocan. La raíz conserva la categoría sin sufijo, para no cortar la
+          # historia de Code Scanning de los repositorios de un solo componente.
+          # Pruebas: 02-pipelines/pruebas-workflows/artefactos_matriz.py
+          legible = re.sub(r"[^A-Za-z0-9]+", "-", ruta).strip("-") or "raiz"
+          slug = f"{legible}-{hashlib.sha256(ruta.encode()).hexdigest()[:8]}"
+          sufijo_sarif = "" if ruta == "." else f"-{slug}"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"slug={slug}\n")
+              out.write(f"sufijo_sarif={sufijo_sarif}\n")
+              out.write(f"checkov_skip={','.join(checkov)}\n")
+              out.write(f"semgrep_exclude={' '.join(semgrep)}\n")
+              out.write(f"pip_ignore={' '.join(pip)}\n")
+              out.write(f"npm_audit_ignore={' '.join(npm_audit)}\n")
+              out.write(f"hay_excepciones={'true' if vigentes else 'false'}\n")
+          print(f"Excepciones vigentes aplicables: {len(vigentes)} (componente: {nombre or 'sin manifiesto'})")
+          for e in vigentes:
+              print(f"  {e['herramienta']:10} {e['id']} vence {e['vence']} — {e['justificacion']}")
+          PY
+
+      # Los archivos generados viajan a los demás jobs como artifact (los
+      # outputs tienen límite de tamaño y no admiten archivos). Uno por
+      # componente: el nombre lleva su `slug`.
+      - name: Publicar archivos de excepciones generados
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: excepciones-generadas-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.excepciones.outputs.slug }}
+          path: excepciones-generadas/
+          retention-days: 1
+          overwrite: true
+
+      - name: Comprobar si existe SNYK_TOKEN
+        id: snyk
+        shell: bash
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [[ -n "${SNYK_TOKEN:-}" ]]; then
+            echo "disponible=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "disponible=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # secretos: Gitleaks sobre TODO el historial (fetch-depth: 0). Es el
+  # equivalente OSS de "secret scanning" de GitHub y corre en todos los modos.
+  # Config: .github/gitleaks.toml (misma que pre-commit y security-local.sh).
+  # Sin `pull-requests: write`: los comentarios en PR están desactivados
+  # (GITLEAKS_ENABLE_COMMENTS=false); el resultado va al Step Summary y artifact.
+  # ---------------------------------------------------------------------------
+  secretos:
+    name: Secretos (Gitleaks)
+    needs: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout con historial completo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+          fetch-depth: 0
+
+      - name: Descargar excepciones generadas (.gitleaksignore)
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: excepciones-generadas-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.preparar.outputs.slug }}
+          path: excepciones-generadas
+
+      - name: Aplicar .gitleaksignore generado
+        run: cp excepciones-generadas/gitleaksignore .gitleaksignore
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .github/gitleaks.toml
+          # Obligatoria SOLO cuando el repositorio pertenece a una organización
+          # (licencia gratuita en gitleaks.io). En cuentas personales queda vacía.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_ENABLE_SUMMARY: 'true'
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'true'
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+
+  # ---------------------------------------------------------------------------
+  # sast: Semgrep CE dentro del contenedor oficial (returntocorp/semgrep-action
+  # está archivada). Genera SARIF completo y falla únicamente si hay hallazgos
+  # de severidad ERROR (los WARNING quedan registrados pero no bloquean).
+  # `security-events: write` es necesario solo cuando subir_sarif = true; los
+  # permisos de un job no pueden condicionarse por input, así que se declara
+  # siempre (el caller lo acota en Modo B0 si lo desea).
+  # ---------------------------------------------------------------------------
+  sast:
+    name: SAST (Semgrep CE)
+    needs: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # solo se usa si subir_sarif = true
+      actions: read
+    # Versión fijada del contenedor (no usar :latest en producción).
+    container:
+      image: semgrep/semgrep:1.174.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Semgrep scan (p/ci, p/owasp-top-ten, p/secrets + reglas propias)
+        env:
+          SEMGREP_SEND_METRICS: 'off'
+          RUTA: ${{ inputs.ruta }}
+          CONFIG_PROPIA: ${{ needs.preparar.outputs.config_semgrep }}
+          # Excepciones vigentes del manifiesto: "--exclude-rule id1 --exclude-rule id2"
+          EXCLUIR: ${{ needs.preparar.outputs.semgrep_exclude }}
+        run: |
+          set -euo pipefail
+          # Un solo escaneo con dos salidas: SARIF (para Code Scanning/artifact)
+          # y JSON (para decidir el bloqueo por severidad).
+          # shellcheck disable=SC2086
+          semgrep scan \
+            --config p/ci --config p/owasp-top-ten --config p/secrets $CONFIG_PROPIA \
+            $EXCLUIR \
+            --metrics=off \
+            --sarif-output=semgrep.sarif \
+            --json-output=semgrep.json \
+            --text \
+            "$RUTA" || true
+          # Bloqueo: cualquier hallazgo con severidad ERROR hace fallar el job
+          # (equivale a `--error` restringido a ERROR).
+          python3 - <<'PY'
+          import json, sys
+          datos = json.load(open("semgrep.json"))
+          errores = [r for r in datos.get("results", []) if r["extra"]["severity"] == "ERROR"]
+          avisos = [r for r in datos.get("results", []) if r["extra"]["severity"] != "ERROR"]
+          print(f"Semgrep: {len(errores)} hallazgos ERROR, {len(avisos)} WARNING/INFO")
+          for r in errores:
+              print(f"  ERROR {r['check_id']} {r['path']}:{r['start']['line']}")
+          sys.exit(1 if errores else 0)
+          PY
+
+      - name: Subir SARIF a Code Scanning (Modo A/B)
+        if: inputs.subir_sarif && always()
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep${{ needs.preparar.outputs.sufijo_sarif }}
+
+      - name: Guardar SARIF como artifact (Modo B0)
+        if: inputs.subir_sarif == false && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sarif-semgrep-${{ needs.preparar.outputs.slug }}
+          path: semgrep.sarif
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # sca: vulnerabilidades en dependencias. Trivy fs (bloqueante) + auditoría
+  # nativa del ecosistema (npm audit / pnpm audit / pip-audit) + OSV-Scanner
+  # informativo.
+  # Nota: OSV-Scanner oficial se distribuye como workflow reutilizable, que no
+  # puede anidarse aquí; se ejecuta su contenedor solo con fines de informe.
+  # ---------------------------------------------------------------------------
+  sca:
+    name: SCA (Trivy fs + auditoría nativa)
+    needs: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # solo se usa si subir_sarif = true
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Descargar excepciones generadas (.trivyignore.yaml)
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: excepciones-generadas-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.preparar.outputs.slug }}
+          path: excepciones-generadas
+
+      - name: Resolver configuración de Trivy y aplicar .trivyignore.yaml generado
+        id: trivycfg
+        run: |
+          # .trivyignore.yaml se GENERA desde .devsecops.yml (nunca a mano).
+          cp excepciones-generadas/trivyignore.yaml .trivyignore.yaml
+          # Si bootstrap-repo.sh copió config/trivy.yaml se usa; si no, vacío
+          # (la acción omite --config cuando el valor está vacío).
+          if [[ -f .github/trivy.yaml ]]; then echo "ruta=.github/trivy.yaml" >> "$GITHUB_OUTPUT"; else echo "ruta=" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Trivy fs (vulnerabilidades en lockfiles; bloquea en ${{ inputs.bloquear_en }})
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IGNOREFILE: .trivyignore.yaml
+          # Dependencias de desarrollo: corren en el CI con acceso a secretos.
+          # Por variable y no solo en trivy.yaml, porque hay repositorios sin
+          # .github/trivy.yaml o con la copia 2.0.
+          TRIVY_INCLUDE_DEV_DEPS: 'true'
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.ruta }}
+          scanners: vuln
+          severity: ${{ inputs.bloquear_en }}
+          ignore-unfixed: true
+          exit-code: '1'
+          format: sarif
+          # Sin esto trivy-action borra TRIVY_SEVERITY al generar SARIF
+          # (entrypoint.sh de v0.36.0) y Trivy bloquea con cualquier severidad,
+          # ignorando `bloquear_en`. El SARIF queda acotado a esas severidades.
+          limit-severities-for-sarif: true
+          output: trivy-fs.sarif
+          trivy-config: ${{ steps.trivycfg.outputs.ruta }}
+
+      - name: Node.js
+        if: needs.preparar.outputs.hay_node == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ vars.NODE_VERSION || '22' }}
+
+      # npm audit sobre package-lock.json, con el umbral y las excepciones de
+      # `herramienta: npm-audit` aplicados sobre el JSON, aviso por aviso (npm
+      # audit no tiene cómo ignorar un aviso). Medido con npm 12, mismo formato
+      # desde npm 7: cada aviso figura una vez, como objeto en `via` del paquete
+      # afectado, con su GHSA en `url` y su severidad; los `via` de texto son
+      # dependencias vulnerables, y suben la severidad del paquete que las usa.
+      # Por eso decide la severidad del aviso, no la del paquete: exceptuar el
+      # aviso de una dependencia no deja bloqueando a quien la usa. El JSON no
+      # trae CVE: la excepción va por el GHSA.
+      # Pruebas: 02-pipelines/pruebas-workflows/auditoria_pnpm.py
+      - name: npm audit (solo dependencias de producción, nivel high)
+        if: needs.preparar.outputs.hay_node == 'true'
+        working-directory: ${{ inputs.ruta }}
+        env:
+          # Excepciones vigentes del manifiesto con herramienta npm-audit: "ID ..."
+          IGNORAR: ${{ needs.preparar.outputs.npm_audit_ignore }}
+        run: |
+          set -euo pipefail
+          if [[ -f pnpm-lock.yaml && ! -f package-lock.json ]]; then
+            echo "Hay pnpm-lock.yaml: lo audita el paso 'pnpm audit'."
+            exit 0
+          elif [[ ! -f package-lock.json ]]; then
+            echo "::warning::Sin package-lock.json ni pnpm-lock.yaml: no hay auditoría nativa (yarn y bun no se auditan); la cobertura queda en Trivy fs."
+            exit 0
+          fi
+          export INFORME="$RUNNER_TEMP/npm-audit.json" LOG="$RUNNER_TEMP/npm-audit.log"
+          # El código de salida de npm no decide (sale con 1 por un low): decide el JSON.
+          npm audit --omit=dev --json >"$INFORME" 2>"$LOG" || true
+          python3 - <<'PY'
+          import json, os, sys
+          NIVEL = {"info": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4}
+          UMBRAL = "high"
+          try:
+              with open(os.environ["INFORME"], encoding="utf-8") as f:
+                  d = json.load(f)
+          except (OSError, ValueError):
+              d = None
+          vulns = d.get("vulnerabilities") if isinstance(d, dict) else None
+          avisos = {}
+          if isinstance(vulns, dict):
+              for paquete, v in vulns.items():
+                  for via in (v or {}).get("via") or []:
+                      if isinstance(via, dict):
+                          avisos[via.get("url") or via.get("source") or f"{paquete}:{via.get('title')}"] = via
+          # Un registro caído da {"message", "error"} sin `vulnerabilities`; y
+          # paquetes vulnerables sin ningún aviso sería un formato que no se entiende.
+          if not isinstance(vulns, dict) or (vulns and not avisos):
+              motivo = (d.get("message") or d.get("error")) if isinstance(d, dict) else None
+              print(f"::error::npm audit no llegó a auditar ({motivo or 'la salida no es un informe de npm audit'})."
+                    " Un análisis que no corrió no se aprueba.")
+              try:
+                  with open(os.environ["LOG"], encoding="utf-8") as f:
+                      print(f.read()[-2000:])
+              except OSError:
+                  pass
+              sys.exit(1)
+          ignorar = {i.upper() for i in os.environ.get("IGNORAR", "").split()}
+          bloqueantes, exceptuados, total = [], [], len(avisos)
+          for via in avisos.values():
+              sev = str(via.get("severity", "")).lower()
+              sev = sev if sev in NIVEL else "critical"  # desconocida: criterio conservador
+              if NIVEL[sev] < NIVEL[UMBRAL]:
+                  continue
+              ghsa = str(via.get("url") or "").rstrip("/").rsplit("/", 1)[-1]
+              linea = f"{ghsa or via.get('source')} {sev} {via.get('name')}@{via.get('range')} ({via.get('title')})"
+              (exceptuados if ghsa.upper() in ignorar else bloqueantes).append(linea)
+          for linea in exceptuados:
+              print(f"::notice::Exceptuado por .devsecops.yml: {linea}")
+          for linea in bloqueantes:
+              print(f"::error::{linea}")
+          print(f"npm audit: {total} avisos; {len(bloqueantes)} bloquean (>= {UMBRAL}), {len(exceptuados)} exceptuados.")
+          sys.exit(1 if bloqueantes else 0)
+          PY
+
+      # pnpm audit sobre pnpm-lock.yaml, con el criterio de npm audit
+      # (producción, nivel high). El umbral y las excepciones se aplican sobre el
+      # JSON y no con opciones de pnpm, por dos cosas medidas con pnpm 11.25.0:
+      # - `--ignore ID` no filtra: escribe auditConfig.ignoreGhsas en
+      #   pnpm-workspace.yaml, acepta cualquier texto y sale con 0.
+      # - Lo que el repositorio declara en auditConfig sale de `advisories`, pero
+      #   metadata.vulnerabilities lo sigue contando. Esa diferencia delata una
+      #   excepción fuera de .devsecops.yml (D5).
+      # Pruebas: 02-pipelines/pruebas-workflows/auditoria_pnpm.py
+      - name: pnpm audit (solo dependencias de producción, nivel high)
+        if: needs.preparar.outputs.hay_node == 'true'
+        working-directory: ${{ inputs.ruta }}
+        env:
+          # Excepciones vigentes del manifiesto con herramienta npm-audit: "ID ..."
+          IGNORAR: ${{ needs.preparar.outputs.npm_audit_ignore }}
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          if [[ ! -f pnpm-lock.yaml ]]; then
+            echo "Sin pnpm-lock.yaml: pnpm audit no aplica a este componente."
+            exit 0
+          fi
+          if ! command -v corepack >/dev/null; then
+            echo "::error::No hay Corepack en este Node.js (Node 25 dejó de incluirlo): no se puede auditar pnpm-lock.yaml. Fije NODE_VERSION en 22 o 24."
+            exit 1
+          fi
+          export INFORME="$RUNNER_TEMP/pnpm-audit.json" LOG="$RUNNER_TEMP/pnpm-audit.log"
+          # Corepack usa el pnpm del `packageManager` de package.json. El código
+          # de salida de pnpm no decide (sale con 1 por un moderado): decide el JSON.
+          corepack pnpm audit --prod --json >"$INFORME" 2>"$LOG" || true
+          python3 - <<'PY'
+          import json, os, sys
+          NIVEL = {"info": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4}
+          UMBRAL = "high"  # el mismo que npm audit --audit-level=high
+          try:
+              with open(os.environ["INFORME"], encoding="utf-8") as f:
+                  d = json.load(f)
+          except (OSError, ValueError):
+              d = None
+          if not isinstance(d, dict) or not isinstance(d.get("advisories"), dict):
+              err = d.get("error") if isinstance(d, dict) else None
+              motivo = (f"{err.get('code')}: {err.get('message')}" if isinstance(err, dict)
+                        else "la salida no es un informe de pnpm audit")
+              print(f"::error::pnpm audit no llegó a auditar ({motivo}). Un análisis que no corrió no se aprueba.")
+              try:
+                  with open(os.environ["LOG"], encoding="utf-8") as f:
+                      print(f.read()[-2000:])
+              except OSError:
+                  pass
+              sys.exit(1)
+          ignorar = {i.upper() for i in os.environ.get("IGNORAR", "").split()}
+          listados = dict.fromkeys(NIVEL, 0)
+          bloqueantes, exceptuados = [], []
+          for a in d["advisories"].values():
+              sev = str(a.get("severity", "")).lower()
+              sev = sev if sev in NIVEL else "critical"  # desconocida: criterio conservador
+              listados[sev] += 1
+              if NIVEL[sev] < NIVEL[UMBRAL]:
+                  continue
+              ids = {str(x).upper() for x in [a.get("github_advisory_id"), *(a.get("cves") or [])] if x}
+              versiones = ",".join(sorted({str(v.get("version")) for v in a.get("findings") or []})) or "?"
+              linea = (f"{a.get('github_advisory_id') or a.get('id')} {sev} {a.get('module_name')}@{versiones}"
+                       f" (corregido en {a.get('patched_versions') or 'ninguna'})")
+              (exceptuados if ids & ignorar else bloqueantes).append(linea)
+          for linea in exceptuados:
+              print(f"::notice::Exceptuado por .devsecops.yml: {linea}")
+          for linea in bloqueantes:
+              print(f"::error::{linea}")
+          # metadata cuenta un aviso por entrada (medido: no por ruta ni por versión).
+          meta = (d.get("metadata") or {}).get("vulnerabilities") or {}
+          ocultos = {s: int(meta.get(s) or 0) - listados[s] for s in NIVEL if NIVEL[s] >= NIVEL[UMBRAL]}
+          ocultos = {s: n for s, n in ocultos.items() if n > 0}
+          if ocultos:
+              print("::error::pnpm ocultó " + ", ".join(f"{n} {s}" for s, n in ocultos.items())
+                    + " por configuración del repositorio (auditConfig.ignoreGhsas o ignoreCves). Las excepciones"
+                    " van en .devsecops.yml (D5): quítelas de ahí y regístrelas en seguridad.excepciones[] con"
+                    " herramienta npm-audit.")
+          print(f"pnpm audit: {sum(listados.values())} avisos; {len(bloqueantes)} bloquean (>= {UMBRAL}), "
+                f"{len(exceptuados)} exceptuados.")
+          sys.exit(1 if bloqueantes or ocultos else 0)
+          PY
+
+      - name: Python
+        if: needs.preparar.outputs.hay_python == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ vars.PYTHON_VERSION || '3.12' }}
+
+      - name: pip-audit
+        if: needs.preparar.outputs.hay_python == 'true'
+        working-directory: ${{ inputs.ruta }}
+        env:
+          # Excepciones vigentes del manifiesto: "--ignore-vuln ID ..."
+          IGNORAR: ${{ needs.preparar.outputs.pip_ignore }}
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pip-audit==2.10.1   # version fija: ver seccion 8 del README
+          # shellcheck disable=SC2086
+          if [[ -f requirements.txt ]]; then
+            pip-audit -r requirements.txt --strict $IGNORAR
+          else
+            # Proyecto con pyproject.toml: se instala y se audita el entorno
+            python -m pip install --quiet . && pip-audit --strict $IGNORAR
+          fi
+
+      - name: OSV-Scanner (informativo, no bloqueante)
+        continue-on-error: true
+        env:
+          RUTA: ${{ inputs.ruta }}
+        run: |
+          docker run --rm -v "$PWD:/src" ghcr.io/google/osv-scanner:v2.5.1 \
+            scan source --recursive "/src/$RUTA" || true
+
+      - name: Subir SARIF a Code Scanning (Modo A/B)
+        if: inputs.subir_sarif && always()
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs${{ needs.preparar.outputs.sufijo_sarif }}
+
+      - name: Guardar SARIF como artifact (Modo B0)
+        if: inputs.subir_sarif == false && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sarif-trivy-fs-${{ needs.preparar.outputs.slug }}
+          path: trivy-fs.sarif
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # iac: Checkov + Trivy config sobre Terraform / Dockerfile / Kubernetes.
+  # soft_fail = false: cualquier check fallido bloquea. Solo corre si preparar
+  # detectó archivos de IaC.
+  # ---------------------------------------------------------------------------
+  iac:
+    name: IaC (Checkov + Trivy config)
+    needs: preparar
+    if: needs.preparar.outputs.hay_iac == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # solo se usa si subir_sarif = true
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Descargar excepciones generadas (.trivyignore.yaml)
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: excepciones-generadas-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.preparar.outputs.slug }}
+          path: excepciones-generadas
+
+      - name: Aplicar .trivyignore.yaml generado
+        run: cp excepciones-generadas/trivyignore.yaml .trivyignore.yaml
+
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@5659ddea96102e16d8f221b3d8402453c0b1c150 # master @ 2026-08-26 (sin release vigente)
+        with:
+          directory: ${{ inputs.ruta }}
+          framework: terraform,dockerfile,kubernetes,github_actions
+          soft_fail: false
+          quiet: true
+          output_format: cli,sarif
+          output_file_path: console,resultados-checkov
+          download_external_modules: false
+          # Excepciones vigentes del manifiesto (IDs CKV_* separados por comas)
+          skip_check: ${{ needs.preparar.outputs.checkov_skip }}
+
+      - name: Trivy config (misconfiguraciones; bloquea en ${{ inputs.bloquear_en }})
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IGNOREFILE: .trivyignore.yaml
+        with:
+          scan-type: config
+          scan-ref: ${{ inputs.ruta }}
+          severity: ${{ inputs.bloquear_en }}
+          exit-code: '1'
+          format: sarif
+          # Ídem Trivy fs: sin esto `bloquear_en` no se aplica al generar SARIF.
+          limit-severities-for-sarif: true
+          output: trivy-config.sarif
+
+      # Si el paso de Trivy no llegó a correr (por ejemplo, porque Checkov falló
+      # antes), el archivo no existe y la subida hacía fallar el job por una
+      # razón que nada tiene que ver con la seguridad del código.
+      - name: Subir SARIF a Code Scanning (Modo A/B)
+        if: inputs.subir_sarif && always() && hashFiles('trivy-config.sarif') != ''
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config${{ needs.preparar.outputs.sufijo_sarif }}
+
+      # Checkov no siempre deja el SARIF en resultados-checkov/results_sarif.sarif
+      # (depende de la versión de la acción y de los frameworks analizados). La
+      # ruta fija hacía fallar la subida —y con ella el job y la compuerta del
+      # PR— aunque checkov hubiera pasado sin hallazgos. Se localiza el archivo
+      # y, si no aparece, se avisa sin bloquear: el control es checkov, que ya
+      # corrió y bloquea por su cuenta; esto solo alimenta Code Scanning.
+      - name: Localizar SARIF de Checkov
+        id: sarif_checkov
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `output_file_path: console,resultados-checkov` no crea un directorio:
+          # checkov escribe el SARIF en un ARCHIVO llamado `resultados-checkov`.
+          # Se contemplan los dos casos porque el comportamiento cambió entre
+          # versiones. upload-sarif exige extensión .sarif, así que se copia.
+          archivo=""
+          if [[ -d resultados-checkov ]]; then
+            archivo=$(find resultados-checkov -name '*.sarif' -type f | head -1 || true)
+          elif [[ -f resultados-checkov ]]; then
+            cp resultados-checkov checkov.sarif
+            archivo=checkov.sarif
+          fi
+          if [[ -z "$archivo" ]]; then
+            archivo=$(find . -maxdepth 3 -name 'results_sarif.sarif' -type f 2>/dev/null | head -1 || true)
+          fi
+          if [[ -z "$archivo" ]]; then
+            echo "::warning::Checkov no dejó ningún SARIF; no se sube a Code Scanning."
+            ls -la resultados-checkov 2>&1 | sed 's/^/  /' || echo "  (no existe)"
+          else
+            echo "SARIF de Checkov: $archivo ($(wc -c <"$archivo") bytes)"
+          fi
+          echo "archivo=$archivo" >> "$GITHUB_OUTPUT"
+
+      - name: Subir SARIF de Checkov a Code Scanning (Modo A/B)
+        if: inputs.subir_sarif && always() && steps.sarif_checkov.outputs.archivo != ''
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: ${{ steps.sarif_checkov.outputs.archivo }}
+          category: checkov${{ needs.preparar.outputs.sufijo_sarif }}
+
+      - name: Guardar SARIF como artifact (Modo B0)
+        if: inputs.subir_sarif == false && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sarif-iac-${{ needs.preparar.outputs.slug }}
+          path: |
+            trivy-config.sarif
+            resultados-checkov/results_sarif.sarif
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # snyk (opcional): solo si el caller heredó SNYK_TOKEN. Plan Free: 400 tests
+  # OSS/mes; por eso se usa como segunda opinión y no como bloqueo principal.
+  # snyk/actions/node ejecuta `snyk test` dentro de su contenedor (el mismo
+  # binario sirve para npm, pip, etc. con --all-projects).
+  # ---------------------------------------------------------------------------
+  snyk:
+    name: Snyk (opcional)
+    needs: preparar
+    if: needs.preparar.outputs.snyk_disponible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+
+      - name: snyk test (todas las manifestaciones del componente)
+        # Nota: snyk/actions es un monorepo de acciones (node, python, setup,
+        # docker...). El SHA fija el repositorio COMPLETO, por lo que el mismo
+        # pin sirve para snyk/actions/setup o snyk/actions/python si se cambia
+        # la subruta; el comentario de versión aplica a todo el repo.
+        uses: snyk/actions/node@12140f4059e244892ae643824a95459a102120dd # master (2026-08)
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: test
+          # --all-projects recorre el repo completo; acote con
+          # --exclude=<dir> si el monorepo tiene componentes que no aplican.
+          args: --all-projects --severity-threshold=high
+
+  # ---------------------------------------------------------------------------
+  # resumen: consolida el estado de cada escáner en el Step Summary del run.
+  # Falla si cualquiera de los jobs bloqueantes falló (needs + if: always()).
+  # ---------------------------------------------------------------------------
+  resumen:
+    name: Resumen de seguridad
+    needs: [preparar, secretos, sast, sca, iac, snyk]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Escribir resumen
+        env:
+          R_PREPARAR: ${{ needs.preparar.result }}
+          R_SECRETOS: ${{ needs.secretos.result }}
+          R_SAST: ${{ needs.sast.result }}
+          R_SCA: ${{ needs.sca.result }}
+          R_IAC: ${{ needs.iac.result }}
+          R_SNYK: ${{ needs.snyk.result }}
+          STACK: ${{ needs.preparar.outputs.stack }}
+          BLOQUEAR_EN: ${{ inputs.bloquear_en }}
+          HAY_EXCEPCIONES: ${{ needs.preparar.outputs.hay_excepciones }}
+        run: |
+          {
+            echo "## Seguridad estática — stack: \`$STACK\` — bloquea en: $BLOQUEAR_EN"
+            echo ""
+            echo "| Control | Herramienta | Resultado |"
+            echo "|---|---|---|"
+            echo "| Secretos | Gitleaks | $R_SECRETOS |"
+            echo "| SAST | Semgrep CE | $R_SAST |"
+            echo "| SCA | Trivy fs + npm audit / pnpm audit / pip-audit | $R_SCA |"
+            echo "| IaC | Checkov + Trivy config | $R_IAC |"
+            echo "| SCA (opcional) | Snyk | $R_SNYK |"
+            echo ""
+            echo "Excepciones vigentes aplicadas desde .devsecops.yml: $HAY_EXCEPCIONES (ver job 'Detectar stack y excepciones')."
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 'skipped' es aceptable (job no aplicable); 'failure'/'cancelled' bloquea.
+          for r in "$R_PREPARAR" "$R_SECRETOS" "$R_SAST" "$R_SCA" "$R_IAC" "$R_SNYK"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "::error::Al menos un control de seguridad falló. Revise los jobs anteriores."
+              exit 1
+            fi
+          done

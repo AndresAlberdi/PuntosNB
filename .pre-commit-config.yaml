@@ -1,0 +1,104 @@
+# =============================================================================
+# pre-commit-config.yaml — Controles locales antes de cada commit
+# Versión: 2.0 | Fecha: 2026-08-24 | Destino: .pre-commit-config.yaml (raíz)
+# -----------------------------------------------------------------------------
+# Objetivo: que el desarrollador (o Claude Code) detecte secretos, YAML roto,
+# formato y errores de workflows ANTES de subir; el pipeline repite todo en CI.
+# Instalación:  pipx install pre-commit && pre-commit install --install-hooks
+# Ejecutar todo: pre-commit run --all-files
+# Actualizar revisiones (cada trimestre): pre-commit autoupdate
+# Los `rev` son tags publicados a 2026-08; pre-commit los fija por commit en
+# su caché. Revise el changelog antes de subir versiones mayores.
+# =============================================================================
+minimum_pre_commit_version: "3.7.0"
+default_stages: [pre-commit]
+fail_fast: false
+
+repos:
+  # ---- Secretos (bloqueante): mismo motor y misma config que CI --------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+        name: Gitleaks (secretos)
+        args: ["--config", ".github/gitleaks.toml", "--redact"]
+
+  # ---- Higiene general --------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$ # dos espacios al final = salto de línea en Markdown
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+        exclude: ^(infra/.*templates/|helm/) # plantillas con {{ }} no son YAML puro
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: ["--branch", "main"] # obliga a trabajar en feat/*, fix/*, etc.
+
+  # ---- Python: ruff (lint + formato) -----------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.0
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+
+  # ---- Node: ESLint (opcional; requiere eslint y config en el proyecto) ------
+  # Descomentar si el proyecto es Node. Usa el eslint del propio repo
+  # (node_modules) para respetar la versión y los plugins del proyecto.
+  # - repo: local
+  #   hooks:
+  #     - id: eslint
+  #       name: ESLint
+  #       entry: npx eslint --max-warnings=0
+  #       language: system
+  #       files: \.(js|jsx|ts|tsx)$
+  #       exclude: ^(dist|coverage|node_modules)/
+
+  # ---- Dockerfile: hadolint --------------------------------------------------
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.14.0
+    hooks:
+      - id: hadolint-docker
+        name: Hadolint (Dockerfile)
+        args: ["--failure-threshold", "warning"]
+
+  # ---- Terraform: formato, validación y docs ----------------------------------
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.99.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+        args: ["--hook-config=--retry-once-with-cleanup=true"]
+      - id: terraform_tflint
+        args: ["--args=--minimum-failure-severity=warning"]
+
+  # ---- GitHub Actions: actionlint (sintaxis, tipos de expresiones, shellcheck)
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.9
+    hooks:
+      - id: actionlint
+        name: actionlint (workflows)
+
+  # ---- YAML: yamllint (misma regla relajada que CI) --------------------------
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: ["-d", "relaxed"]
+
+  # ---- Conventional Commits en el mensaje --------------------------------------
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        # Tipos admitidos por el estándar (idénticos en CLAUDE.md.template)
+        args: [feat, fix, docs, style, refactor, perf, test, build, ci, chore, security, revert]
