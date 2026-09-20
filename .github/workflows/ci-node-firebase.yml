@@ -411,11 +411,15 @@ jobs:
           set -euo pipefail
           corepack enable
           corepack prepare --activate
-          # `functions/` suele traer su propio lockfile: no es del workspace.
+          # En este repositorio `functions/` es un paquete del espacio de trabajo de pnpm: sus
+          # dependencias vienen con la instalación de la raíz, que es la que necesita el hook
+          # `predeploy` para compilar. Se contemplan también los repositorios donde `functions/`
+          # trae su propio lockfile.
           if [[ -f functions/package.json ]]; then
-            if   [[ -f functions/pnpm-lock.yaml ]];    then pnpm --dir functions install --frozen-lockfile
+            if   [[ -f functions/pnpm-lock.yaml ]];    then pnpm --dir functions install --frozen-lockfile --ignore-workspace
             elif [[ -f functions/yarn.lock ]];         then (cd functions && yarn install --frozen-lockfile)
             elif [[ -f functions/package-lock.json ]]; then npm ci --prefix functions
+            elif [[ -f pnpm-workspace.yaml ]];         then pnpm install --frozen-lockfile
             fi
           fi
 
@@ -588,11 +592,15 @@ jobs:
           set -euo pipefail
           corepack enable
           corepack prepare --activate
-          # `functions/` suele traer su propio lockfile: no es del workspace.
+          # En este repositorio `functions/` es un paquete del espacio de trabajo de pnpm: sus
+          # dependencias vienen con la instalación de la raíz, que es la que necesita el hook
+          # `predeploy` para compilar. Se contemplan también los repositorios donde `functions/`
+          # trae su propio lockfile.
           if [[ -f functions/package.json ]]; then
-            if   [[ -f functions/pnpm-lock.yaml ]];    then pnpm --dir functions install --frozen-lockfile
+            if   [[ -f functions/pnpm-lock.yaml ]];    then pnpm --dir functions install --frozen-lockfile --ignore-workspace
             elif [[ -f functions/yarn.lock ]];         then (cd functions && yarn install --frozen-lockfile)
             elif [[ -f functions/package-lock.json ]]; then npm ci --prefix functions
+            elif [[ -f pnpm-workspace.yaml ]];         then pnpm install --frozen-lockfile
             fi
           fi
 
