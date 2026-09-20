@@ -78,7 +78,7 @@ const Reportes: React.FC = () => {
           const comsData: Comercio[] = comSnap.docs.map(doc => doc.data() as Comercio);
           setComercios(comsData);
 
-          let q = collection(db, 'transacciones');
+          const q = collection(db, 'transacciones');
           if (selectedComercioId !== 'TODOS') {
             const txQuery = query(q, where('comercioId', '==', selectedComercioId));
             const txSnap = await getDocs(txQuery);

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
+import { errorFirebase } from '../utils/backend';
 import { evaluarContrasena } from '../utils/password';
 import { auth } from '../firebase';
 
@@ -44,12 +45,12 @@ export const ChangePasswordModal = ({ onClose }: { onClose: () => void }) => {
       setNewPassword('');
       setConfirmPassword('');
       setTimeout(onClose, 2000);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      if (err.code === 'auth/invalid-credential') {
+      if (errorFirebase(err).code === 'auth/invalid-credential') {
         setError("La contraseña actual es incorrecta.");
       } else {
-        setError("Error al cambiar la contraseña: " + err.message);
+        setError("Error al cambiar la contraseña: " + errorFirebase(err).message);
       }
     }
     setLoading(false);

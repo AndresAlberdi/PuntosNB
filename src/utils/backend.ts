@@ -20,15 +20,26 @@ export async function invocar<Entrada, Salida>(nombre: string, datos: Entrada): 
     const resultado: HttpsCallableResult<Salida> = await fn(datos);
     return resultado.data;
   } catch (error) {
-    throw new Error(mensajeDeError(error));
+    throw new Error(mensajeDeError(error), { cause: error });
   }
 }
 
 export function mensajeDeError(error: unknown): string {
-  const e = error as { code?: string; message?: string };
-  if (e?.message && !e.message.startsWith('internal')) return e.message;
-  if (e?.code === 'functions/unavailable') {
+  const e = errorFirebase(error);
+  if (e.message && !e.message.startsWith('internal')) return e.message;
+  if (e.code === 'functions/unavailable') {
     return 'No se pudo contactar al servidor. Revisa tu conexión e inténtalo de nuevo.';
   }
   return 'No se pudo completar la operación. Inténtalo de nuevo.';
+}
+
+/**
+ * Lee `code` y `message` de un error capturado sin suponer su tipo.
+ *
+ * Los SDK de Firebase lanzan objetos con esos campos, pero TypeScript entrega `unknown` en un
+ * `catch`, que es lo correcto: cualquier cosa puede lanzarse. Esta función acota el acceso en un
+ * solo lugar en vez de repartir `any` por todas las pantallas.
+ */
+export function errorFirebase(error: unknown): { code?: string; message?: string } {
+  return typeof error === 'object' && error !== null ? (error as { code?: string; message?: string }) : {};
 }
