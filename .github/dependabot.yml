@@ -19,3 +19,19 @@ updates:
       timezone: America/La_Paz
     open-pull-requests-limit: 10
     labels: [dependencias, npm]
+
+  # `functions/` tiene su propio `package.json` y su propio `package-lock.json`,
+  # porque Firebase sube esa carpeta sin `node_modules` y la compila en la nube
+  # con `npm ci`. Sin esta entrada, Dependabot actualiza `functions/package.json`
+  # desde el ecosistema raíz pero deja su lockfile atrás, y el despliegue falla
+  # en el hook `predeploy` con "lock file's X does not satisfy Y" — que es
+  # exactamente lo que ocurrió el 20/09/2026 al fusionar la subida de TypeScript.
+  - package-ecosystem: npm
+    directory: /functions
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/La_Paz
+    open-pull-requests-limit: 5
+    labels: [dependencias, npm, functions]
