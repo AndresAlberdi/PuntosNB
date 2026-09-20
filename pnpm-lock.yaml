@@ -85,8 +85,8 @@ importers:
         specifier: ^14.4.0
         version: 14.4.0(@firebase/app-compat@0.5.18)(@firebase/app@0.16.2)(supports-color@7.2.0)
       firebase-tools:
-        specifier: 15.27.0
-        version: 15.27.0(@types/node@24.13.4)(supports-color@7.2.0)
+        specifier: 15.30.0
+        version: 15.30.0(@types/node@24.13.4)(supports-color@7.2.0)
       globals:
         specifier: ^17.6.0
         version: 17.12.0
@@ -2398,8 +2398,8 @@ packages:
       graphql:
         optional: true
 
-  firebase-tools@15.27.0:
-    resolution: {integrity: sha512-gQMMPkv20hAuCUy596Z/GPA0YiwJEr6xEwvJnc+BeZnMlJVYZcl4OL8vvPNqDDcQmrXlNRNAP/qpyVc+5jkxTw==}
+  firebase-tools@15.30.0:
+    resolution: {integrity: sha512-TlbNksehD+78BAsEvFHbFSSggO5Q1XtNY5cobAj1R0lm7gBU2YM4+hq7p+SSctJ4KytKcm3fUlodrn/j315Yzw==}
     engines: {node: '>=20.0.0 || >=22.0.0 || >=24.0.0'}
     hasBin: true
 
@@ -5450,7 +5450,7 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@modelcontextprotocol/sdk@1.30.0(supports-color@7.2.0)(zod@4.6.4)':
+  '@modelcontextprotocol/sdk@1.30.0(supports-color@7.2.0)(zod@4.6.0)':
     dependencies:
       '@hono/node-server': 2.1.1(hono@4.13.7)
       ajv: 8.20.0
@@ -5467,8 +5467,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.6.4
-      zod-to-json-schema: 3.25.2(zod@4.6.4)
+      zod: 4.6.0
+      zod-to-json-schema: 3.25.2(zod@4.6.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -7036,7 +7036,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  firebase-tools@15.27.0(@types/node@24.13.4)(supports-color@7.2.0):
+  firebase-tools@15.30.0(@types/node@24.13.4)(supports-color@7.2.0):
     dependencies:
       '@apphosting/common': 0.0.8
       '@electric-sql/pglite': 0.3.16
@@ -7044,7 +7044,7 @@ snapshots:
       '@google-cloud/cloud-sql-connector': 1.12.0(supports-color@7.2.0)
       '@google-cloud/pubsub': 5.3.1(supports-color@7.2.0)
       '@inquirer/prompts': 7.10.1(@types/node@24.13.4)
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@7.2.0)(zod@4.6.4)
+      '@modelcontextprotocol/sdk': 1.30.0(supports-color@7.2.0)(zod@4.6.0)
       abort-controller: 3.0.0
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
@@ -7107,7 +7107,7 @@ snapshots:
       winston-transport: 4.9.0
       ws: 8.21.3
       yaml: 2.9.1
-      zod: 4.6.4
+      zod: 4.6.0
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - '@types/node'
@@ -9367,9 +9367,9 @@ snapshots:
       compress-commons: 6.0.2
       readable-stream: 4.7.0
 
-  zod-to-json-schema@3.25.2(zod@4.6.4):
+  zod-to-json-schema@3.25.2(zod@4.6.0):
     dependencies:
-      zod: 4.6.4
+      zod: 4.6.0
 
   zod-validation-error@4.0.2(zod@4.6.4):
     dependencies:
