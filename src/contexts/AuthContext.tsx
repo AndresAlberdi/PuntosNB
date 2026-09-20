@@ -1,25 +1,10 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { doc, onSnapshot, type Timestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { Usuario } from '../types';
-
-interface AuthContextType {
-  currentUser: FirebaseUser | null;
-  userData: Usuario | null;
-  loading: boolean;
-  logout: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType>({
-  currentUser: null,
-  userData: null,
-  loading: true,
-  logout: async () => {},
-});
-
-export const useAuth = () => useContext(AuthContext);
+import { AuthContext } from './useAuth';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { invocar, mensajeDeError } from '../utils/backend';
@@ -30,7 +30,7 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
   const [editRatioCli, setEditRatioCli] = useState<string>('10');
   const [editRatioInf, setEditRatioInf] = useState<string>('5');
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!comercio) return;
     try {
       // Get all influencers
@@ -50,11 +50,17 @@ export const AdminInfluencers: React.FC<AdminInfluencersProps> = ({ comercio }) 
       console.error(err);
     }
     setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchData();
   }, [comercio]);
+
+  // El cuerpo de un efecto no puede ser `async`: la carga se lanza desde una función
+  // interna, de modo que el estado se actualiza al resolverse la consulta y no durante
+  // el propio efecto.
+  useEffect(() => {
+    const cargar = async () => {
+      await fetchData();
+    };
+    cargar();
+  }, [fetchData]);
 
   // Invitar a un influencer
   const handleInvitar = async (e: React.FormEvent) => {

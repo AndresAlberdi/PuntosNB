@@ -27,8 +27,8 @@ vi.mock('firebase/firestore', () => ({
   getDocs: vi.fn().mockResolvedValue({ empty: true, docs: [] }),
 }));
 
-vi.mock('../../contexts/AuthContext', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../contexts/AuthContext')>();
+vi.mock('../../contexts/useAuth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../contexts/useAuth')>();
   return {
     ...actual,
     useAuth: () => ({ 

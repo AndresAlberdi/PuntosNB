@@ -5,6 +5,21 @@ const SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
 let scriptLoaded = false;
 
 /**
+ * Forma minima del objeto global que inyecta reCAPTCHA Enterprise.
+ *
+ * Se declara aqui, en vez de tipar `window` como `any`, para que el resto del archivo
+ * conserve la verificacion de tipos sobre las dos funciones que realmente se usan.
+ */
+interface RecaptchaEnterprise {
+  enterprise?: {
+    ready: (callback: () => void) => void;
+    execute: (siteKey: string, opciones: { action: string }) => Promise<string>;
+  };
+}
+
+type VentanaConRecaptcha = Window & { grecaptcha?: RecaptchaEnterprise };
+
+/**
  * Inyecta el script de Google Cloud reCAPTCHA Enterprise dinámicamente si estamos en producción.
  */
 export const initRecaptcha = (): void => {
@@ -35,11 +50,11 @@ export const executeRecaptcha = async (action: string = 'LOGIN'): Promise<string
   if (isStaging || !SITE_KEY) return null;
 
   return new Promise((resolve) => {
-    const grecaptcha = (window as any).grecaptcha;
-    if (grecaptcha?.enterprise?.ready) {
-      grecaptcha.enterprise.ready(async () => {
+    const enterprise = (window as VentanaConRecaptcha).grecaptcha?.enterprise;
+    if (enterprise?.ready) {
+      enterprise.ready(async () => {
         try {
-          const token = await grecaptcha.enterprise.execute(SITE_KEY, { action });
+          const token = await enterprise.execute(SITE_KEY, { action });
           resolve(token || null);
         } catch (err) {
           console.warn("reCAPTCHA enterprise execution error:", err);

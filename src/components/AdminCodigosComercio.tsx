@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { invocar, mensajeDeError } from '../utils/backend';
@@ -14,7 +14,8 @@ export const AdminCodigosComercio: React.FC<Props> = ({ comercio }) => {
   const [showModal, setShowModal] = useState(false);
   const [nuevoCodigo, setNuevoCodigo] = useState('');
   const [puntos, setPuntos] = useState(10);
-  const [fechaInicioStr, setFechaInicioStr] = useState('');
+  // La fecha de inicio propuesta es hoy; se calcula una sola vez, al montar el componente.
+  const [fechaInicioStr, setFechaInicioStr] = useState(() => new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -22,14 +23,7 @@ export const AdminCodigosComercio: React.FC<Props> = ({ comercio }) => {
   const costoPorCodigo = comercio.costoPorCodigoComercio || 10;
   const saldoActual = comercio.saldoPremiosBs || 0;
 
-  useEffect(() => {
-    cargarCodigos();
-    // Pre-fill today
-    const hoy = new Date();
-    setFechaInicioStr(hoy.toISOString().split('T')[0]);
-  }, [comercio.id]);
-
-  const cargarCodigos = async () => {
+  const cargarCodigos = useCallback(async () => {
     try {
       setLoading(true);
       const q = query(collection(db, 'codigos_comercio'), where('comercioId', '==', comercio.id));
@@ -43,7 +37,17 @@ export const AdminCodigosComercio: React.FC<Props> = ({ comercio }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [comercio.id]);
+
+  // El cuerpo de un efecto no puede ser `async`: la carga se lanza desde una función
+  // interna, de modo que el estado se actualiza al resolverse la consulta y no durante
+  // el propio efecto.
+  useEffect(() => {
+    const cargar = async () => {
+      await cargarCodigos();
+    };
+    cargar();
+  }, [cargarCodigos]);
 
   const handleCrear = async (e: React.FormEvent) => {
     e.preventDefault();

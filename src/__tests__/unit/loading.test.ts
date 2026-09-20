@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { ReglaPunto } from '../../types';
 
 describe('Comportamiento de Ruedita Móvil de Espera (>= 1 segundo)', () => {
   beforeEach(() => {
@@ -12,7 +13,7 @@ describe('Comportamiento de Ruedita Móvil de Espera (>= 1 segundo)', () => {
   it('No debe mostrar la ruedita si la operación tarda menos de 1 segundo (<1000ms)', async () => {
     let showSpinner = false;
     let activeOps = 0;
-    let timer: any = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     const executeFastAction = async () => {
       activeOps += 1;
@@ -43,7 +44,7 @@ describe('Comportamiento de Ruedita Móvil de Espera (>= 1 segundo)', () => {
   it('Debe desplegar la ruedita móvil de espera si la operación se demora más de 1 segundo (>= 1000ms)', async () => {
     let showSpinner = false;
     let activeOps = 0;
-    let timer: any = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     const executeSlowAction = async () => {
       activeOps += 1;
@@ -81,7 +82,7 @@ describe('Comportamiento de Ruedita Móvil de Espera (>= 1 segundo)', () => {
   });
 
   it('Debe calcular correctamente la suma acumulada de puntos para múltiples productos especiales', () => {
-    const mockReglas: any[] = [
+    const mockReglas: ReglaPunto[] = [
       { id: 'regla_compra', tipo: 'POR_COMPRA', puntosAOtorgar: 1, activa: true },
       { id: 'regla_prod_1', tipo: 'POR_PRODUCTO', puntosAOtorgar: 15, activa: true },
       { id: 'regla_prod_2', tipo: 'POR_PRODUCTO', puntosAOtorgar: 30, activa: true },
