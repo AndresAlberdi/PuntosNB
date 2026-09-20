@@ -1,0 +1,92 @@
+# =============================================================================
+# zap-rules.tsv — Reglas de OWASP ZAP para _reusable-dast.yml
+# Versión: 2.0 | Fecha: 2026-08-24 | Destino: .github/zap-rules.tsv
+# -----------------------------------------------------------------------------
+# Formato (separado por TABULADOR, una regla por línea):
+#   ID<TAB>ACCION<TAB>(nota)
+#   ACCION: IGNORE = no reportar | WARN = reportar sin fallar | FAIL = falla el job
+# Las líneas que empiezan con # se ignoran. Cualquier regla no listada se trata
+# como WARN.
+#
+# CÓMO SE APLICA. La acción de ZAP no respeta este contrato: con
+# fail_action: true falla ante CUALQUIER alerta, WARN incluidas, y con false no
+# falla nunca — o sea que las reglas FAIL de aquí abajo no hacían nada. Por eso
+# el workflow la deja en fail_action: false y el veredicto lo da
+# .github/scripts/evaluar-zap.py, que cruza los pluginid del informe con los IDs
+# marcados FAIL. Los WARN se siguen imprimiendo en el registro.
+#
+# Detectado en novuchat-site (2026-09-03): job en rojo con FAIL-NEW: 0 y
+# PASS: 61, tumbado por nueve avisos informativos.
+# Regla de oro: FAIL para inyecciones y exposición de secretos; WARN para
+# cabeceras/informativas mientras se corrigen; IGNORE solo con justificación y
+# fecha de revisión en la nota (ver README → "Cómo añadir una excepción").
+# Referencia de IDs: https://www.zaproxy.org/docs/alerts/
+# =============================================================================
+# ---- Reglas pasivas: cabeceras y configuración (baseline) -------------------
+10011	FAIL	(Cookie sin atributo Secure: obligatorio en HTTPS)
+10015	WARN	(Cache-Control incompleto o ausente en respuestas sensibles)
+10017	WARN	(Inclusión de JS desde dominios externos: revisar SRI y CSP)
+10019	WARN	(Falta cabecera Content-Type)
+10020	FAIL	(Sin protección anti-clickjacking: X-Frame-Options o CSP frame-ancestors)
+10021	FAIL	(Falta X-Content-Type-Options: nosniff)
+10023	FAIL	(Mensajes de depuración expuestos)
+10024	WARN	(Información sensible en la URL)
+10025	WARN	(Información sensible en Referer)
+10027	WARN	(Comentarios sospechosos en el código fuente; revisar TODO/FIXME/keys)
+10028	FAIL	(Open redirect)
+10031	WARN	(Atributo HTML controlable por el usuario: XSS potencial)
+10035	FAIL	(Falta Strict-Transport-Security: exigido por el estándar)
+10036	WARN	(Cabecera Server revela versión)
+10037	WARN	(X-Powered-By revela tecnología)
+10038	FAIL	(Content-Security-Policy no definida: exigida por el estándar)
+10040	FAIL	(Contenido mixto http:// en páginas https)
+10043	WARN	(Evento JS controlable por el usuario)
+10049	WARN	(Contenido cacheable: revisar si contiene datos privados)
+10054	FAIL	(Cookie sin SameSite)
+10055	WARN	(CSP presente pero con directivas débiles, p. ej. unsafe-inline)
+10056	FAIL	(X-Debug-Token expuesto)
+10061	WARN	(X-AspNet-Version expuesta)
+10062	FAIL	(PII expuesta en la respuesta: tarjetas, CI/NIT, correos masivos)
+10063	WARN	(Falta Permissions-Policy; recomendada)
+10094	WARN	(Base64 en respuesta: verificar que no sea un secreto)
+10096	IGNORE	(Timestamp disclosure: falsos positivos frecuentes con hashes de Vite; revisar 2026-12)
+10097	WARN	(Hash disclosure: puede ser un secreto o solo un hash de assets)
+10098	FAIL	(CORS mal configurado: Access-Control-Allow-Origin: * con credenciales)
+10099	FAIL	(Código fuente del servidor expuesto)
+10105	FAIL	(Autenticación débil: Basic/Digest sin TLS)
+10108	WARN	(Reverse tabnabbing: usar rel=noopener en target=_blank)
+10109	IGNORE	(Informativa: "aplicación web moderna" detectada; sin acción)
+10110	WARN	(Funciones JS peligrosas: eval, innerHTML)
+10202	WARN	(Ausencia de tokens anti-CSRF en formularios; FAIL si la app usa cookies de sesión)
+90004	WARN	(Aislamiento insuficiente contra Spectre: COOP/COEP/CORP)
+90011	WARN	(Charset inconsistente entre cabecera y meta)
+90022	FAIL	(Application error disclosure: stack traces al usuario)
+90033	WARN	(Cookie con ámbito demasiado amplio)
+# ---- Reglas activas (solo full-scan contra staging): inyecciones = FAIL -----
+40003	FAIL	(Inyección CRLF)
+40008	WARN	(Manipulación de parámetros: revisar manualmente)
+40009	FAIL	(Server Side Include)
+40012	FAIL	(XSS reflejado)
+40014	FAIL	(XSS persistente)
+40016	FAIL	(XSS persistente - prime)
+40017	FAIL	(XSS persistente - spider)
+40018	FAIL	(Inyección SQL)
+40019	FAIL	(Inyección SQL - MySQL)
+40020	FAIL	(Inyección SQL - Hypersonic)
+40021	FAIL	(Inyección SQL - Oracle)
+40022	FAIL	(Inyección SQL - PostgreSQL)
+40024	FAIL	(Inyección SQL - SQLite)
+40026	FAIL	(XSS basado en DOM)
+40032	FAIL	(.htaccess accesible)
+40034	FAIL	(.env accesible: exposición de secretos)
+40043	FAIL	(Log4Shell CVE-2021-44228)
+40045	FAIL	(Spring4Shell CVE-2022-22965)
+6	FAIL	(Path traversal)
+7	FAIL	(Inclusión remota de archivos)
+90019	FAIL	(Inyección de código en servidor)
+90020	FAIL	(Inyección de comandos del sistema operativo)
+90023	FAIL	(XXE - XML External Entity)
+90034	FAIL	(Acceso a metadatos de la nube: 169.254.169.254 / SSRF)
+90035	FAIL	(Server Side Template Injection)
+20019	FAIL	(Redirección externa)
+40013	FAIL	(Fijación de sesión)

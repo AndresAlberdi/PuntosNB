@@ -1,0 +1,337 @@
+# =============================================================================
+# semgrep.yml — Reglas propias de Semgrep CE del estándar
+# Versión: 2.0 | Fecha: 2026-08-24 | Destino: .github/semgrep.yml
+# -----------------------------------------------------------------------------
+# _reusable-security.yml las carga automáticamente si el archivo existe
+# (--config .github/semgrep.yml) además de p/ci, p/owasp-top-ten y p/secrets.
+# Severidad ERROR bloquea el pipeline; WARNING solo se reporta.
+# Probar localmente: semgrep scan --config .github/semgrep.yml --metrics=off .
+# =============================================================================
+rules:
+  # ---------------------------------------------------------------------------
+  # 1. Reglas de Firestore abiertas: `allow read, write: if true` (o variantes)
+  #    expone toda la base de datos. Aplica a archivos *.rules (lenguaje
+  #    "generic" porque Semgrep no analiza el DSL de reglas de Firebase).
+  # ---------------------------------------------------------------------------
+  - id: devsecops.firestore-reglas-abiertas
+    message: >-
+      Regla de Firestore/Storage abierta a cualquier usuario: `allow ... if true`.
+      Restrinja por autenticación (request.auth != null) y por propietario
+      (request.auth.uid == resource.data.uid) según 01-seguridad/03-hardening-por-nube.md.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - "*.rules"
+        - "firestore.rules"
+        - "storage.rules"
+    pattern-either:
+      - pattern: "allow read, write: if true"
+      - pattern: "allow write: if true"
+      - pattern: "allow read, write;"
+      - pattern: "allow write;"
+      - pattern: "allow create, update, delete: if true"
+    metadata:
+      category: security
+      cwe: "CWE-284: Improper Access Control"
+      referencia: https://firebase.google.com/docs/rules/insecure-rules
+
+  # ---------------------------------------------------------------------------
+  # 2. `eval` y equivalentes en JavaScript/TypeScript: ejecución de código
+  #    arbitrario, casi siempre innecesario en una SPA.
+  # ---------------------------------------------------------------------------
+  - id: devsecops.js-eval-prohibido
+    message: >-
+      Uso de eval()/new Function()/setTimeout con cadena: ejecución dinámica de
+      código (riesgo de XSS/inyección). Use funciones normales o JSON.parse.
+    severity: ERROR
+    languages: [javascript, typescript]
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+      - pattern: setTimeout("...", ...)
+      - pattern: setInterval("...", ...)
+    metadata:
+      category: security
+      cwe: "CWE-95: Eval Injection"
+
+  # ---------------------------------------------------------------------------
+  # 3. subprocess con shell=True en Python: inyección de comandos si cualquier
+  #    parte del comando proviene de entrada externa.
+  # ---------------------------------------------------------------------------
+  - id: devsecops.python-subprocess-shell-true
+    message: >-
+      subprocess con shell=True permite inyección de comandos. Pase el comando
+      como lista de argumentos sin shell (subprocess.run([...])) y valide la entrada.
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: subprocess.$FUNC(..., shell=True, ...)
+      - pattern: os.system(...)
+      - pattern: os.popen(...)
+    metadata:
+      category: security
+      cwe: "CWE-78: OS Command Injection"
+
+  # ---------------------------------------------------------------------------
+  # 4. (WARNING) innerHTML con datos dinámicos en JS/TS: vector clásico de XSS.
+  # ---------------------------------------------------------------------------
+  - id: devsecops.js-innerhtml-dinamico
+    message: >-
+      Asignación a innerHTML con un valor no literal. Use textContent o un
+      sanitizador (DOMPurify) si el HTML es necesario.
+    severity: WARNING
+    languages: [javascript, typescript]
+    patterns:
+      - pattern: $EL.innerHTML = $VAL
+      - pattern-not: $EL.innerHTML = "..."
+    metadata:
+      category: security
+      cwe: "CWE-79: Cross-site Scripting"
+
+  # ---------------------------------------------------------------------------
+  # 5. (ERROR, bloquea) Credenciales por variables de entorno prohibidas por el
+  #    estándar en workflows: JSON de SA o FIREBASE_TOKEN. Se usa lenguaje
+  #    `generic` con pattern-regex porque el patrón sobre el AST de YAML no es
+  #    fiable para expresiones ${{ }} de GitHub Actions.
+  # ---------------------------------------------------------------------------
+  - id: devsecops.workflow-credenciales-prohibidas
+    message: >-
+      El estándar prohíbe JSON de service account, FIREBASE_TOKEN y claves
+      estáticas de AWS en workflows. Use OIDC/WIF (01-seguridad/02-identidad-federada-oidc.md).
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - ".github/workflows/*.yml"
+        - ".github/workflows/*.yaml"
+    patterns:
+      - pattern-either:
+          - pattern-regex: secrets\.(FIREBASE_TOKEN|FIREBASE_SERVICE_ACCOUNT|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|GCP_SA_KEY)\b
+          - pattern-regex: 'credentials_json\s*:'
+    metadata:
+      category: security
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+
+  # ===========================================================================
+  # Inyección SQL (reglas 6 a 9)
+  # ---------------------------------------------------------------------------
+  # Por qué existen: medido el 2026-09-11 con Semgrep 1.174.0, p/ci +
+  # p/owasp-top-ten NO detectan `pool.query("..." + req.query.id)` en
+  # Express/TypeScript —ni siquiera dentro de la misma función— ni un f-string
+  # hacia asyncpg en FastAPI. CodeQL sí, pero en Modo B0 no corre. Casos y
+  # arnés en 02-pipelines/config/pruebas-semgrep/.
+  #
+  # Límite que estas reglas NO levantan: Semgrep CE sigue la contaminación solo
+  # dentro de cada archivo. Por eso van en pares:
+  #   · ERROR  fuente HTTP → consulta, en el mismo archivo (bloquea)
+  #   · WARNING texto SQL armado con valores no constantes en el sumidero, venga
+  #     de donde venga: cubre el caso en que la entrada cruza a otro módulo,
+  #     que es justo el que CodeQL cubría. No bloquea; APP-03 exige revisarlo.
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # 6. (ERROR, bloquea) JS/TS: datos de la petición HTTP llegan al texto de una
+  #    consulta SQL en el mismo archivo.
+  # ---------------------------------------------------------------------------
+  - id: devsecops.js-sql-desde-peticion
+    message: >-
+      Consulta SQL construida con datos de la petición HTTP: inyección SQL.
+      Pase los valores como parámetros ($1, ?) en el segundo argumento, nunca
+      dentro del texto de la consulta.
+    severity: ERROR
+    languages: [javascript, typescript]
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          # Express / Fastify / Next (pages/api)
+          - pattern: $REQ.query
+          - pattern: $REQ.params
+          - pattern: $REQ.body
+          - pattern: $REQ.headers
+          - pattern: $REQ.cookies
+          # Hono
+          - pattern: $C.req.query(...)
+          - pattern: $C.req.queries(...)
+          - pattern: $C.req.param(...)
+          - pattern: $C.req.header(...)
+          - pattern: $C.req.json()
+          - pattern: $C.req.parseBody(...)
+          - pattern: $C.req.valid(...)
+          # Request estándar (Next App Router, Workers)
+          - pattern: $REQ.nextUrl.searchParams.get(...)
+          - pattern: $REQ.formData()
+    pattern-sinks:
+      - patterns:
+          - pattern: $DB.$M($SQL, ...)
+          # Solo si lo que llega es texto: una cadena, una plantilla, una
+          # concatenación o una variable. Un objeto (GraphQL) o
+          # `new Comando(req.body)` (un caso de uso que se llama execute) son
+          # APIs de otro tipo. Deja fuera también la plantilla etiquetada
+          # (sql`...` de postgres.js, drizzle, Prisma), que parametriza por
+          # diseño. Se filtra por texto: con metavariable-pattern bastaría
+          # cualquier identificador suelto dentro del argumento.
+          - metavariable-regex:
+              metavariable: $SQL
+              regex: >-
+                ^\s*(?:[`'"]|[A-Za-z_$][\w$.]*\s*(?:\+|$))
+          # `c.req.query("q")` de Hono es la fuente, no un sumidero.
+          - pattern-not: $C.req.$M(...)
+          # Sin `exec`: RegExp.prototype.exec recibe entrada del usuario a menudo.
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(query|execute|raw|unsafe|\$queryRawUnsafe|\$executeRawUnsafe)$
+          - focus-metavariable: $SQL
+    pattern-sanitizers:
+      - pattern: parseInt(...)
+      - pattern: Number(...)
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+
+  # ---------------------------------------------------------------------------
+  # 7. (WARNING) JS/TS: el texto SQL que llega al sumidero se arma con valores
+  #    no constantes. Interpolar solo literales —`${x ? 'a' : 'b'}`— no cuenta.
+  # ---------------------------------------------------------------------------
+  - id: devsecops.js-sql-texto-dinamico
+    message: >-
+      El texto de esta consulta SQL se arma con valores no constantes. Si alguno
+      llega del usuario —aunque sea desde otro archivo— es inyección SQL. Use
+      parámetros; si interpola identificadores (tabla, columna, orden),
+      elíjalos de una lista cerrada.
+    severity: WARNING
+    languages: [javascript, typescript]
+    patterns:
+      - pattern-either:
+          - pattern: $DB.$M($Q, ...)
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      const $S = $Q;
+                      ...
+                  - pattern-inside: |
+                      let $S = $Q;
+                      ...
+              - pattern: $DB.$M($S, ...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: ^(query|execute|raw|unsafe|exec|prepare|\$queryRawUnsafe|\$executeRawUnsafe)$
+      - metavariable-regex:
+          metavariable: $Q
+          regex: (?is)^[`'"]\s*(select|insert|update|delete|with|merge)\b
+      - metavariable-pattern:
+          metavariable: $Q
+          patterns:
+            - pattern-either:
+                - pattern: "`...${$X}...`"
+                - pattern: '"..." + $X'
+                - pattern: '$X + "..."'
+            # Interpolar un literal o un ternario entre literales —la forma de
+            # ChatBotRAG, `${v ? "1 - x" : "NULL"}`— no es texto dinámico. Por
+            # texto y no con pattern-not: con un patrón positivo,
+            # metavariable-pattern busca en cualquier subexpresión de $X, y la
+            # condición `v` sola ya contaba como valor no constante.
+            - metavariable-regex:
+                metavariable: $X
+                regex: >-
+                  ^(?!\s*(?:(["'`])(?:(?!\1)[^$]|\$(?!\{))*\1|[^?"'`]+\?\s*(["'`])(?:(?!\2)[^$]|\$(?!\{))*\2\s*:\s*(["'`])(?:(?!\3)[^$]|\$(?!\{))*\3)\s*$)
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+
+  # ---------------------------------------------------------------------------
+  # 8. (ERROR, bloquea) Python: parámetros de una ruta FastAPI llegan al texto
+  #    de una consulta. Flask y Django ya los cubre p/owasp-top-ten; FastAPI no
+  #    (la entrada son los parámetros de la función, no un objeto request).
+  # ---------------------------------------------------------------------------
+  - id: devsecops.python-sql-desde-peticion
+    message: >-
+      Consulta SQL construida con un parámetro de la ruta: inyección SQL. Pase
+      el valor como parámetro de la consulta ($1, :nombre, %s como argumento),
+      nunca con f-string, % o format().
+    severity: ERROR
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - patterns:
+          # Semgrep casa `def` también con `async def`: un solo patrón cubre ambos.
+          - pattern-inside: |
+              @$APP.$VERBO(...)
+              def $F(..., $P, ...):
+                  ...
+          - metavariable-regex:
+              metavariable: $VERBO
+              regex: ^(get|post|put|patch|delete|api_route|websocket)$
+          - focus-metavariable: $P
+    pattern-sinks:
+      - patterns:
+          - pattern: $C.$M($SQL, ...)
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(execute|executemany|executescript|fetch|fetchrow|fetchval|mogrify)$
+          # Solo si lo que llega es texto. `execute()` es también el nombre
+          # habitual de un caso de uso —`IniciarSesion(c).execute(Comando(...))`,
+          # visto en Onboarding-Generico el 2026-09-11— y del Core de
+          # SQLAlchemy —`db.execute(select(U).where(...))`—, que parametriza.
+          # Por texto, igual que en la regla 6: una cadena (f-string, %, format,
+          # concatenación) o una variable; no una llamada.
+          - metavariable-regex:
+              metavariable: $SQL
+              regex: >-
+                ^\s*(?:[fFrRbBuU]*["']|[A-Za-z_][\w.]*\s*(?:\+|%|$))
+          - focus-metavariable: $SQL
+      # Casa también `from sqlalchemy import text`: Semgrep resuelve el import.
+      # Un `text(...)` sin prefijo marcaría cualquier función que se llame así.
+      - patterns:
+          - pattern: sqlalchemy.text($SQL, ...)
+          - focus-metavariable: $SQL
+    pattern-sanitizers:
+      - pattern: int(...)
+      - pattern: float(...)
+      - pattern: uuid.UUID(...)
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+
+  # ---------------------------------------------------------------------------
+  # 9. (WARNING) Python: el texto SQL que llega al sumidero se arma con
+  #    f-string, %, format() o concatenación.
+  # ---------------------------------------------------------------------------
+  - id: devsecops.python-sql-texto-dinamico
+    message: >-
+      El texto de esta consulta SQL se arma con f-string, %, format() o
+      concatenación. Si algún valor llega del usuario —aunque sea desde otro
+      archivo— es inyección SQL. Use parámetros del driver.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $C.$M($Q, ...)
+                  - patterns:
+                      - pattern-inside: |
+                          $S = $Q
+                          ...
+                      - pattern: $C.$M($S, ...)
+              - metavariable-regex:
+                  metavariable: $M
+                  regex: ^(execute|executemany|executescript|fetch|fetchrow|fetchval|mogrify)$
+          - pattern: sqlalchemy.text($Q, ...)
+      - metavariable-regex:
+          metavariable: $Q
+          regex: (?is)^[fr]*("""|'''|"|')\s*(select|insert|update|delete|with|merge)\b
+      - metavariable-pattern:
+          metavariable: $Q
+          pattern-either:
+            - pattern: f"...{$X}..."
+            - pattern: '"..." % $X'
+            - pattern: '"...".format(...)'
+            - pattern: '"..." + $X'
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"

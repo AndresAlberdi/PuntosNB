@@ -1,0 +1,66 @@
+# =============================================================================
+# scorecard.yml — OpenSSF Scorecard (postura de seguridad del repositorio)
+# Versión: 2.0 | Fecha: 2026-08-24
+# -----------------------------------------------------------------------------
+# Evalúa prácticas del repositorio (ramas protegidas, pines por SHA, tokens con
+# permisos mínimos, dependencias actualizadas, etc.) y publica el resultado en
+# https://scorecard.dev/viewer/?uri=github.com/ORG/REPO.
+# Solo aplica a repositorios PÚBLICOS (publish_results exige visibilidad
+# pública y el token OIDC). En privados el job se salta.
+# =============================================================================
+name: OpenSSF Scorecard
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Semanal, sábados 06:23 UTC
+    - cron: '23 6 * * 6'
+  # Se dispara también cuando cambian las reglas de protección de rama
+  branch_protection_rule:
+  workflow_dispatch:
+
+# Scorecard exige read-all a nivel de workflow; el job eleva lo necesario.
+permissions: read-all
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scorecard:
+    name: Análisis Scorecard
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # subir SARIF a Code Scanning
+      id-token: write        # publicar resultados firmados (publish_results)
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Ejecutar Scorecard
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: resultados.sarif
+          results_format: sarif
+          # Publica en la API pública de Scorecard (insignia en el README)
+          publish_results: true
+
+      - name: Guardar SARIF como artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: scorecard-sarif
+          path: resultados.sarif
+          retention-days: 7
+
+      - name: Subir a Code Scanning
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: resultados.sarif
+          category: scorecard
