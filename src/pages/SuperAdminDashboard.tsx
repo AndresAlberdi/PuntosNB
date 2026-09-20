@@ -7,7 +7,7 @@ import { secondaryAuth } from '../secondaryApp';
 import type { Comercio, Usuario, CobroPrepago, ModalidadPagoComercio } from '../types';
 import { COLOR_PALETTES } from '../utils/theme';
 import { checkComercioPrepagoStatus } from '../utils/reports';
-import { optimizeImage } from '../utils/imageOptimizer';
+import { optimizarImagen } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';
 import { cargarComerciosCompletos } from '../utils/comercios';
 
@@ -1006,10 +1006,10 @@ const SuperAdminDashboard: React.FC = () => {
                     const file = e.target.files?.[0];
                     if (file) {
                       try {
-                        const compressed = await optimizeImage(file, 200, 0.75);
-                        setLogoBase64(compressed);
+                        const optimizada = await optimizarImagen(file, 'logo');
+                        setLogoBase64(optimizada.dataUrl);
                       } catch (err) {
-                        alert("Error al procesar el logo.");
+                        alert(err instanceof Error ? err.message : 'No se pudo procesar el logotipo.');
                       }
                     }
                   }}

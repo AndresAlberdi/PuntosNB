@@ -41,7 +41,8 @@ const GuardarComercio = z.object({
   costoPorCodigoComercio: z.number().nonnegative().max(10_000).optional(),
   recibeFactura: z.boolean().optional(),
   estado: z.enum(['activo', 'bloqueado']).optional(),
-  logoUrl: z.string().trim().max(2_000_000).optional(),
+  // Igual que el comprobante: el logotipo se reduce antes de enviarse (presupuesto de 25 KB).
+  logoUrl: z.string().trim().max(40_000, 'el logotipo es demasiado grande').optional(),
   paletteId: z.string().trim().max(40).optional(),
 });
 

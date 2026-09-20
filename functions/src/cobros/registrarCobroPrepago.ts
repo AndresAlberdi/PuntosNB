@@ -21,7 +21,9 @@ const Entrada = z.object({
   mesesPagados: z.array(z.string().regex(/^\d{4}-\d{2}$/, 'el mes se escribe AAAA-MM')).max(24).default([]),
   montoPremios: z.number().nonnegative().max(100_000).default(0),
   codigoDeposito: z.string().trim().min(1).max(60),
-  comprobanteUrl: z.string().trim().max(2_000_000).optional(),
+  // El comprobante llega ya reducido por el navegador (presupuesto de 90 KB). El límite deja
+  // margen para la codificación base64 y corta cualquier intento de subir la foto original.
+  comprobanteUrl: z.string().trim().max(140_000, 'la imagen del comprobante es demasiado grande').optional(),
   recibeFactura: z.boolean().default(false),
   clave: z.string().trim().max(64).optional(),
 });
