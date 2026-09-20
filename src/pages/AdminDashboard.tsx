@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { doc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs } from 'firebase/firestore';
+import { errorFirebase } from '../utils/backend';
 import { db } from '../firebase';
 import { cargarComercioCompleto } from '../utils/comercios';
 import { useAuth } from '../contexts/AuthContext';
@@ -635,7 +636,7 @@ const AdminDashboard: React.FC = () => {
                         const optimizada = await optimizarImagen(file, 'producto');
                         setProductoFotoBase64(optimizada.dataUrl);
                       } catch (err) {
-                        alert(err instanceof Error ? err.message : 'No se pudo procesar la foto.');
+                        alert(err instanceof Error ? errorFirebase(err).message : 'No se pudo procesar la foto.');
                       }
                     }
                   }}

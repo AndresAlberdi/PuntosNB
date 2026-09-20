@@ -118,15 +118,20 @@ stopwords = ["ejemplo", "example", "placeholder", "sample"]
 # clave de API solo acepta los dominios del proyecto y App Check exige un token
 # de reCAPTCHA Enterprise emitido para esos mismos dominios.
 #
-# La allowlist se acota a los archivos donde vive esa configuración, con los
-# nombres de variable exactos. Cualquier otro secreto en esos mismos archivos
-# —una contraseña, un token de servicio— sigue siendo detectado.
+# Van en dos bloques separados a propósito: dentro de un mismo `[[allowlists]]`,
+# gitleaks exige que se cumplan todas las condiciones a la vez, y el `regexes`
+# se compara contra el valor del hallazgo, no contra la línea. Separados, cada
+# criterio alcanza por sí solo.
 [[allowlists]]
-description = "Configuración web pública de Firebase y reCAPTCHA (no son secretos)"
+description = "Archivos de configuración pública de Firebase (no contienen secretos)"
 paths = [
   '''(^|/)\.env\.(production|staging|example)$''',
   '''(^|/)src/firebase\.ts$''',
 ]
+
+[[allowlists]]
+description = "Nombres de variable de configuración pública de Firebase y reCAPTCHA"
+regexTarget = "line"
 regexes = [
   '''VITE_FIREBASE_API_KEY''',
   '''VITE_RECAPTCHA_SITE_KEY''',

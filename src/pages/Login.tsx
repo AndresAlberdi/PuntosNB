@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { isStaging, APP_VERSION } from '../utils/env';
 import { initRecaptcha, executeRecaptcha } from '../utils/recaptcha';
-import { invocar, type RespuestaLoginVendedor } from '../utils/backend';
+import { invocar, errorFirebase, type RespuestaLoginVendedor } from '../utils/backend';
 
 const Login: React.FC = () => {
   const [usuario, setUsuario] = useState('');
@@ -184,14 +184,14 @@ const Login: React.FC = () => {
       // correo: esa llamada revelaba si una cuenta existe y es incompatible con la protección
       // contra enumeración de correos (H-19). Si la cuenta es de Google, el error lo dice.
       await signInWithEmailAndPassword(auth, userInput, passwordOrPin);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+      if (errorFirebase(err).code === 'auth/invalid-credential' || errorFirebase(err).code === 'auth/wrong-password' || errorFirebase(err).code === 'auth/user-not-found') {
         setError('Usuario o contraseña incorrectos. Si te registraste con Google, usa el botón "Continuar con Google".');
-      } else if (err.code === 'auth/too-many-requests') {
+      } else if (errorFirebase(err).code === 'auth/too-many-requests') {
         setError('Demasiados intentos fallidos. Intenta más tarde.');
       } else {
-        setError(err.message || 'Error al autenticar.');
+        setError(errorFirebase(err).message || 'Error al autenticar.');
       }
     }
     setLoading(false);
@@ -207,11 +207,11 @@ const Login: React.FC = () => {
     try {
       await sendPasswordResetEmail(auth, usuario.trim());
       setMensaje({ texto: 'Se ha enviado un enlace de recuperación si la cuenta está asociada a un acceso administrado.', tipo: 'success' });
-    } catch (err: any) {
-      if (err.code === 'auth/user-not-found') {
+    } catch (err) {
+      if (errorFirebase(err).code === 'auth/user-not-found') {
         setError('No existe ninguna cuenta de autenticación registrada con este identificador.');
       } else {
-        setError('Error al intentar enviar el correo: ' + err.message);
+        setError('Error al intentar enviar el correo: ' + errorFirebase(err).message);
       }
     }
   };
@@ -242,11 +242,11 @@ const Login: React.FC = () => {
           createdAt: Date.now()
         });
       }
-    } catch (err: any) {
-      if (err.code === 'auth/account-exists-with-different-credential') {
+    } catch (err) {
+      if (errorFirebase(err).code === 'auth/account-exists-with-different-credential') {
         setError('Ya te has registrado previamente con otro método. Por favor intenta de nuevo.');
       } else {
-        setError('Error al iniciar sesión con Google: ' + err.message);
+        setError('Error al iniciar sesión con Google: ' + errorFirebase(err).message);
       }
       console.error(err);
     }
@@ -311,9 +311,9 @@ const Login: React.FC = () => {
                      termsAcceptedAt: Date.now(),
                      createdAt: Date.now()
                    });
-                 } catch (e: any) {
+                 } catch (e) {
                    console.error(e);
-                   setError('Error al crear el perfil: ' + e.message);
+                   setError('Error al crear el perfil: ' + errorFirebase(e).message);
                  }
                  setLoading(false);
                }}

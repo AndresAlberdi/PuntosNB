@@ -396,7 +396,7 @@ export const InfluencerDashboard: React.FC = () => {
               // Métricas de este comercio específico
               const txsComercio = transaccionesInfluencer.filter(t => t.comercioId === asig.comercioId);
               let ptsRepartidosCom = 0;
-              let canjesCom = txsComercio.length;
+              const canjesCom = txsComercio.length;
               txsComercio.forEach(t => ptsRepartidosCom += (t.puntos || 0));
 
               const msSinceRenovation = codigo ? Date.now() - codigo.fechaUltimaRenovacion : 0;

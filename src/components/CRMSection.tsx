@@ -107,8 +107,8 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
 
   transacciones.forEach(t => {
     const dateObj = new Date(t.fechaHora);
-    let key = '';
-    let label = '';
+    let key: string;
+    let label: string;
 
     if (agrupacion === 'dia') {
       key = format(dateObj, 'yyyy-MM-dd');

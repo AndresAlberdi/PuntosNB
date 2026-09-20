@@ -4,11 +4,11 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
 import { secondaryAuth } from '../secondaryApp';
-import type { Comercio, Usuario, CobroPrepago, ModalidadPagoComercio } from '../types';
+import type { Comercio, Usuario, CobroPrepago, ModalidadPagoComercio, AsignacionInfluencer } from '../types';
 import { COLOR_PALETTES } from '../utils/theme';
 import { checkComercioPrepagoStatus } from '../utils/reports';
 import { optimizarImagen } from '../utils/imageOptimizer';
-import { invocar, mensajeDeError } from '../utils/backend';
+import { invocar, mensajeDeError, errorFirebase } from '../utils/backend';
 import { evaluarContrasena } from '../utils/password';
 import { cargarComerciosCompletos } from '../utils/comercios';
 
@@ -125,16 +125,20 @@ const SuperAdminDashboard: React.FC = () => {
       const users: Usuario[] = [];
       snap.forEach(d => users.push(d.data() as Usuario));
       setGlobalUsers(users);
-    } catch (err) {}
+    } catch (err) {
+      console.error('No se pudieron cargar los usuarios:', err);
+    }
   };
 
   const fetchAsignaciones = async () => {
     try {
       const snap = await getDocs(collection(db, 'asignaciones_influencer'));
-      const asigs: any[] = [];
-      snap.forEach(d => asigs.push(d.data()));
+      const asigs: AsignacionInfluencer[] = [];
+      snap.forEach(d => asigs.push(d.data() as AsignacionInfluencer));
       setAllAsignaciones(asigs);
-    } catch (err) {}
+    } catch (err) {
+      console.error('No se pudieron cargar las campañas de influencer:', err);
+    }
   };
 
   const fetchCobros = async () => {
@@ -144,7 +148,9 @@ const SuperAdminDashboard: React.FC = () => {
       snap.forEach(d => list.push(d.data() as CobroPrepago));
       list.sort((a, b) => b.fechaHora - a.fechaHora);
       setCobros(list);
-    } catch (err) {}
+    } catch (err) {
+      console.error('No se pudieron cargar los cobros:', err);
+    }
   };
 
   useEffect(() => {
@@ -238,7 +244,7 @@ const SuperAdminDashboard: React.FC = () => {
       const fileInput = document.getElementById('comercio-logo-file') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
       cargarComercios();
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       setMsgCard1({ texto: mensajeDeError(error), tipo: 'error' });
     }
@@ -290,7 +296,7 @@ const SuperAdminDashboard: React.FC = () => {
         setEditingComercio(null);
         setEditComercioMsg(null);
       }, 1500);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setEditComercioMsg({ texto: mensajeDeError(err), tipo: 'error' });
     } finally {
@@ -369,13 +375,13 @@ const SuperAdminDashboard: React.FC = () => {
         try {
           const userCred = await createUserWithEmailAndPassword(secondaryAuth, syntheticUser, password);
           userUid = userCred.user.uid;
-        } catch (authErr: any) {
-          if (authErr.code === 'auth/email-already-in-use') {
+        } catch (authErr) {
+          if (errorFirebase(authErr).code === 'auth/email-already-in-use') {
             try {
               const { signInWithEmailAndPassword } = await import('firebase/auth');
               const signInCred = await signInWithEmailAndPassword(secondaryAuth, syntheticUser, password);
               userUid = signInCred.user.uid;
-            } catch (signInErr) {
+            } catch {
               setMsgCard2({ texto: `El usuario "${syntheticUser}" ya existe en Firebase Auth.`, tipo: 'error' });
               return;
             }
@@ -417,7 +423,7 @@ const SuperAdminDashboard: React.FC = () => {
       setTelefonoUsuario('');
       setPrefijoCodigo('');
       fetchGlobalUsers();
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       setMsgCard2({ texto: mensajeDeError(error), tipo: 'error' });
     }
@@ -520,8 +526,8 @@ const SuperAdminDashboard: React.FC = () => {
       await deleteDoc(doc(db, 'users', usuario.uid));
       setGlobalUsers(globalUsers.filter(u => u.uid !== usuario.uid));
       setMsgCard5({ texto: 'Usuario eliminado con éxito.', tipo: 'success' });
-    } catch (err: any) {
-      setMsgCard5({ texto: 'Error al eliminar usuario: ' + err.message, tipo: 'error' });
+    } catch (err) {
+      setMsgCard5({ texto: 'Error al eliminar usuario: ' + errorFirebase(err).message, tipo: 'error' });
     }
   };
 
@@ -1010,7 +1016,7 @@ const SuperAdminDashboard: React.FC = () => {
                         const optimizada = await optimizarImagen(file, 'logo');
                         setLogoBase64(optimizada.dataUrl);
                       } catch (err) {
-                        alert(err instanceof Error ? err.message : 'No se pudo procesar el logotipo.');
+                        alert(err instanceof Error ? errorFirebase(err).message : 'No se pudo procesar el logotipo.');
                       }
                     }
                   }}
