@@ -6,6 +6,9 @@ import { isTransaccionInfluencer } from '../utils/reports';
 import { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { format } from 'date-fns';
 
+/** Granularidad del eje temporal del grafico de actividad. */
+type Agrupacion = 'dia' | 'semana' | 'mes';
+
 interface CRMSectionProps {
   comercioId: string;
 }
@@ -14,7 +17,7 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
   const [influencersMapData, setInfluencersMapData] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [agrupacion, setAgrupacion] = useState<'dia' | 'semana' | 'mes'>('dia');
+  const [agrupacion, setAgrupacion] = useState<Agrupacion>('dia');
 
   useEffect(() => {
     const fetchTransacciones = async () => {
@@ -245,7 +248,7 @@ export const CRMSection: React.FC<CRMSectionProps> = ({ comercioId }) => {
           <select 
             className="border-gray-300 rounded-md text-xs font-semibold border p-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
             value={agrupacion}
-            onChange={(e) => setAgrupacion(e.target.value as any)}
+            onChange={(e) => setAgrupacion(e.target.value as Agrupacion)}
           >
             <option value="dia">Por Día</option>
             <option value="semana">Por Semana</option>

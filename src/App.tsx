@@ -1,7 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import type { RolUsuario, Comercio } from './types';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AuthProvider } from './contexts/AuthContext';
+import { useAuth } from './contexts/useAuth';
 import { LoadingProvider } from './contexts/LoadingContext';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
@@ -26,8 +27,9 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
   const [checkingCommerce, setCheckingCommerce] = React.useState(true);
 
   React.useEffect(() => {
-    if (userData?.comercioId && (userData.rol === 'admin_comercio' || userData.rol === 'vendedor')) {
-      getDoc(doc(db, 'comercios', userData.comercioId)).then(snap => {
+    const verificarComercio = async () => {
+      if (userData?.comercioId && (userData.rol === 'admin_comercio' || userData.rol === 'vendedor')) {
+        const snap = await getDoc(doc(db, 'comercios', userData.comercioId));
         if (snap.exists()) {
           const com = snap.data() as Comercio;
           if (com.estado === 'bloqueado') {
@@ -39,11 +41,10 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
             }
           }
         }
-        setCheckingCommerce(false);
-      });
-    } else {
+      }
       setCheckingCommerce(false);
-    }
+    };
+    verificarComercio();
   }, [userData]);
 
   if (loading || checkingCommerce) return <LoadingScreen />;
@@ -130,7 +131,7 @@ const NotificationBell = () => {
           const c = d.data() as Comercio;
           const saldo = sMap[c.id] || 0;
           if (saldo > 0) {
-             const canAfford = (c.premios || []).filter((p: any) => p.activo && p.puntosRequeridos <= saldo).length;
+             const canAfford = (c.premios || []).filter(p => p.activo && p.puntosRequeridos <= saldo).length;
              totalPrizes += canAfford;
           }
         });
@@ -172,7 +173,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const [commercePlan, setCommercePlan] = React.useState<'regular' | 'premium'>('regular');
   const [savingProfile, setSavingProfile] = React.useState(false);
 
-  React.useEffect(() => {
+  // El formulario del perfil se llena al abrirlo, no desde un efecto: así muestra siempre el
+  // teléfono vigente y no se reinicia solo porque el perfil del usuario se vuelva a leer.
+  const abrirPerfil = () => {
     if (userData?.telefono) {
       const match = userData.telefono.match(/^(\+\d{1,4})(\d+)$/);
       if (match) {
@@ -182,7 +185,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
         setTelefonoNumber(userData.telefono);
       }
     }
-  }, [userData]);
+    setShowProfileModal(true);
+  };
 
   React.useEffect(() => {
     if (userData?.comercioId && (userData.rol === 'admin_comercio' || userData.rol === 'vendedor')) {
@@ -209,9 +213,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
         paletteId: selectedPalette,
         telefono: fullTelefono
       });
-      userData.avatarUrl = selectedAvatar;
-      userData.paletteId = selectedPalette;
-      userData.telefono = fullTelefono || undefined;
+      // No se retoca el objeto que entrega el contexto: `AuthProvider` escucha el documento
+      // del usuario con `onSnapshot` y ya recibió estos mismos valores al escribirlos.
       setShowProfileModal(false);
     } catch (e) {
       console.error(e);
@@ -283,7 +286,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               <div className="hidden sm:flex items-center gap-4">
                 {userData.rol === 'cliente' && (
                   <button
-                    onClick={() => setShowProfileModal(true)}
+                    onClick={abrirPerfil}
                     className="flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-brand-primary transition py-1 px-2 rounded-lg hover:bg-gray-50 border border-gray-200"
                   >
                     <img 
@@ -385,7 +388,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
             {userData.rol === 'cliente' && (
               <button 
-                onClick={() => { setShowProfileModal(true); setIsMobileMenuOpen(false); }}
+                onClick={() => { abrirPerfil(); setIsMobileMenuOpen(false); }}
                 className="block w-full text-left text-sm font-medium text-gray-700 py-2"
               >
                 Mi Perfil y Configuraciones
