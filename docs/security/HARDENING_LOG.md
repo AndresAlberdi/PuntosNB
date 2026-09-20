@@ -9,7 +9,7 @@ Convención: una entrada por sesión, con fecha, fase, decisiones tomadas, evide
 |---|---|---|---|
 | 0 — Línea base y contención | **cerrada** | `hardening/fase-0-linea-base` | 19-sep-2026 |
 | 1 — Backend de confianza | **cerrada**: desplegada y probada en los dos entornos | `hardening/fase-1-backend-confianza` | 19-sep-2026 |
-| 2 — Cierre de reglas y App Check | construida; falta desplegar | `hardening/fase-2-reglas-appcheck` | 19-sep-2026 |
+| 2 — Cierre de reglas y App Check | desplegada en `puntosnb`; falta producción y el *enforcement* | `hardening/fase-2-reglas-appcheck` | 19-sep-2026 |
 | 3 — Superficie web y limpieza | no iniciada | — | — |
 | 4 — Cadena de suministro y CI/CD | no iniciada | — | — |
 | 5 — Operación y resiliencia | no iniciada | — | — |
@@ -534,13 +534,29 @@ La matriz de reglas cubre once identidades (incluida la anónima y una con token
 quince colecciones, en lectura y escritura, más los casos de lista blanca y de frontera entre
 comercios. El plan pedía sesenta casos como objetivo.
 
+### Despliegue en `puntosnb` — hecho el 19-sep-2026
+
+Autorizado por Andrés. Los cuatro pasos en el orden previsto, que evita dejar la interfaz sin datos
+en ningún momento, y su verificación:
+
+| Paso | Resultado verificado |
+|---|---|
+| Funciones | 22 funciones *callable* en us-central1. |
+| *Hosting* | El cliente publicado invoca las funciones nuevas y trae App Check en el paquete. |
+| Reglas e índices | Reglas en vivo idénticas al repositorio; índices desplegados; TTL sobre `sesiones_qr.expiresAt` en estado `CREATING`. |
+| Migración | Los cuatro comercios quedaron divididos: **ningún campo privado permanece en el documento público**, los saldos están en `comercios_privado` y las dos señales derivadas quedaron calculadas. Tres perfiles públicos de influencer creados. |
+
+Comprobaciones adicionales contra el entorno real:
+
+- Lectura anónima de `comercios`, `comercios_privado` y `users`: **403** en los tres casos.
+- Prueba de extremo a extremo: **16 de 16 en verde**, ahora contra los datos divididos, con limpieza
+  verificada (22 documentos borrados).
+- La auditoría del proyecto conserva un solo asiento: el ajuste de saldo de Epico. Los asientos que
+  generó la prueba se borraron con el resto de sus datos.
+
 ### Pendiente para cerrar la fase
 
-El despliegue, en este orden, que evita dejar la interfaz sin datos en ningún momento:
-
-1. Funciones (las nuevas no afectan al cliente viejo).
-2. *Hosting* con el cliente nuevo, que todavía lee los montos del documento público.
-3. Reglas e índices.
-4. Migración `scripts/admin/migrar-fase2.mjs`, que separa los documentos y crea los perfiles
-   públicos de influencer.
-5. Prueba de extremo a extremo y revisión de los cuatro flujos.
+- Desplegar la misma secuencia en `hipatia-puntos`.
+- Registrar las aplicaciones en App Check y activar el *enforcement* cuando las métricas lo
+  permitan (`docs/security/CHECKLIST_APPCHECK.md`). Luego, redesplegar las funciones con
+  `EXIGIR_APP_CHECK=true`.

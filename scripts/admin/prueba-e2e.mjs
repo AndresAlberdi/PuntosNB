@@ -127,7 +127,12 @@ async function limpiar() {
       for (const d of snap.docs) { await d.ref.delete(); borrados++; }
     }
     await db.collection('comercios').doc(comercioId).delete();
-    borrados++;
+    await db.collection('comercios_privado').doc(comercioId).delete();
+    borrados += 2;
+  }
+
+  for (const uid of creados.uids) {
+    await db.collection('influencers_publico').doc(uid).delete().catch(() => undefined);
   }
 
   const usuarios = await db.collection('users').where('rol', 'in', ['vendedor', 'cliente']).get();
@@ -252,16 +257,16 @@ try {
   registrar('Canje: el cliente genera su código', sesionCanje.ok);
 
   const confirmacion = await llamar('confirmarCanje', { codigo: sesionCanje.datos.codigo }, tokenVendedor);
-  const comercioTrasCanje = (await db.collection('comercios').doc(creados.comercioId).get()).data();
+  const comercioTrasCanje = (await db.collection('comercios_privado').doc(creados.comercioId).get()).data();
   registrar('Canje: descuenta puntos y saldo prepagado',
     confirmacion.ok && comercioTrasCanje.saldoPremiosBs === 8.75 && comercioTrasCanje.consumidoPremiosBs === 1.25,
     `saldo Bs ${comercioTrasCanje.saldoPremiosBs}, consumido Bs ${comercioTrasCanje.consumidoPremiosBs}`);
 
   // Sin saldo suficiente el canje se bloquea (H-12).
-  await db.collection('comercios').doc(creados.comercioId).update({ saldoPremiosBs: 0.5 });
+  await db.collection('comercios_privado').doc(creados.comercioId).update({ saldoPremiosBs: 0.5 });
   const sinSaldo = await llamar('crearSesionCanje', { comercioId: creados.comercioId, premioId: 'p1' }, tokenCliente);
   registrar('Canje: bloqueado si el comercio no tiene saldo en bolivianos', !sinSaldo.ok, sinSaldo.mensaje);
-  await db.collection('comercios').doc(creados.comercioId).update({ saldoPremiosBs: 8.75 });
+  await db.collection('comercios_privado').doc(creados.comercioId).update({ saldoPremiosBs: 8.75 });
 
   // --- Flujo 4: código promocional ----------------------------------------------
   creados.codigo = `PRUEBAH${marca.toUpperCase()}`;
