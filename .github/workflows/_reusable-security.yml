@@ -830,7 +830,7 @@ jobs:
         run: cp excepciones-generadas/trivyignore.yaml .trivyignore.yaml
 
       - name: Checkov
-        uses: bridgecrewio/checkov-action@5659ddea96102e16d8f221b3d8402453c0b1c150 # master @ 2026-08-26 (sin release vigente)
+        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # master @ 2026-08-26 (sin release vigente)
         with:
           directory: ${{ inputs.ruta }}
           framework: terraform,dockerfile,kubernetes,github_actions
