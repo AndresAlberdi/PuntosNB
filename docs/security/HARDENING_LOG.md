@@ -899,6 +899,70 @@ fallo ocurre en `predeploy`, antes de subir nada.
 3. **Dependabot no sabe que dos acciones van juntas.** Cuando una acción tiene varias rutas
    (`init` y `analyze`), hay que actualizarlas en el mismo commit.
 
+---
+
+## 22-sep-2026 · Monitoreo de App Check (tarea programada, solo lectura)
+
+Segunda corrida de la tarea «App Check Hipatia», con
+`node scripts/admin/metricas-appcheck.mjs --todos --horas 24`. **No se cumple el criterio para
+activar la exigencia, y con los datos de hoy tampoco se lo puede medir.**
+
+### Lo medido
+
+Sin tráfico en las últimas 24 horas en ninguno de los dos proyectos. Se amplió la ventana para
+ubicar la última actividad real:
+
+| Proyecto | 24 h | 48 h | 96 h |
+|---|---|---|---|
+| `puntosnb` | sin tráfico | Identity Toolkit 6 (todas `INVALID`); Firestore nada | Firestore 480 · Identity Toolkit 34 |
+| `hipatia-puntos` | sin tráfico | sin tráfico | Firestore 1 · Identity Toolkit 12 |
+
+Motivos en la ventana de 96 horas:
+
+- `puntosnb`, Firestore: 475 `MISSING_OUTDATED_CLIENT` y 5 `MISSING_UNKNOWN_ORIGIN`. Es el mismo
+  patrón que explicó el hallazgo O-03 del 19-sep: versiones viejas de la aplicación abiertas.
+- `puntosnb`, Identity Toolkit: 24 `MISSING_UNKNOWN_ORIGIN`, 6 `INVALID` y 4 `VALID`.
+- `hipatia-puntos`: todo `MISSING_UNKNOWN_ORIGIN`, compatible con pruebas y scripts
+  administrativos. No hubo uso de la aplicación publicada.
+
+No corresponde la alerta de «0 % después de 24 horas de tráfico real»: no hubo tráfico real. La
+comparación con la primera medición (0 % verificado, 144 `MISSING_OUTDATED_CLIENT`) no dice nada,
+porque desde entonces el piloto casi no se usó.
+
+### Hallazgo O-04 — el script cuenta mal las verificadas y el criterio nunca se cumpliría
+
+`scripts/admin/metricas-appcheck.mjs` suma como verificadas solo las series con la etiqueta
+`security = VERIFIED`. Esa etiqueta **no existe en los datos**: Cloud Monitoring marca las
+verificadas como `VALID`. Se ve en la propia salida, que informa «`VALID: 4`» dentro de la columna
+de motivos y a la vez «0 verificadas».
+
+Consecuencia: el script informará 0 % aunque todo el tráfico esté verificado, el umbral del 95 %
+nunca se alcanzaría y la tarea programada avisaría «conviene esperar» para siempre. Con el cálculo
+correcto, Identity Toolkit de `puntosnb` tuvo 4 de 34 verificadas en 96 horas, cerca del 12 %.
+
+No se corrigió en esta corrida porque la tarea programada es de solo lectura. Es un cambio de una
+línea (`resultados.VERIFIED` → `resultados.VALID`, contemplando ambas por si la etiqueta cambia),
+que corresponde hacer en una sesión normal, con rama, prueba y PR.
+
+### Hallazgo O-05 — seis tokens rechazados en `puntosnb`
+
+En las últimas 48 horas, las 6 solicitudes de Identity Toolkit de `puntosnb` llegaron con token de
+App Check y fueron rechazadas (`INVALID`). A diferencia de `MISSING_*`, aquí el cliente **sí** envía
+token: apunta a un dominio no autorizado en la clave de reCAPTCHA Enterprise, o a una clave que no
+coincide con la registrada en App Check. Conviene resolverlo antes de que EPICO y PIZZA NB vuelvan a
+usar la aplicación, porque con la exigencia activada esas llamadas se rechazarían.
+
+### Pendientes que deja esta corrida
+
+- Corregir el conteo del script (O-04). Sin esto, el resto del monitoreo no sirve.
+- Diagnosticar los tokens `INVALID` de `puntosnb` (O-05): dominios autorizados en la clave de
+  reCAPTCHA Enterprise y coincidencia con la clave registrada en App Check.
+- La exigencia sigue en UNENFORCED en los dos proyectos, como estaba previsto. El criterio acordado
+  (más del 95 % verificado en los dos servicios durante dos días seguidos) no se puede evaluar
+  hasta que haya tráfico real del piloto y el script mida bien.
+
+---
+
 ## 30-sep-2026 · `functions/` sale del espacio de trabajo de pnpm
 
 ### Por qué
