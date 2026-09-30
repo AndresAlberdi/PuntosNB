@@ -38,6 +38,11 @@ updates:
   # desde el ecosistema raíz pero deja su lockfile atrás, y el despliegue falla
   # en el hook `predeploy` con "lock file's X does not satisfy Y" — que es
   # exactamente lo que ocurrió el 20/09/2026 al fusionar la subida de TypeScript.
+  #
+  # Desde que `functions/` salió del espacio de trabajo de pnpm, esta es la ÚNICA entrada
+  # que propone actualizaciones para `functions/package.json`, y las propone junto con su
+  # lockfile. Antes, la entrada de la raíz también lo alcanzaba como miembro del espacio de
+  # trabajo: cada PR actualizaba un lockfile y dejaba el otro (#46 y #49).
   - package-ecosystem: npm
     directory: /functions
     # Cuarentena de 7 dias para versiones recien publicadas, igual que
