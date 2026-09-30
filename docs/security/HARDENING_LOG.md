@@ -898,3 +898,38 @@ fallo ocurre en `predeploy`, antes de subir nada.
    fallaban en silencio en el otro.
 3. **Dependabot no sabe que dos acciones van juntas.** Cuando una acción tiene varias rutas
    (`init` y `analyze`), hay que actualizarlas en el mismo commit.
+
+## 30-sep-2026 · `functions/` sale del espacio de trabajo de pnpm
+
+### Por qué
+
+`functions/` estaba reclamado por dos ecosistemas de Dependabot a la vez: la entrada de la raíz
+(como miembro del espacio de trabajo de pnpm, con `pnpm-lock.yaml`) y la entrada `/functions`
+(con `functions/package-lock.json`). Cada PR actualizaba un lockfile y dejaba el otro. #46 y #49
+eran el mismo cambio propuesto dos veces, cada uno a medias, y ninguno podía pasar la compuerta.
+
+Ahora `functions/` lo gobierna solo npm, con su propio lockfile y su propio `.npmrc`.
+`pnpm-workspace.yaml` se conserva con `packages: ['.']`: `minimumReleaseAge`,
+`blockExoticSubdeps`, `allowBuilds` y `overrides` solo se leen desde ahí y son la cadena de
+suministro de la aplicación. `pnpm-lock.yaml` solo perdió el importador `functions`; no cambió
+ninguna versión del importador raíz.
+
+### Qué protecciones se repusieron, y cómo
+
+| Protección que daba el espacio de trabajo | Cómo se repone |
+|---|---|
+| Sincronía entre `package.json` y lockfile | El job `calidad` corre `npm ci --prefix functions --ignore-scripts`, que aborta si no concuerdan (lo mismo que hacía `--dry-run`) y deja las dependencias instaladas para los pasos siguientes |
+| `blockExoticSubdeps` (npm no tiene equivalente) | Paso de `calidad` con `jq` sobre `functions/package-lock.json`: falla si algún paquete no tiene `resolved` bajo `https://registry.npmjs.org/` o no tiene `integrity` |
+| `pnpm audit --prod` sobre `functions/` | Paso de `calidad` con `npm audit --prefix functions --omit=dev --audit-level=high`. El `npm audit` del reusable no lo cubre: se salta cuando hay `pnpm-lock.yaml` y no hay `package-lock.json` en la raíz. Trivy sí sigue viendo `functions/package-lock.json` |
+| Cuarentena y `ignore-scripts` | Ya estaban en `functions/.npmrc` (PR #64) |
+
+Además, `test:functions` usa ahora el vitest propio de `functions/` (`npm --prefix functions
+test`) y no el de la raíz: con dos árboles independientes, compartirlo sería un fallo silencioso
+en cuanto las versiones divergieran.
+
+### Para quien despliegue en local
+
+El hook `predeploy` no instala dependencias. Antes de `firebase deploy` o `./deploy.sh staging`,
+ejecute `npm run functions:install` (equivale a `npm ci --prefix functions --ignore-scripts
+--no-audit --no-fund`). Sin ese paso, `functions/node_modules` puede faltar o estar
+desactualizado.
