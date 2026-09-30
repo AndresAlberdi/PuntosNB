@@ -430,7 +430,7 @@ jobs:
           if [[ -f functions/package.json ]]; then
             if   [[ -f functions/pnpm-lock.yaml ]];    then pnpm --dir functions install --frozen-lockfile --ignore-workspace
             elif [[ -f functions/yarn.lock ]];         then (cd functions && yarn install --frozen-lockfile)
-            elif [[ -f functions/package-lock.json ]]; then npm ci --prefix functions
+            elif [[ -f functions/package-lock.json ]]; then npm ci --prefix functions --ignore-scripts --no-audit --no-fund
             elif [[ -f pnpm-workspace.yaml ]];         then pnpm install --frozen-lockfile
             fi
           fi
@@ -611,7 +611,7 @@ jobs:
           if [[ -f functions/package.json ]]; then
             if   [[ -f functions/pnpm-lock.yaml ]];    then pnpm --dir functions install --frozen-lockfile --ignore-workspace
             elif [[ -f functions/yarn.lock ]];         then (cd functions && yarn install --frozen-lockfile)
-            elif [[ -f functions/package-lock.json ]]; then npm ci --prefix functions
+            elif [[ -f functions/package-lock.json ]]; then npm ci --prefix functions --ignore-scripts --no-audit --no-fund
             elif [[ -f pnpm-workspace.yaml ]];         then pnpm install --frozen-lockfile
             fi
           fi
