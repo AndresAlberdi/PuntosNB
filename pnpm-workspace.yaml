@@ -27,3 +27,22 @@ allowBuilds:
   '@firebase/util': false   # postinstall de conveniencia
   protobufjs: false         # genera tipos que ya vienen empaquetados
   re2: false                # binario nativo; solo lo usa firebase-tools en local
+
+# Anulaciones de seguridad: se fuerza una version con parche de una dependencia transitiva.
+# Se retiran cuando los paquetes que la arrastran suban por su cuenta.
+#
+# brace-expansion — CVE-2026-102276 y CVE-2026-102278, ambos de severidad ALTA. El arbol
+# resolvia 1.1.18, 2.1.4 y 5.0.9, las tres vulnerables. No lo introdujo ninguna actualizacion:
+# ya estaba en `main`, y los avisos se publicaron despues del ultimo analisis, de modo que la
+# base de datos de Trivy recien ahora lo marca. El lockfile de npm de `functions/` ya habia
+# resuelto versiones corregidas por su cuenta; este es el lado de pnpm.
+overrides:
+  # @grpc/grpc-js — GHSA-m9gg-hp2v-232j, severidad ALTA. El arbol resolvia 1.9.16 (via
+  # @firebase/firestore, en la aplicacion web) y 1.14.4 (via google-gax -> firebase-admin, en
+  # las funciones). Tampoco lo introdujo ninguna actualizacion: las dos versiones ya estaban en
+  # `main`. 1.14.5 corrige ambas y satisface el `^1.9.0` que pide @firebase/firestore, asi que
+  # una sola anulacion cubre las dos cadenas.
+  '@grpc/grpc-js': ^1.14.5
+  brace-expansion@1: ^1.1.20
+  brace-expansion@2: ^2.1.7
+  brace-expansion@5: ^5.0.12
