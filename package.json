@@ -13,10 +13,11 @@
     "test": "vitest run",
     "test:rules": "vitest run --config vitest.rules.config.ts",
     "test:all": "pnpm test && pnpm test:rules:local && pnpm test:functions:local",
-    "test:functions": "vitest run --config functions/vitest.config.ts",
+    "test:functions": "npm --prefix functions test",
+    "functions:install": "npm ci --prefix functions --ignore-scripts --no-audit --no-fund",
     "typecheck": "tsc -b",
     "test:rules:local": "firebase emulators:exec --only firestore --project demo-hipatia-reglas \"pnpm test:rules\"",
-    "test:functions:local": "pnpm --dir functions build && firebase emulators:exec --only functions,firestore,auth --project demo-hipatia-funciones \"pnpm test:functions\""
+    "test:functions:local": "pnpm functions:install && npm --prefix functions run build && firebase emulators:exec --only functions,firestore,auth --project demo-hipatia-funciones \"pnpm test:functions\""
   },
   "dependencies": {
     "@yudiel/react-qr-scanner": "^2.6.0",
