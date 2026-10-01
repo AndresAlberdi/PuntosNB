@@ -63,7 +63,11 @@ for (const projectId of proyectos) {
   const porServicio = {};
   for (const s of series) {
     const servicio = s.resource?.labels?.service_id ?? '(sin servicio)';
-    // `security` dice si la solicitud traía un token válido: VERIFIED, o el motivo por el que no.
+    // `security` dice si la solicitud traía un token válido: VALID, o el motivo por el que no
+    // (INVALID, MISSING_UNKNOWN_ORIGIN, MISSING_OUTDATED_CLIENT…). La etiqueta de éxito es VALID:
+    // una versión anterior de este script buscaba VERIFIED, que Google no emite, y por eso
+    // informaba 0 % aunque todo el tráfico llegara verificado. Comprobado el 01-oct-2026: tras un
+    // ingreso real en pruebas aparecieron siete llamadas VALID que el script contaba como 0.
     const resultado = s.metric?.labels?.security ?? '(sin dato)';
     const valor = (s.points ?? []).reduce((suma, p) => suma + Number(p.value?.int64Value ?? p.value?.doubleValue ?? 0), 0);
     porServicio[servicio] ??= {};
@@ -74,7 +78,7 @@ for (const projectId of proyectos) {
   let listoParaExigir = true;
   for (const [servicio, resultados] of Object.entries(porServicio)) {
     const total = Object.values(resultados).reduce((a, b) => a + b, 0);
-    const verificadas = resultados.VERIFIED ?? 0;
+    const verificadas = resultados.VALID ?? 0;
     const porcentaje = total ? (verificadas * 100) / total : 0;
     if (porcentaje < UMBRAL_VERIFICADO) listoParaExigir = false;
     filas.push({
@@ -84,7 +88,7 @@ for (const projectId of proyectos) {
       'no verificadas': total - verificadas,
       '% verificado': `${porcentaje.toFixed(1)} %`,
       motivos: Object.entries(resultados)
-        .filter(([k]) => k !== 'VERIFIED')
+        .filter(([k]) => k !== 'VALID')
         .sort((a, b) => b[1] - a[1])
         .map(([k, v]) => `${k}: ${v}`)
         .join(' · ') || '—',
