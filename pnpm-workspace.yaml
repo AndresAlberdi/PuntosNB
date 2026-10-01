@@ -1,8 +1,12 @@
-# Un solo espacio de trabajo con la aplicación y las funciones: una sola instalación
-# reproducible, un solo lockfile. `functions/` conserva su package.json y su tsconfig.
+# El espacio de trabajo de pnpm es solo la aplicación web. `functions/` YA NO es miembro:
+# lo gobierna npm, con su propio `functions/package-lock.json` y su `functions/.npmrc`.
+# Mientras fue miembro, Dependabot lo reclamaba por dos ecosistemas a la vez (npm y pnpm):
+# cada PR actualizaba un lockfile y dejaba el otro, y el mismo cambio llegaba dos veces, cada
+# uno a medias (#46 y #49). Este archivo se conserva porque `minimumReleaseAge`,
+# `blockExoticSubdeps`, `allowBuilds` y `overrides` solo se leen desde aquí y son la cadena de
+# suministro de la aplicación.
 packages:
   - '.'
-  - 'functions'
 
 # Un paquete recién publicado es el vehículo habitual de un ataque a la cadena de suministro:
 # se compromete una cuenta, se publica una versión con código malicioso y se espera a que los

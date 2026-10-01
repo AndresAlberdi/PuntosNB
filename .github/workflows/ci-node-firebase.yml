@@ -183,21 +183,48 @@ jobs:
       # Las funciones tienen sus propias pruebas de integración: recorren el libro mayor
       # contra los emuladores de Functions, Firestore y Auth. Sin ellas, el pipeline dejaría
       # pasar un cambio que rompa la acumulación, el canje o la cobranza.
-      - name: Verificar que el lockfile de las funciones esté sincronizado
-        # `calidad` compila `functions` con las dependencias de la raíz, así que por sí sola
-        # nunca lee `functions/package-lock.json`. Pero el despliegue sí: el hook `predeploy`
-        # corre `npm ci --prefix functions`, que aborta si ese lockfile no concuerda con
-        # `functions/package.json`. Sin esta comprobación el desajuste pasa la compuerta en
-        # verde y revienta DESPUÉS de fusionar, en `desplegar-staging`, que es justo lo que
-        # ocurrió el 20/09/2026 al subir TypeScript a 6.0.3. `--dry-run` hace la validación
-        # sin instalar nada: cuesta segundos y convierte un fallo posterior a la fusión en uno
-        # anterior.
+      - name: Instalar las dependencias de las funciones
+        # `functions/` ya no es miembro del espacio de trabajo de pnpm: lo gobierna npm, con su
+        # propio `functions/package-lock.json`. `npm ci` aborta si ese lockfile no concuerda con
+        # `functions/package.json`, así que hace la misma verificación que hacía `--dry-run` y
+        # además deja las dependencias instaladas, que los pasos siguientes necesitan. Esa
+        # verificación importa porque el despliegue corre el mismo `npm ci`: sin ella, el
+        # desajuste pasa la compuerta en verde y revienta DESPUÉS de fusionar, en
+        # `desplegar-staging`, que es justo lo que ocurrió el 20/09/2026 al subir TypeScript a
+        # 6.0.3.
         if: hashFiles('functions/package-lock.json') != ''
-        run: npm ci --prefix functions --ignore-scripts --dry-run --no-audit --no-fund
+        run: npm ci --prefix functions --ignore-scripts --no-audit --no-fund
+
+      - name: Verificar origen e integridad del lockfile de las funciones
+        # Repone `blockExoticSubdeps` de pnpm, que npm no tiene: ninguna dependencia puede venir
+        # de un origen que no sea el registro de npm (git, tarball en una URL, ruta local) ni
+        # faltarle el hash de integridad.
+        if: hashFiles('functions/package-lock.json') != ''
+        run: |
+          set -euo pipefail
+          sospechosos="$(jq -r '
+            .packages | to_entries[]
+            | select(.key != "" and (.value.link | not))
+            | select(((.value.resolved // "") | startswith("https://registry.npmjs.org/") | not)
+                     or ((.value.integrity // "") == ""))
+            | .key' functions/package-lock.json)"
+          if [ -n "$sospechosos" ]; then
+            echo "::error::Paquetes de functions/package-lock.json con origen distinto del registro de npm o sin integridad:"
+            echo "$sospechosos"
+            exit 1
+          fi
+
+      - name: Auditoría de las dependencias de las funciones
+        # Repone la cobertura que daba `pnpm audit --prod` mientras `functions/` era importador
+        # del espacio de trabajo. El `npm audit` del reusable no la cubre: se salta cuando hay
+        # `pnpm-lock.yaml` y no hay `package-lock.json` en la RAÍZ. Trivy sí sigue viendo
+        # `functions/package-lock.json`.
+        if: hashFiles('functions/package-lock.json') != ''
+        run: npm audit --prefix functions --omit=dev --audit-level=high
 
       - name: Compilar las funciones
-        # Las dependencias ya vinieron con la instalación de la raíz: `functions` es un paquete
-        # más del espacio de trabajo de pnpm, con un único lockfile para todo el repositorio.
+        # Las dependencias vienen del paso «Instalar las dependencias de las funciones»: `functions`
+        # tiene su propio lockfile de npm y ya no comparte la instalación de la raíz.
         if: hashFiles('functions/package.json') != ''
         run: npm --prefix functions run build
 
