@@ -28,8 +28,24 @@ la clave de reCAPTCHA que usaban ambos solo admitía `hipatiabo.com`. Eso ya est
 pruebas tiene su propia clave y producción admite sus dominios—, así que el contador empieza a
 correr de verdad ahora.
 
-La tarea programada «App Check Hipatia» le informará a las 9:00 y 21:00. Cuando le avise que se
-cumplió el criterio (más del 95 % verificado durante dos días):
+**Estado al 01-oct-2026.** En pruebas ya hay tráfico real verificado: tras un ingreso de Andres,
+Firestore dio 37 de 37 llamadas verificadas (100 %) e Identity Toolkit 7 de 8 (87,5 %). La muestra
+es demasiado pequeña para decidir nada. En producción todavía no hay tráfico.
+
+**La tarea de seguimiento existe desde el 01-oct-2026.** Se llama `app-check-hipatia`, corre a las
+9:00 y 21:00 (hora local) y es solo de lectura. Evalúa cada entorno por separado y avisa solo cuando
+todos sus servicios tienen **más del 95 % verificado en las últimas 48 horas y al menos 30 llamadas**:
+con menos, informa «sin muestra suficiente». Solo corre mientras la aplicación de escritorio está
+abierta; si estaba cerrada a la hora programada, corre al abrirla.
+
+> **Corrección.** Este documento afirmó durante varios días que esa tarea ya existía. No era cierto:
+> nunca se había creado, y nadie le habría avisado. Además, el script de métricas
+> (`scripts/admin/metricas-appcheck.mjs`) buscaba la etiqueta `VERIFIED`, que Google no emite
+> —la de éxito es `VALID`—, de modo que mostraba 0 % aunque todo el tráfico llegara verificado.
+> Ambas cosas se corrigieron el 01-oct-2026. La tarea además se niega a interpretar cifras si el
+> script local no trae la corrección.
+
+Cuando le avise que se cumplió el criterio:
 
 1. Consola de Firebase → **App Check → APIs**, en `puntosnb`: *Aplicar forzosamente* en
    **Cloud Firestore** y en **Authentication**.
