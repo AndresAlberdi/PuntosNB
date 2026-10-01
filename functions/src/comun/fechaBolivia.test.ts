@@ -6,7 +6,7 @@
  * `TZ=Pacific/Kiritimati` y debe dar lo mismo).
  */
 import { describe, it, expect } from 'vitest';
-import { claveDelMes, desfaseZonaMs, finDeMes, finDelPeriodoPagado, sumarMeses } from './fechaBolivia';
+import { claveDelMes, desfaseZonaMs, finDeMes, finDelDia, finDelPeriodoPagado, sumarMeses } from './fechaBolivia';
 import { estadoPrepago, type Comercio } from './negocio';
 import { operativoHasta } from './comercio';
 
@@ -194,5 +194,31 @@ describe('terminación: finDelPeriodoPagado no se cuelga con datos sucios', () =
 
   it('los meses con formato inválido se descartan y no habilitan nada', () => {
     expect(finDelPeriodoPagado(['', 'xx', '2026-13', '2026-00', '2026-9'], new Date())).toBe(0);
+  });
+});
+
+describe('finDelDia: el plazo vence al final del día en Bolivia', () => {
+  it('un instante del mediodía boliviano vence a las 03:59:59.999Z del día siguiente', () => {
+    // 2026-10-15 12:00 en Bolivia = 16:00Z. El fin del día es 2026-10-16 03:59:59.999Z.
+    expect(new Date(finDelDia(new Date('2026-10-15T16:00:00Z'))).toISOString())
+      .toBe('2026-10-16T03:59:59.999Z');
+  });
+
+  it('un instante que en UTC ya es el día siguiente pero en Bolivia no, vence el mismo día', () => {
+    // 2026-10-16 01:00Z = 2026-10-15 21:00 en Bolivia: sigue siendo el 15.
+    expect(new Date(finDelDia(new Date('2026-10-16T01:00:00Z'))).toISOString())
+      .toBe('2026-10-16T03:59:59.999Z');
+  });
+
+  it('no depende del huso del proceso', () => {
+    const t = new Date('2026-10-15T16:00:00Z');
+    expect(finDelDia(t)).toBe(Date.parse('2026-10-16T03:59:59.999Z'));
+  });
+
+  it('cruza el fin de mes y el fin de año', () => {
+    expect(new Date(finDelDia(new Date('2026-10-31T16:00:00Z'))).toISOString())
+      .toBe('2026-11-01T03:59:59.999Z');
+    expect(new Date(finDelDia(new Date('2026-12-31T16:00:00Z'))).toISOString())
+      .toBe('2027-01-01T03:59:59.999Z');
   });
 });
