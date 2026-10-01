@@ -5,6 +5,8 @@
  * de fondo: aquí el cliente no puede alterarlas ni saltárselas.
  */
 
+import { claveDelMes } from './fechaBolivia';
+
 export type TipoRegla = 'POR_COMPRA' | 'POR_PRODUCTO' | 'POR_RANGO' | 'POR_REGISTRO';
 
 export interface ReglaPunto {
@@ -35,8 +37,7 @@ export interface ProductoSolicitado {
   cantidad: number;
 }
 
-export const claveDelMes = (fecha: Date): string =>
-  `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
+export { claveDelMes };
 
 export interface EstadoPrepago {
   puedeOperar: boolean;
@@ -47,6 +48,7 @@ export interface EstadoPrepago {
 /**
  * Un comercio PILOTO opera sin restricciones. Uno PREPAGO necesita el mes corriente pagado para
  * acumular, y saldo suficiente para entregar un premio más.
+ * El mes corriente es el de `America/La_Paz`, no el del proceso: las funciones corren en UTC.
  */
 export function estadoPrepago(comercio: Comercio, ahora = new Date()): EstadoPrepago {
   if (comercio.estado === 'bloqueado') {

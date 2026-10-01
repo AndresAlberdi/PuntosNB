@@ -7,6 +7,9 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { claveDelMes, sumarMeses } from '../comun/fechaBolivia';
+
+export { claveDelMes } from '../comun/fechaBolivia';
 
 export const PROYECTO = process.env.GCLOUD_PROJECT ?? 'demo-hipatia-funciones';
 export const REGION = 'us-central1';
@@ -102,12 +105,11 @@ export async function limpiarCuentas(): Promise<void> {
  * Escribir los meses a mano —'2026-10', '2026-12'— las convierte en una bomba de tiempo: el
  * 1-oct-2026 a las 00:00 UTC, octubre pasó a ser el mes corriente y la suite se cayó en `main`
  * sin que nadie hubiera tocado el código. Con esta función el desfase es siempre el mismo.
+ * El mes corriente se toma en la zona del negocio, igual que el servidor.
  *
  * @param meses cuántos meses hacia adelante; 1 es el mes que viene. Debe ser >= 1.
  */
 export function mesFuturo(meses: number): string {
   if (meses < 1) throw new Error(`mesFuturo espera un desplazamiento >= 1, recibió ${meses}`);
-  const hoy = new Date();
-  const f = new Date(hoy.getFullYear(), hoy.getMonth() + meses, 1);
-  return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
+  return sumarMeses(claveDelMes(), meses);
 }

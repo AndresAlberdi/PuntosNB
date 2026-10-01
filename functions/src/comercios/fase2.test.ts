@@ -3,7 +3,7 @@
  * influencer, anulación de cobros y la división del comercio en parte pública y privada.
  */
 import { describe, it, beforeEach, expect } from 'vitest';
-import { db, limpiar, limpiarCuentas, llamar, mesFuturo, sesionComo } from '../pruebas/util';
+import { claveDelMes, db, limpiar, limpiarCuentas, llamar, mesFuturo, sesionComo } from '../pruebas/util';
 
 // Mes de cobro siempre por delante del corriente; se calcula una vez (ver mesFuturo).
 const MES_COBRO = mesFuturo(3);
@@ -13,18 +13,13 @@ const OTRO = 'comercio_pizza';
 const INFLUENCER = 'influencer_1';
 const OTRO_INFLUENCER = 'influencer_2';
 
-const mesActual = (): string => {
-  const hoy = new Date();
-  return `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
-};
-
 async function sembrar(saldo = 100): Promise<void> {
   await db.collection('comercios').doc(COMERCIO).set({
     id: COMERCIO, nombre: 'Epico', reglas: [], premios: [], productos: [],
     modalidadPago: 'PREPAGO', estado: 'activo', createdAt: 1,
   });
   await db.collection('comercios_privado').doc(COMERCIO).set({
-    id: COMERCIO, nit_rut: '123', modalidadPago: 'PREPAGO', mesesPagados: [mesActual()],
+    id: COMERCIO, nit_rut: '123', modalidadPago: 'PREPAGO', mesesPagados: [claveDelMes()],
     saldoPremiosBs: saldo, consumidoPremiosBs: 0, costoPorPremioBs: 1.25, costoPorCodigoComercio: 10,
     mensualidadBs: 25,
   });

@@ -3,7 +3,7 @@
  * Requieren los emuladores: `npm run test:functions`.
  */
 import { describe, it, beforeEach, expect } from 'vitest';
-import { db, limpiar, limpiarCuentas, llamar, mesFuturo, sesionComo } from '../pruebas/util';
+import { claveDelMes, db, limpiar, limpiarCuentas, llamar, mesFuturo, sesionComo } from '../pruebas/util';
 
 // Meses de cobro, siempre por delante del mes corriente. Se calculan una sola vez por archivo
 // para que dos llamadas no puedan caer a distinto lado de un cambio de mes.
@@ -171,7 +171,7 @@ describe('Canje de premios', () => {
   });
 
   it('descuenta puntos y saldo en bolivianos al confirmar en PREPAGO', async () => {
-    const mes = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    const mes = claveDelMes();
     await sembrar({ modalidadPago: 'PREPAGO', mesesPagados: [mes], saldoPremiosBs: 10, costoPorPremioBs: 1.25 });
     await darPuntos(150);
 
@@ -193,7 +193,7 @@ describe('Canje de premios', () => {
   });
 
   it('bloquea el canje cuando el comercio PREPAGO se quedó sin saldo en bolivianos (H-12)', async () => {
-    const mes = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    const mes = claveDelMes();
     await sembrar({ modalidadPago: 'PREPAGO', mesesPagados: [mes], saldoPremiosBs: 0.5, costoPorPremioBs: 1.25 });
     await darPuntos(150);
 

@@ -1,4 +1,5 @@
 import type { Transaccion, Comercio } from '../types';
+import { claveDelMes, finDelPeriodoPagado, sumarMeses } from './fechaBolivia';
 
 export interface TopUsuarioConsumo {
   clienteId: string;
@@ -447,6 +448,9 @@ export const calculateSuperAdminReport = (
  * puede leer. Para esos casos el servidor deja en el documento público dos señales derivadas
  * —`operativoHasta` y `puedeCanjearPremios`— que bastan para la interfaz. Cuando sí hay datos
  * privados (panel del comercio, contador, superadministrador) se calculan los detalles completos.
+ *
+ * El mes corriente y el fin de mes se calculan en `America/La_Paz` con `src/utils/fechaBolivia.ts`,
+ * el mismo texto que usa el servidor.
  */
 export const checkComercioPrepagoStatus = (
   comercio: Comercio,
@@ -462,7 +466,7 @@ export const checkComercioPrepagoStatus = (
   premiosDisponibles: number;
   mesActualKey: string;
 } => {
-  const mesActualKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+  const mesActualKey = claveDelMes(currentDate);
 
   // Modo PILOTO: acceso libre, sin bloqueos.
   if (!comercio.modalidadPago || comercio.modalidadPago === 'PILOTO') {
@@ -484,7 +488,7 @@ export const checkComercioPrepagoStatus = (
   if (!tieneDatosPrivados) {
     // Solo las señales públicas: alcanzan para saber si se puede operar y canjear.
     const hasta = comercio.operativoHasta ?? 0;
-    const puedeOperar = hasta > currentDate.getTime();
+    const puedeOperar = hasta >= currentDate.getTime();
     const diasRestantesMes = puedeOperar ? Math.max(0, Math.ceil((hasta - currentDate.getTime()) / 86400000)) : 0;
     const puedeCanjearPremios = puedeOperar && comercio.puedeCanjearPremios !== false;
     return {
@@ -501,27 +505,18 @@ export const checkComercioPrepagoStatus = (
   }
 
   const mesesPagados = comercio.mesesPagados || [];
-  const mesPagado = mesesPagados.includes(mesActualKey);
-
-  // Último mes consecutivo cubierto.
-  let ultimoMesDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-  if (mesPagado) {
-    for (;;) {
-      const nextDate = new Date(ultimoMesDate.getFullYear(), ultimoMesDate.getMonth() + 1, 1);
-      const nextKey = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
-      if (!mesesPagados.includes(nextKey)) break;
-      ultimoMesDate = nextDate;
-    }
-  }
-
-  const finPeriodoPagado = new Date(ultimoMesDate.getFullYear(), ultimoMesDate.getMonth() + 1, 0, 23, 59, 59);
-  const diasRestantesMes = mesPagado
-    ? Math.max(0, Math.ceil((finPeriodoPagado.getTime() - currentDate.getTime()) / 86400000))
+  // Mismo criterio que la rama pública: se compara el fin del período con el instante actual.
+  // `finDelPeriodoPagado` devuelve el ULTIMO instante incluido del periodo, no el primero
+  // excluido, asi que la comparacion tiene que ser `>=`. Con `>` habria un milisegundo —el
+  // ultimo del mes— en el que el servidor deja operar y la interfaz decia que no.
+  const finPeriodoPagadoMs = finDelPeriodoPagado(mesesPagados, currentDate);
+  const puedeOperar = finPeriodoPagadoMs >= currentDate.getTime();
+  const diasRestantesMes = puedeOperar
+    ? Math.max(0, Math.ceil((finPeriodoPagadoMs - currentDate.getTime()) / 86400000))
     : 0;
 
-  const puedeOperar = mesPagado;
-  const alertaRojaMensualidad = !mesPagado;
-  const alertaAmarillaMensualidad = mesPagado && diasRestantesMes <= 7;
+  const alertaRojaMensualidad = !puedeOperar;
+  const alertaAmarillaMensualidad = puedeOperar && diasRestantesMes <= 7;
 
   const costoPremio = comercio.costoPorPremioBs && comercio.costoPorPremioBs > 0 ? comercio.costoPorPremioBs : 1.25;
   const premiosDisponibles = Math.floor((comercio.saldoPremiosBs || 0) / costoPremio);
@@ -538,4 +533,28 @@ export const checkComercioPrepagoStatus = (
     premiosDisponibles,
     mesActualKey,
   };
+};
+
+/**
+ * Meses (`YYYY-MM`) que ofrece el contador al registrar un cobro: arranca en el primer mes sin
+ * pagar a partir del corriente del negocio (`America/La_Paz`) y entrega `cantidad` meses seguidos.
+ * La aritmética es sobre la clave, sin `Date`, así que no depende de la zona del navegador.
+ */
+export const mesesConsecutivosAPagar = (
+  mesesPagados: readonly string[],
+  cantidad: number,
+  ahora: Date = new Date()
+): string[] => {
+  // El bucle se acota en el numero de meses pagados: `sumarMeses` no es monotona para toda
+  // entrada (ver `finDelPeriodoPagado`), y sin tope una clave no canonica lo colgaria.
+  let clave = claveDelMes(ahora);
+  for (let i = 0; i <= mesesPagados.length && mesesPagados.includes(clave); i++) {
+    clave = sumarMeses(clave, 1);
+  }
+  const meses: string[] = [];
+  for (let i = 0; i < cantidad; i++) {
+    meses.push(clave);
+    clave = sumarMeses(clave, 1);
+  }
+  return meses;
 };

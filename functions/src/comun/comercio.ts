@@ -9,6 +9,7 @@
  */
 import type { Transaction } from 'firebase-admin/firestore';
 import { db } from './firebase';
+import { finDelPeriodoPagado } from './fechaBolivia';
 import { estadoPrepago, type Comercio } from './negocio';
 
 export const refPublico = (comercioId: string): FirebaseFirestore.DocumentReference =>
@@ -44,21 +45,14 @@ export async function leerComercio(comercioId: string): Promise<VistaComercio> {
   return { existe: pub.exists, publico, privado, completo: combinar(publico, privado) };
 }
 
-/** Fin del período prepagado: el último mes consecutivo pagado desde el actual. */
+/**
+ * Fin del período prepagado: el último instante del último mes consecutivo pagado desde el
+ * corriente, en la zona del negocio. Es un instante absoluto, así que la interfaz lo puede
+ * comparar con su propio reloj sin preocuparse por la zona del aparato.
+ */
 export function operativoHasta(comercio: Comercio, ahora = new Date()): number | null {
   if (!comercio.modalidadPago || comercio.modalidadPago === 'PILOTO') return null;
-
-  const pagados = new Set(comercio.mesesPagados ?? []);
-  const clave = (f: Date): string => `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
-  if (!pagados.has(clave(ahora))) return 0;
-
-  let ultimo = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-  for (;;) {
-    const siguiente = new Date(ultimo.getFullYear(), ultimo.getMonth() + 1, 1);
-    if (!pagados.has(clave(siguiente))) break;
-    ultimo = siguiente;
-  }
-  return new Date(ultimo.getFullYear(), ultimo.getMonth() + 1, 0, 23, 59, 59).getTime();
+  return finDelPeriodoPagado(comercio.mesesPagados ?? [], ahora);
 }
 
 /**
