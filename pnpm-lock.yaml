@@ -91,8 +91,8 @@ importers:
         specifier: ^14.4.0
         version: 14.4.0(@firebase/app-compat@0.5.18)(@firebase/app@0.16.2)(supports-color@7.2.0)
       firebase-tools:
-        specifier: 15.30.2
-        version: 15.30.2(@types/node@24.13.4)(supports-color@7.2.0)
+        specifier: 15.31.0
+        version: 15.31.0(@types/node@24.13.4)(supports-color@7.2.0)
       globals:
         specifier: ^17.6.0
         version: 17.12.0
@@ -1887,8 +1887,8 @@ packages:
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
-  csv-parse@5.6.0:
-    resolution: {integrity: sha512-l3nz3euub2QMg5ouu5U09Ew9Wf6/wQ8I++ch1loQ0ljmzhmfZYrH9fflS22i/PQEvsPvxCwxgz5q7UB8K1JO4Q==}
+  csv-parse@7.0.2:
+    resolution: {integrity: sha512-uKZghv9UmPkMVLYy//KZ9HFAIJsl7wkhoEdIL0+rhuSY9pZQlhaeGEDPIe+/w7eh81MOql8Q/9+inAGWG6ZHYA==}
 
   d3-array@3.2.4:
     resolution: {integrity: sha512-tdQAmyA18i4J7wprpYq8ClcxZy3SC31QMeByyCFyRt7BVHdREQZ5lpzoe5mFEYZUWe+oq8HBvk9JjpibyEV4Jg==}
@@ -2322,8 +2322,8 @@ packages:
     resolution: {integrity: sha512-yEx+GCsHvjH2svh4j1ATW57o8tlfjRQ0klTxvn7XCKUPXWiUQaRTHSzPSqhXtsLYSe4IwTqR7qqrh2sA45A0HA==}
     engines: {node: '>=22'}
 
-  firebase-tools@15.30.2:
-    resolution: {integrity: sha512-9Y6fsgUh5CsL/hzB565iyIYdu3pgbKcONi7vRlSbZuB3d3RpZy4u49lMesKmQSGd1AqKvFyVw5ls8GCZNYy0MQ==}
+  firebase-tools@15.31.0:
+    resolution: {integrity: sha512-n0bsjrKsKxMweyGtuOtrZPe34JNrVZaD7iZTa3YhOSXwFSsCPZ6tV/Inn4CGM62at7773iT5visGbVbPKtG9jQ==}
     engines: {node: '>=20.0.0 || >=22.0.0 || >=24.0.0'}
     hasBin: true
 
@@ -3918,14 +3918,15 @@ packages:
   std-env@4.2.0:
     resolution: {integrity: sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw==}
 
-  stream-chain@2.2.5:
-    resolution: {integrity: sha512-1TJmBx6aSWqZ4tx7aTpBDXK0/e2hhcNSTV8+CbFJtDjbb+I1mZ8lHit0Grw9GRT+6JbIrrDd8esncgBi8aBXGA==}
+  stream-chain@4.2.5:
+    resolution: {integrity: sha512-Wtyq3bNE3ggLR0v2vftqvuhltym3WbZAkZpfIrkr5F/6vpeUmWmwTgXa16zD87gpahwJ/Qulq3zVfUlgIc0J2A==}
+    engines: {node: '>=22'}
 
   stream-events@1.0.5:
     resolution: {integrity: sha512-E1GUzBSgvct8Jsb3v2X15pjzN1tYebtbLaMg+eBOUOAxgbLoSbT2NS91ckc5lJD1KfLjId+jXJRgo0qnV5Nerg==}
 
-  stream-json@1.9.1:
-    resolution: {integrity: sha512-uWkjJ+2Nt/LO9Z/JyKZbMusL8Dkh97uUBTv3AJQ74y07lVahLY4eEFsPsE97pxYBwr8nnjMAIch5eqI0gPShyw==}
+  stream-json@3.7.0:
+    resolution: {integrity: sha512-rCSBdcBP/bPk6T8QFcxAj1MSzAuc5i49cYW6IE7sYObNEPccBJIUiL6fU9c9BWt40aJK0siVynLX7lWaW8alXw==}
 
   stream-shift@1.0.3:
     resolution: {integrity: sha512-76ORR0DO1o1hlKwTbi/DM3EXWGf3ZJYO8cXX5RJwnul2DEg2oyoZyjLNoQM8WsvZiFKCRfC1O0J7iCvie3RZmQ==}
@@ -6376,7 +6377,7 @@ snapshots:
 
   csstype@3.2.3: {}
 
-  csv-parse@5.6.0: {}
+  csv-parse@7.0.2: {}
 
   d3-array@3.2.4:
     dependencies:
@@ -6900,7 +6901,7 @@ snapshots:
       - encoding
       - supports-color
 
-  firebase-tools@15.30.2(@types/node@24.13.4)(supports-color@7.2.0):
+  firebase-tools@15.31.0(@types/node@24.13.4)(supports-color@7.2.0):
     dependencies:
       '@apphosting/common': 0.0.8
       '@electric-sql/pglite': 0.3.16
@@ -6924,7 +6925,7 @@ snapshots:
       cors: 2.8.6
       cross-env: 7.0.3
       cross-spawn: 7.0.6
-      csv-parse: 5.6.0
+      csv-parse: 7.0.2
       exegesis: 4.3.0(supports-color@7.2.0)
       exegesis-express: 4.0.0(supports-color@7.2.0)
       express: 4.22.2(supports-color@7.2.0)
@@ -6957,8 +6958,8 @@ snapshots:
       retry: 0.13.1
       semver: 7.8.5
       sql-formatter: 15.8.2
-      stream-chain: 2.2.5
-      stream-json: 1.9.1
+      stream-chain: 4.2.5
+      stream-json: 3.7.0
       superstatic: 10.0.0(supports-color@7.2.0)
       tar: 7.5.22
       tcp-port-used: 1.0.3(supports-color@7.2.0)
@@ -8666,15 +8667,15 @@ snapshots:
 
   std-env@4.2.0: {}
 
-  stream-chain@2.2.5: {}
+  stream-chain@4.2.5: {}
 
   stream-events@1.0.5:
     dependencies:
       stubs: 3.0.0
 
-  stream-json@1.9.1:
+  stream-json@3.7.0:
     dependencies:
-      stream-chain: 2.2.5
+      stream-chain: 4.2.5
 
   stream-shift@1.0.3: {}
 
