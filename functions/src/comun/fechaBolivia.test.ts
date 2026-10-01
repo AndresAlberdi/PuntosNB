@@ -111,10 +111,10 @@ describe('estadoPrepago en el borde del mes', () => {
   });
 });
 
-describe('invariante: puedeOperar equivale a operativoHasta > ahora', () => {
+describe('invariante: puedeOperar equivale a operativoHasta >= ahora', () => {
   const instantes = [
     '2026-10-01T00:00:00Z',
-    '2026-10-01T03:59:59.998Z',
+    '2026-10-01T03:59:59.999Z',
     '2026-10-01T04:00:00Z',
     '2026-09-30T23:59:59Z',
   ];
@@ -125,7 +125,7 @@ describe('invariante: puedeOperar equivale a operativoHasta > ahora', () => {
       it(`${instante} con mesesPagados=${JSON.stringify(meses)}`, () => {
         const t = iso(instante);
         const c = prepago(meses);
-        expect(estadoPrepago(c, t).puedeOperar).toBe((operativoHasta(c, t) as number) > t.getTime());
+        expect(estadoPrepago(c, t).puedeOperar).toBe((operativoHasta(c, t) as number) >= t.getTime());
       });
     }
   }

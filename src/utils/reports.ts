@@ -488,7 +488,7 @@ export const checkComercioPrepagoStatus = (
   if (!tieneDatosPrivados) {
     // Solo las señales públicas: alcanzan para saber si se puede operar y canjear.
     const hasta = comercio.operativoHasta ?? 0;
-    const puedeOperar = hasta > currentDate.getTime();
+    const puedeOperar = hasta >= currentDate.getTime();
     const diasRestantesMes = puedeOperar ? Math.max(0, Math.ceil((hasta - currentDate.getTime()) / 86400000)) : 0;
     const puedeCanjearPremios = puedeOperar && comercio.puedeCanjearPremios !== false;
     return {
@@ -506,8 +506,11 @@ export const checkComercioPrepagoStatus = (
 
   const mesesPagados = comercio.mesesPagados || [];
   // Mismo criterio que la rama pública: se compara el fin del período con el instante actual.
+  // `finDelPeriodoPagado` devuelve el ULTIMO instante incluido del periodo, no el primero
+  // excluido, asi que la comparacion tiene que ser `>=`. Con `>` habria un milisegundo —el
+  // ultimo del mes— en el que el servidor deja operar y la interfaz decia que no.
   const finPeriodoPagadoMs = finDelPeriodoPagado(mesesPagados, currentDate);
-  const puedeOperar = finPeriodoPagadoMs > currentDate.getTime();
+  const puedeOperar = finPeriodoPagadoMs >= currentDate.getTime();
   const diasRestantesMes = puedeOperar
     ? Math.max(0, Math.ceil((finPeriodoPagadoMs - currentDate.getTime()) / 86400000))
     : 0;
