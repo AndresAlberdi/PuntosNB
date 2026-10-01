@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { claveDelMes } from '../../functions/lib/comun/fechaBolivia.js';
 import { getAuth } from 'firebase-admin/auth';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -236,7 +237,10 @@ try {
   registrar('Acumulación: el mismo código no se puede reclamar dos veces', !repetido.ok, repetido.mensaje);
 
   // --- Flujo 2: cobro de prepago -------------------------------------------------
-  const mes = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  // El mes se pide al calendario del negocio, no al del equipo que corre la prueba. Con la hora
+  // local, una corrida desde Bolivia despues de las 20:00 del ultimo dia del mes sembraba el mes
+  // anterior al que el servidor considera corriente, y la prueba fallaba sin que nada estuviera mal.
+  const mes = claveDelMes();
   const clave = `prueba-${marca}`;
   const cobro = await llamar('registrarCobroPrepago', {
     comercioId: creados.comercioId, mesesPagados: [mes], montoPremios: 10,
