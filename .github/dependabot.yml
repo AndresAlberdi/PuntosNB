@@ -3,6 +3,16 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    # `github/codeql-action` tiene varias rutas —`init`, `analyze`, `upload-sarif`— y CodeQL
+    # EXIGE que todas corran en la misma version. Dependabot las ve como dependencias distintas
+    # y abre un PR por cada una; fusionar una sola rompe la compuerta con
+    #   "Loaded a configuration file for version X, but running version Y"
+    # Ya paso el 20-sep-2026 (PR #15 y #16) y volvio a pasar el 01-oct (#69 y #71, sin ninguno
+    # para `init`). Agrupadas, Dependabot propone un unico PR con las tres.
+    groups:
+      codeql-action:
+        patterns:
+          - 'github/codeql-action*'
     # Cuarentena de 7 dias para versiones recien publicadas, igual que
     # `minimumReleaseAge: 10080` en `.npmrc`: una version comprometida suele
     # detectarse y retirarse en los primeros dias, y no hay motivo para ser
