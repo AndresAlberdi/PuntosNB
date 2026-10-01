@@ -3,7 +3,13 @@
  * Requieren los emuladores: `npm run test:functions`.
  */
 import { describe, it, beforeEach, expect } from 'vitest';
-import { db, limpiar, limpiarCuentas, llamar, sesionComo } from '../pruebas/util';
+import { db, limpiar, limpiarCuentas, llamar, mesFuturo, sesionComo } from '../pruebas/util';
+
+// Meses de cobro, siempre por delante del mes corriente. Se calculan una sola vez por archivo
+// para que dos llamadas no puedan caer a distinto lado de un cambio de mes.
+const MES_1 = mesFuturo(1);
+const MES_2 = mesFuturo(2);
+const MES_3 = mesFuturo(3);
 
 const COMERCIO = 'comercio_epico';
 const OTRO = 'comercio_pizza';
@@ -293,7 +299,7 @@ describe('Cobro de prepago', () => {
   it('cobra y acredita en una sola operación, con el monto calculado en el servidor', async () => {
     const idToken = await sesionComo(CONTADOR, { rol: 'contador' });
     const res = await llamar<{ montoTotal: number; saldoPremiosBs: number }>('registrarCobroPrepago', {
-      comercioId: COMERCIO, mesesPagados: ['2026-10', '2026-11'], montoPremios: 50,
+      comercioId: COMERCIO, mesesPagados: [MES_1, MES_2], montoPremios: 50,
       codigoDeposito: 'DEP-1', montoTotal: 1, recibeFactura: false,
     }, { idToken });
 
@@ -303,7 +309,7 @@ describe('Cobro de prepago', () => {
 
     const privado = (await db.collection('comercios_privado').doc(COMERCIO).get()).data();
     expect(privado?.modalidadPago).toBe('PREPAGO');
-    expect(privado?.mesesPagados).toEqual(['2026-10', '2026-11']);
+    expect(privado?.mesesPagados).toEqual([MES_1, MES_2]);
     // La señal pública queda al día para la interfaz, sin exponer montos. Se pagaron octubre y
     // noviembre, no el mes corriente, así que el comercio todavía no puede operar.
     const publico = (await db.collection('comercios').doc(COMERCIO).get()).data();
@@ -316,7 +322,7 @@ describe('Cobro de prepago', () => {
   it('el reintento con la misma clave no cobra dos veces', async () => {
     const idToken = await sesionComo(CONTADOR, { rol: 'contador' });
     const datos = {
-      comercioId: COMERCIO, mesesPagados: ['2026-10'], montoPremios: 25,
+      comercioId: COMERCIO, mesesPagados: [MES_1], montoPremios: 25,
       codigoDeposito: 'DEP-2', recibeFactura: false, clave: 'clave-unica-1',
     };
 
@@ -336,7 +342,7 @@ describe('Cobro de prepago', () => {
 
   it('rechaza cobrar dos veces el mismo mes', async () => {
     const idToken = await sesionComo(CONTADOR, { rol: 'contador' });
-    const base = { comercioId: COMERCIO, mesesPagados: ['2026-10'], montoPremios: 0, codigoDeposito: 'DEP-3', recibeFactura: false };
+    const base = { comercioId: COMERCIO, mesesPagados: [MES_1], montoPremios: 0, codigoDeposito: 'DEP-3', recibeFactura: false };
 
     const primero = await llamar('registrarCobroPrepago', base, { idToken });
     const repetido = await llamar('registrarCobroPrepago', { ...base, codigoDeposito: 'DEP-4' }, { idToken });
@@ -349,7 +355,7 @@ describe('Cobro de prepago', () => {
   it('un admin de comercio no puede registrar cobros', async () => {
     const idToken = await sesionComo('admin_epico', { rol: 'admin_comercio', comercioId: COMERCIO });
     const res = await llamar('registrarCobroPrepago', {
-      comercioId: COMERCIO, mesesPagados: ['2026-12'], montoPremios: 500, codigoDeposito: 'X', recibeFactura: false,
+      comercioId: COMERCIO, mesesPagados: [MES_3], montoPremios: 500, codigoDeposito: 'X', recibeFactura: false,
     }, { idToken });
     expect(res.ok).toBe(false);
     expect(res.codigo).toBe('PERMISSION_DENIED');

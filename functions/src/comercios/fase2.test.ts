@@ -3,7 +3,10 @@
  * influencer, anulación de cobros y la división del comercio en parte pública y privada.
  */
 import { describe, it, beforeEach, expect } from 'vitest';
-import { db, limpiar, limpiarCuentas, llamar, sesionComo } from '../pruebas/util';
+import { db, limpiar, limpiarCuentas, llamar, mesFuturo, sesionComo } from '../pruebas/util';
+
+// Mes de cobro siempre por delante del corriente; se calcula una vez (ver mesFuturo).
+const MES_COBRO = mesFuturo(3);
 
 const COMERCIO = 'comercio_epico';
 const OTRO = 'comercio_pizza';
@@ -165,7 +168,7 @@ describe('Anulación de cobros', () => {
   async function cobrar(montoPremios: number): Promise<string> {
     const idToken = await sesionComo('contador_1', { rol: 'contador' });
     const res = await llamar<{ cobroId: string }>('registrarCobroPrepago', {
-      comercioId: COMERCIO, mesesPagados: ['2026-12'], montoPremios,
+      comercioId: COMERCIO, mesesPagados: [MES_COBRO], montoPremios,
       codigoDeposito: 'DEP-1', recibeFactura: false,
     }, { idToken });
     if (!res.ok) throw new Error(res.mensaje);
@@ -184,7 +187,7 @@ describe('Anulación de cobros', () => {
 
     const despues = (await db.collection('comercios_privado').doc(COMERCIO).get()).data();
     expect(despues?.saldoPremiosBs).toBe(100);
-    expect(despues?.mesesPagados).not.toContain('2026-12');
+    expect(despues?.mesesPagados).not.toContain(MES_COBRO);
     expect((await db.collection('cobros_prepago').doc(cobroId).get()).exists).toBe(false);
   });
 
