@@ -132,10 +132,9 @@ describe('invariante: puedeOperar equivale a operativoHasta >= ahora', () => {
 });
 
 describe('último milisegundo del mes', () => {
-  // Único punto donde la equivalencia estricta `> ahora` no coincide con `estadoPrepago`: en el
-  // instante exacto `operativoHasta` el mes todavía es el corriente (puede operar), pero la
-  // comparación estricta `hasta > ahora` ya da falso. La interfaz usa `>`; la diferencia es de
-  // 1 ms. Si se decide cerrarla, debe ser un cambio de diseño explícito (ver informe del PR).
+  // `operativoHasta` es el ÚLTIMO instante incluido del período, no el primero excluido. Por eso
+  // la interfaz lo compara con `>=` y no con `>`: con `>` había un milisegundo —el último del
+  // mes— en el que el servidor dejaba operar y la pantalla decía que no.
   it('en el instante exacto del fin de mes el servidor aún permite operar', () => {
     const t = iso('2026-10-01T03:59:59.999Z');
     const c = prepago(['2026-09']);
@@ -151,5 +150,49 @@ describe('PILOTO', () => {
       expect(operativoHasta(piloto, iso(instante))).toBeNull();
       expect(estadoPrepago(piloto, iso(instante)).puedeOperar).toBe(true);
     }
+  });
+});
+
+describe('terminación: finDelPeriodoPagado no se cuelga con datos sucios', () => {
+  // `sumarMeses` no es monótona para toda entrada: 'NaN-NaN' es un punto fijo y '10000-01'
+  // retrocede a '1000-01'. Con un bucle sin tope, cualquiera de las dos lo cuelga para siempre
+  // dentro de una transacción, es decir, en una compuerta de autorización. Hoy no es alcanzable
+  // —`registrarCobroPrepago` valida con zod y Firestore limita el documento a 1 MiB—, pero la
+  // versión anterior terminaba siempre y esa propiedad no se pierde sin más.
+  const mesCorriente = claveDelMes(new Date());
+
+  it('una clave que es punto fijo de sumarMeses no lo detiene', () => {
+    const inicio = Date.now();
+    const r = finDelPeriodoPagado([mesCorriente, 'NaN-NaN'], new Date());
+    expect(Date.now() - inicio).toBeLessThan(1000);
+    expect(r).toBe(finDeMes(mesCorriente)); // la clave sucia se descarta, no alarga el período
+  });
+
+  it('una clave que hace retroceder a sumarMeses no lo detiene', () => {
+    const inicio = Date.now();
+    const r = finDelPeriodoPagado([mesCorriente, '10000-01'], new Date());
+    expect(Date.now() - inicio).toBeLessThan(1000);
+    expect(r).toBe(finDeMes(mesCorriente));
+  });
+
+  // 50 000 meses son unos 4 166 años: la clave sigue teniendo cuatro dígitos de año y es
+  // canónica. Más allá del año 9999 las claves dejan de serlo y el filtro las descarta, que es
+  // el comportamiento correcto: la cadena se corta en vez de producir instantes absurdos.
+  it('un arreglo enorme de meses consecutivos termina y devuelve el último', () => {
+    const muchos = [mesCorriente];
+    for (let i = 1; i < 50_000; i++) muchos.push(sumarMeses(mesCorriente, i));
+    const inicio = Date.now();
+    const r = finDelPeriodoPagado(muchos, new Date());
+    expect(Date.now() - inicio).toBeLessThan(10_000);
+    expect(r).toBe(finDeMes(sumarMeses(mesCorriente, 49_999)));
+  });
+
+  it('una clave con año de cinco dígitos se descarta y corta la cadena', () => {
+    const r = finDelPeriodoPagado([mesCorriente, sumarMeses(mesCorriente, 1), '10000-01'], new Date());
+    expect(r).toBe(finDeMes(sumarMeses(mesCorriente, 1)));
+  });
+
+  it('los meses con formato inválido se descartan y no habilitan nada', () => {
+    expect(finDelPeriodoPagado(['', 'xx', '2026-13', '2026-00', '2026-9'], new Date())).toBe(0);
   });
 });

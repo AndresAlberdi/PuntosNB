@@ -91,15 +91,32 @@ export function finDeMes(clave: string): number {
   return tentativo - desfaseZonaMs(new Date(tentativo)) - 1;
 }
 
+/** Clave de mes canónica: cuatro dígitos de año y un mes real entre 01 y 12. */
+export const CLAVE_MES = /^\d{4}-(0[1-9]|1[0-2])$/;
+
 /**
  * Fin del período prepagado: 0 si el mes corriente no figura pagado, y si no, el último
  * instante del último mes consecutivo pagado a partir del corriente.
+ *
+ * Alimenta `operativoHasta` y, por esa vía, una compuerta de autorización, así que tiene que
+ * terminar siempre, sea cual sea el contenido de `mesesPagados` que venga de la base de datos.
+ * Dos garantías, porque `sumarMeses` no es monótona para toda entrada:
+ *
+ *   1. Se descartan las claves que no son canónicas. `sumarMeses('NaN-NaN', 1)` devuelve
+ *      `'NaN-NaN'` —un punto fijo— y `sumarMeses('10000-01', 1)` devuelve `'1000-01'`, que
+ *      RETROCEDE porque los cortes de ancho fijo descuartizan un año de cinco dígitos. Con
+ *      cualquiera de las dos en el conjunto, un bucle sin tope no termina nunca.
+ *   2. El bucle se acota en el número de claves: no puede haber más saltos que meses pagados.
+ *
+ * La versión anterior terminaba por accidente —su aritmética con `Date` desbordaba a
+ * `Invalid Date` y la clave dejaba de coincidir—, y al pasar a aritmética sobre cadenas esa
+ * propiedad se perdió sin que se notara.
  */
 export function finDelPeriodoPagado(mesesPagados: readonly string[], ahora: Date = new Date()): number {
-  const pagados = new Set(mesesPagados);
+  const pagados = new Set(mesesPagados.filter((m) => CLAVE_MES.test(m)));
   let clave = claveDelMes(ahora);
   if (!pagados.has(clave)) return 0;
-  for (;;) {
+  for (let i = 0; i < pagados.size; i++) {
     const siguiente = sumarMeses(clave, 1);
     if (!pagados.has(siguiente)) break;
     clave = siguiente;

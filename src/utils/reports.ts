@@ -545,8 +545,12 @@ export const mesesConsecutivosAPagar = (
   cantidad: number,
   ahora: Date = new Date()
 ): string[] => {
+  // El bucle se acota en el numero de meses pagados: `sumarMeses` no es monotona para toda
+  // entrada (ver `finDelPeriodoPagado`), y sin tope una clave no canonica lo colgaria.
   let clave = claveDelMes(ahora);
-  while (mesesPagados.includes(clave)) clave = sumarMeses(clave, 1);
+  for (let i = 0; i <= mesesPagados.length && mesesPagados.includes(clave); i++) {
+    clave = sumarMeses(clave, 1);
+  }
   const meses: string[] = [];
   for (let i = 0; i < cantidad; i++) {
     meses.push(clave);
