@@ -942,7 +942,7 @@ jobs:
         # docker...). El SHA fija el repositorio COMPLETO, por lo que el mismo
         # pin sirve para snyk/actions/setup o snyk/actions/python si se cambia
         # la subruta; el comentario de versión aplica a todo el repo.
-        uses: snyk/actions/node@12140f4059e244892ae643824a95459a102120dd # master (2026-08)
+        uses: snyk/actions/node@b075801f26076be9bb50521154cafab73f44da0c # master (2026-08)
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
