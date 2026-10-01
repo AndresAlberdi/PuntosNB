@@ -14,8 +14,10 @@ import { actorDe, exigirComercio, exigirRol } from '../comun/sesion';
 import { auditarEnTransaccion } from '../comun/auditoria';
 import { actualizarDerivados, leerComercioEnTx, refPrivado } from '../comun/comercio';
 import { estadoPrepago } from '../comun/negocio';
+import { finDelDia } from '../comun/fechaBolivia';
 
 const DIAS_VIGENCIA = 30;
+const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
 const Crear = z.object({
   codigo: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{4,20}$/, 'usa entre 4 y 20 letras o números'),
@@ -63,16 +65,18 @@ export const crearCodigoComercio = onCall(opcionesCallable, async (req) => {
 
       const ahora = Date.now();
       const inicio = datos.fechaInicio && datos.fechaInicio > ahora ? datos.fechaInicio : ahora;
-      const fin = new Date(inicio);
-      fin.setDate(fin.getDate() + DIAS_VIGENCIA);
-      fin.setHours(23, 59, 59, 999);
+      // El plazo vence al final del día en Bolivia, no en la zona del proceso. `setHours` operaba
+      // en la del proceso —UTC en Cloud Functions—, así que un código que la pantalla anunciaba
+      // hasta medianoche vencía en realidad a las 19:59:59 de Bolivia, cuatro horas antes.
+      // Sumar días es seguro en milisegundos: Bolivia no tiene horario de verano.
+      const fin = finDelDia(new Date(inicio + DIAS_VIGENCIA * MS_POR_DIA));
 
       tx.set(refCodigo, {
         id: datos.codigo,
         comercioId: datos.comercioId,
         puntosPorCanje: datos.puntosPorCanje,
         fechaInicio: inicio,
-        fechaFin: fin.getTime(),
+        fechaFin: fin,
         estado: 'ACTIVO',
         createdAt: ahora,
         creadoPor: actor.uid,
@@ -90,12 +94,12 @@ export const crearCodigoComercio = onCall(opcionesCallable, async (req) => {
         actorRol: actor.rol,
         comercioId: datos.comercioId,
         objetivo: datos.codigo,
-        despues: { puntosPorCanje: datos.puntosPorCanje, costoBs: costo, fechaFin: fin.getTime() },
+        despues: { puntosPorCanje: datos.puntosPorCanje, costoBs: costo, fechaFin: fin },
         ip: actor.ip,
         appCheckAppId: actor.appCheckAppId,
       });
 
-      return { codigo: datos.codigo, costoBs: costo, fechaFin: fin.getTime() };
+      return { codigo: datos.codigo, costoBs: costo, fechaFin: fin };
     });
   } catch (error) {
     if (error && typeof error === 'object' && 'httpErrorCode' in error) throw error;

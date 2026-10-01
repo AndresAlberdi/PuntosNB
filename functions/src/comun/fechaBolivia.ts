@@ -91,6 +91,20 @@ export function finDeMes(clave: string): number {
   return tentativo - desfaseZonaMs(new Date(tentativo)) - 1;
 }
 
+/**
+ * Último milisegundo del día calendario al que pertenece el instante, en la zona del negocio.
+ *
+ * Se calcula igual que `finDeMes`: se arma la medianoche del día siguiente como si fuera UTC y
+ * se corrige con el desfase medido en ese mismo instante. Nunca con `setHours(23, 59, 59, 999)`,
+ * que opera en la zona del proceso: en Cloud Functions eso es UTC, de modo que un plazo que la
+ * pantalla anuncia hasta medianoche vencía a las 19:59:59 de Bolivia.
+ */
+export function finDelDia(instante: Date): number {
+  const c = camposEnZona(instante);
+  const tentativo = Date.UTC(c.anio, c.mes - 1, c.dia + 1, 0, 0, 0, 0);
+  return tentativo - desfaseZonaMs(new Date(tentativo)) - 1;
+}
+
 /** Clave de mes canónica: cuatro dígitos de año y un mes real entre 01 y 12. */
 export const CLAVE_MES = /^\d{4}-(0[1-9]|1[0-2])$/;
 
