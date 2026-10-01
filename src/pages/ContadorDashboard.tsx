@@ -6,6 +6,7 @@ import type { Comercio, CobroPrepago } from '../types';
 import { optimizarImagen, resumenOptimizacion } from '../utils/imageOptimizer';
 import { invocar, mensajeDeError } from '../utils/backend';
 import { cargarComerciosCompletos } from '../utils/comercios';
+import { mesesConsecutivosAPagar } from '../utils/reports';
 
 export const ContadorDashboard: React.FC = () => {
   const { userData } = useAuth();
@@ -65,36 +66,10 @@ export const ContadorDashboard: React.FC = () => {
   const mensualidadBs = selectedComercio?.mensualidadBs || 25.00;
   const costoPremioBs = selectedComercio?.costoPorPremioBs || 1.25;
 
-  // Calcular meses consecutivos a partir del mes actual o siguiente impago
+  // Calcular meses consecutivos a partir del mes corriente del negocio o el siguiente impago
   const calcularMesesConsecutivos = (cantidad: number): string[] => {
     if (cantidad <= 0 || !selectedComercio) return [];
-    
-    const mesesPagados = selectedComercio.mesesPagados || [];
-    const ahora = new Date();
-    const meses: string[] = [];
-
-    let currentYear = ahora.getFullYear();
-    let currentMonth = ahora.getMonth() + 1; // 1-12
-
-    // Avanzar si el mes ya está pagado
-    while (mesesPagados.includes(`${currentYear}-${String(currentMonth).padStart(2, '0')}`)) {
-      currentMonth++;
-      if (currentMonth > 12) {
-        currentMonth = 1;
-        currentYear++;
-      }
-    }
-
-    for (let i = 0; i < cantidad; i++) {
-      meses.push(`${currentYear}-${String(currentMonth).padStart(2, '0')}`);
-      currentMonth++;
-      if (currentMonth > 12) {
-        currentMonth = 1;
-        currentYear++;
-      }
-    }
-
-    return meses;
+    return mesesConsecutivosAPagar(selectedComercio.mesesPagados || [], cantidad);
   };
 
   const mesesSeleccionados = calcularMesesConsecutivos(cantidadMeses);

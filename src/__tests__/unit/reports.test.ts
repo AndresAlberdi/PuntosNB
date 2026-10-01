@@ -159,7 +159,7 @@ describe('Pruebas del Módulo de Reportes', () => {
     };
 
     // Caso: Mes actual pagado solo 1 mes y faltan 2 días para fin de mes
-    const statusPrepagoFinMes = checkComercioPrepagoStatus(comPrepago, new Date(2026, 7, 29)); // Agosto 29, 2026
+    const statusPrepagoFinMes = checkComercioPrepagoStatus(comPrepago, new Date('2026-08-29T14:00:00Z')); // 29-ago-2026, 10:00 en Bolivia
     expect(statusPrepagoFinMes.puedeOperar).toBe(true);
     expect(statusPrepagoFinMes.alertaAmarillaMensualidad).toBe(true);
     expect(statusPrepagoFinMes.diasRestantesMes).toBeLessThanOrEqual(3);
@@ -169,13 +169,13 @@ describe('Pruebas del Módulo de Reportes', () => {
       ...comPrepago,
       mesesPagados: ['2026-08', '2026-09']
     };
-    const statusPrepagoMulti = checkComercioPrepagoStatus(comPrepago2Meses, new Date(2026, 7, 29));
+    const statusPrepagoMulti = checkComercioPrepagoStatus(comPrepago2Meses, new Date('2026-08-29T14:00:00Z'));
     expect(statusPrepagoMulti.puedeOperar).toBe(true);
     expect(statusPrepagoMulti.alertaAmarillaMensualidad).toBe(false); // NO debe mostrar alerta porque Septiembre está cubierto
     expect(statusPrepagoMulti.diasRestantesMes).toBeGreaterThan(20);
 
     // Caso: Mes siguiente impago
-    const fechaOct = new Date(2026, 9, 1); // Oct 1, 2026
+    const fechaOct = new Date('2026-10-01T14:00:00Z'); // 1-oct-2026, 10:00 en Bolivia
     const statusOct = checkComercioPrepagoStatus(comPrepago2Meses, fechaOct);
     expect(statusOct.puedeOperar).toBe(false);
     expect(statusOct.alertaRojaMensualidad).toBe(true);
