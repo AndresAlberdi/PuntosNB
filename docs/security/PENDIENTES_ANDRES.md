@@ -32,18 +32,24 @@ correr de verdad ahora.
 Firestore dio 37 de 37 llamadas verificadas (100 %) e Identity Toolkit 7 de 8 (87,5 %). La muestra
 es demasiado pequeña para decidir nada. En producción todavía no hay tráfico.
 
-**La tarea de seguimiento existe desde el 01-oct-2026.** Se llama `app-check-hipatia`, corre a las
-9:00 y 21:00 (hora local) y es solo de lectura. Evalúa cada entorno por separado y avisa solo cuando
-todos sus servicios tienen **más del 95 % verificado en las últimas 48 horas y al menos 30 llamadas**:
-con menos, informa «sin muestra suficiente». Solo corre mientras la aplicación de escritorio está
-abierta; si estaba cerrada a la hora programada, corre al abrirla.
+**La tarea de seguimiento `app-check-hipatia`** corre a las 9:00 y 21:00 (hora local) y es solo de
+lectura. Evalúa cada entorno por separado y avisa solo cuando todos sus servicios tienen **más del
+95 % verificado en las últimas 48 horas y al menos 30 llamadas**: con menos, informa «sin muestra
+suficiente». Solo corre mientras la aplicación de escritorio está abierta; si estaba cerrada a la
+hora programada, corre al abrirla.
 
-> **Corrección.** Este documento afirmó durante varios días que esa tarea ya existía. No era cierto:
-> nunca se había creado, y nadie le habría avisado. Además, el script de métricas
-> (`scripts/admin/metricas-appcheck.mjs`) buscaba la etiqueta `VERIFIED`, que Google no emite
-> —la de éxito es `VALID`—, de modo que mostraba 0 % aunque todo el tráfico llegara verificado.
-> Ambas cosas se corrigieron el 01-oct-2026. La tarea además se niega a interpretar cifras si el
-> script local no trae la corrección.
+> **Historia, para que nadie la reconstruya mal.** La tarea ya existió antes: corrió al menos dos
+> veces, y la segunda, el 22-sep-2026, dejó registrado en el `HARDENING_LOG.md` que el script de
+> métricas buscaba la etiqueta `VERIFIED` cuando Google emite `VALID` (así que el umbral del 95 %
+> era inalcanzable) y que seis solicitudes de `puntosnb` llegaron con token y fueron rechazadas
+> como `INVALID`. Ese registro quedó en una rama que nunca se fusionó a `main`, y el error del
+> script siguió sin corregirse nueve días. Cuándo ni por qué desapareció la tarea de la lista de
+> tareas programadas, no se sabe: el 01-oct-2026 ya no figuraba, y se creó de nuevo.
+>
+> Una versión anterior de este párrafo, escrita el 01-oct-2026, afirmaba que la tarea «nunca se
+> había creado». Era falso: el autor de esa frase no había leído el registro del 22-sep. El script
+> se corrigió el 01-oct-2026, y el registro del 22-sep se recuperó a `main`. La tarea nueva además
+> se niega a interpretar cifras si el script local no trae la corrección.
 
 Cuando le avise que se cumplió el criterio:
 
