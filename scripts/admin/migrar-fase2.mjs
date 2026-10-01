@@ -30,6 +30,17 @@ if (!projectId) {
   process.exit(1);
 }
 
+let finDelPeriodoPagado;
+try {
+  ({ finDelPeriodoPagado } = await import('../../functions/lib/comun/fechaBolivia.js'));
+} catch {
+  console.error(
+    'No se encontró functions/lib/comun/fechaBolivia.js.\n' +
+    'Compile las funciones antes de correr este script:  npm --prefix functions run build'
+  );
+  process.exit(1);
+}
+
 process.env.GOOGLE_CLOUD_PROJECT = projectId;
 process.env.GOOGLE_CLOUD_QUOTA_PROJECT ??= projectId;
 initializeApp({ credential: applicationDefault(), projectId });
@@ -41,25 +52,19 @@ const CAMPOS_PRIVADOS = [
   'costoPorCodigoComercio', 'saldoPremiosBs', 'consumidoPremiosBs', 'mesesPagados',
 ];
 
-const claveMes = (f) => `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
-
+// El calendario del negocio sale del modulo compilado de las funciones, no de una copia propia.
+// Este script llevaba la suya, con la regla anterior al 01-oct-2026 que calculaba el mes en la
+// zona del proceso: era una cuarta copia que, al correrse, habria reintroducido el error que el
+// backend y la interfaz ya no tienen.
 function operativoHasta(comercio, ahora = new Date()) {
   if (!comercio.modalidadPago || comercio.modalidadPago === 'PILOTO') return null;
-  const pagados = new Set(comercio.mesesPagados ?? []);
-  if (!pagados.has(claveMes(ahora))) return 0;
-  let ultimo = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-  for (;;) {
-    const siguiente = new Date(ultimo.getFullYear(), ultimo.getMonth() + 1, 1);
-    if (!pagados.has(claveMes(siguiente))) break;
-    ultimo = siguiente;
-  }
-  return new Date(ultimo.getFullYear(), ultimo.getMonth() + 1, 0, 23, 59, 59).getTime();
+  return finDelPeriodoPagado(comercio.mesesPagados ?? [], ahora);
 }
 
-function puedeCanjear(comercio) {
+function puedeCanjear(comercio, ahora = new Date()) {
   if (!comercio.modalidadPago || comercio.modalidadPago === 'PILOTO') return true;
   const costo = comercio.costoPorPremioBs && comercio.costoPorPremioBs > 0 ? comercio.costoPorPremioBs : 1.25;
-  return operativoHasta(comercio) > Date.now() && (comercio.saldoPremiosBs ?? 0) >= costo;
+  return operativoHasta(comercio, ahora) >= ahora.getTime() && (comercio.saldoPremiosBs ?? 0) >= costo;
 }
 
 console.log(`Migración de la Fase 2 en ${projectId}${simular ? ' · SIMULACIÓN' : ''}\n`);
