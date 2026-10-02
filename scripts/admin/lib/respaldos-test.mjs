@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   planificarCambios, evaluarVerificacion, esDeEsteScript, segundos, PROGRAMACIONES, ultimoSegmento,
+  clavesEnConflicto,
   PITR_ACTIVO, PITR_INACTIVO, PROTECCION_ACTIVA, PROTECCION_INACTIVA,
 } from './respaldos.mjs';
 import {
@@ -385,7 +386,10 @@ const RAIZ_API = 'https://firestore.googleapis.com/v1';
  * Cliente falso con una «base» en memoria. Registra cada llamada. Con `soloLectura`, LANZA ante
  * cualquier método distinto de GET: demuestra que un modo no escribe.
  */
-function crearApiFalsa({ pitr = false, proteccion = false, programaciones = [], soloLectura = false } = {}) {
+function crearApiFalsa({
+  pitr = false, proteccion = false, programaciones = [], soloLectura = false,
+  ignorarPatch = false, retencionRezagada = false,
+} = {}) {
   const proyecto = 'puntosnb';
   const urlBase = `${RAIZ_API}/projects/${proyecto}/databases/(default)`;
   const estado = { pitr, proteccion, programaciones: structuredClone(programaciones) };
@@ -403,7 +407,7 @@ function crearApiFalsa({ pitr = false, proteccion = false, programaciones = [], 
         return {
           pointInTimeRecoveryEnablement: estado.pitr ? PITR_ACTIVO : PITR_INACTIVO,
           deleteProtectionState: estado.proteccion ? PROTECCION_ACTIVA : PROTECCION_INACTIVA,
-          versionRetentionPeriod: estado.pitr ? '604800s' : '3600s',
+          versionRetentionPeriod: estado.pitr && !retencionRezagada ? '604800s' : '3600s',
           earliestVersionTime: '2026-10-02T04:00:00Z',
           locationId: 'nam5',
         };
@@ -412,6 +416,7 @@ function crearApiFalsa({ pitr = false, proteccion = false, programaciones = [], 
         return { backupSchedules: structuredClone(estado.programaciones) };
       }
       if (metodo === 'PATCH' && url.startsWith(`${urlBase}?updateMask=`)) {
+        if (ignorarPatch) return { name: 'operations/1', done: true };
         if ('pointInTimeRecoveryEnablement' in cuerpo) {
           estado.pitr = cuerpo.pointInTimeRecoveryEnablement === PITR_ACTIVO;
         }
@@ -514,6 +519,45 @@ test('flujo: con un conflicto, la base queda protegida, se crea la otra programa
   assert.ok(api.estado.programaciones.some((p) => p.weeklyRecurrence?.day === 'SUNDAY'));
   assert.ok(api.estado.programaciones.some((p) => p.name.endsWith('/x')), 'la ajena sigue intacta');
   assert.match(texto, /1 conflicto\(s\) sin resolver/);
+});
+
+test('flujo: tras aplicar, si el estado final no pasa los cuatro primeros puntos, sale con 1', async () => {
+  const api = crearApiFalsa({ ignorarPatch: true });
+  const { codigo, texto } = await correr(api, {});
+  assert.equal(codigo, 1);
+  assert.match(texto, /Verificación del estado resultante/);
+  assert.match(texto, /FALLA\s+PITR activo/);
+  assert.match(texto, /FALLA\s+Protección contra borrado activa/);
+});
+
+test('flujo: la retención de versiones sin reflejar se informa pero NO cambia el código de salida', async () => {
+  const api = crearApiFalsa({ retencionRezagada: true });
+  const { codigo, texto } = await correr(api, {});
+  assert.equal(codigo, 0);
+  assert.match(texto, /FALLA\s+Retención de versiones/);
+  assert.match(texto, /puede tardar en reflejarse/);
+  assert.match(texto, /PASA\s+PITR activo/);
+});
+
+test('flujo: aplicar completo sale con 0 y todos los puntos pasan', async () => {
+  const { codigo, texto } = await correr(crearApiFalsa(), {});
+  assert.equal(codigo, 0);
+  assert.ok(!/FALLA/.test(texto));
+});
+
+test('verificar: cada punto trae su clave', () => {
+  assert.deepEqual(
+    evaluarVerificacion(encendido()).map((x) => x.clave),
+    ['pitr', 'proteccion', 'diaria', 'semanal', 'retencion']
+  );
+});
+
+test('clavesEnConflicto señala solo la clase ocupada por una programación ajena', () => {
+  const estado = encendido();
+  estado.programaciones = [{ name: 'a', retention: '86400s', dailyRecurrence: {} }, { ...SEMANAL }];
+  assert.deepEqual(clavesEnConflicto(estado), ['diaria']);
+  assert.deepEqual(clavesEnConflicto(encendido()), []);
+  assert.deepEqual(clavesEnConflicto(apagado()), []);
 });
 
 test('flujo: revertir de verdad llama a PATCH y DELETE', async () => {

@@ -58,6 +58,23 @@ function mismaClase(programacion, definicion) {
   return programacion.weeklyRecurrence !== undefined;
 }
 
+/**
+ * La programación de la misma clase que `definicion` que ocupa su lugar con otra retención o día,
+ * si no hay ninguna que coincida exactamente. `undefined` si hay una propia o no hay ninguna.
+ */
+function programacionAjena(programaciones, definicion) {
+  if (programaciones.some((p) => esDeEsteScript(p, definicion))) return undefined;
+  return programaciones.find((p) => mismaClase(p, definicion));
+}
+
+/** Claves de las programaciones (`diaria`, `semanal`) que están en conflicto en este estado. */
+export function clavesEnConflicto(estado) {
+  const programaciones = estado.programaciones ?? [];
+  return PROGRAMACIONES
+    .filter((d) => programacionAjena(programaciones, d) !== undefined)
+    .map((d) => d.clave);
+}
+
 /** `true` si la programación coincide EXACTAMENTE (recurrencia y retención): es de este script. */
 export function esDeEsteScript(programacion, definicion) {
   return (
@@ -130,7 +147,7 @@ export function planificarCambios(estado, modo) {
     }
 
     if (propias.length === 0) {
-      const ajena = programaciones.find((p) => mismaClase(p, definicion));
+      const ajena = programacionAjena(programaciones, definicion);
       if (ajena) {
         conflictos.push(
           `Ya existe una programación ${definicion.clave} con otra retención o día ` +
@@ -164,16 +181,18 @@ export function planificarCambios(estado, modo) {
 /**
  * Evalúa el estado contra lo que debe cumplirse. Es la base de `--verificar`.
  * @param {object} estado ver el encabezado del archivo
- * @returns {{ punto: string, pasa: boolean }[]}
+ * @returns {{ clave: string, punto: string, pasa: boolean }[]} los cuatro primeros son PITR,
+ *   protección, diaria y semanal; el quinto, la retención de versiones
  */
 export function evaluarVerificacion(estado) {
   const programaciones = estado.programaciones ?? [];
   const resultados = [
-    { punto: 'PITR activo', pasa: estado.base.pitr === true },
-    { punto: 'Protección contra borrado activa', pasa: estado.base.proteccion === true },
+    { clave: 'pitr', punto: 'PITR activo', pasa: estado.base.pitr === true },
+    { clave: 'proteccion', punto: 'Protección contra borrado activa', pasa: estado.base.proteccion === true },
   ];
   for (const definicion of PROGRAMACIONES) {
     resultados.push({
+      clave: definicion.clave,
       punto: `Programación ${definicion.clave} (${definicion.retentionSegundos} s)`,
       pasa: programaciones.some((p) => esDeEsteScript(p, definicion)),
     });
@@ -183,6 +202,7 @@ export function evaluarVerificacion(estado) {
   // esté apagado, porque la retención de 1 hora ya lo llena, y un punto que da PASA en el estado
   // malo no verifica nada.
   resultados.push({
+    clave: 'retencion',
     punto: `Retención de versiones de 7 días (${RETENCION_VERSIONES_PITR})`,
     pasa: estado.base.versionRetentionPeriod === RETENCION_VERSIONES_PITR,
   });

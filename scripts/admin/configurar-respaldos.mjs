@@ -67,7 +67,7 @@ import {
 } from './lib/gcp.mjs';
 import {
   PITR_ACTIVO, PROTECCION_ACTIVA, planificarCambios, evaluarVerificacion, PROGRAMACIONES,
-  esDeEsteScript,
+  esDeEsteScript, clavesEnConflicto,
 } from './lib/respaldos.mjs';
 
 const API = 'https://firestore.googleapis.com/v1';
@@ -201,12 +201,35 @@ export async function principal({ cliente, opciones, escribir = console.log }) {
   const final = await leerEstado(cliente, urlBase);
   escribir('');
   imprimirEstado(final, 'Estado resultante:', escribir);
-  if (!revertir) {
-    escribir(
-      '\nEl primer respaldo aparece dentro de las 24 horas siguientes. Compruébelo con --verificar.'
-    );
-  } else {
+  if (revertir) {
     escribir('\nLos respaldos ya existentes se conservan hasta vencer su retención.');
+    return 0;
+  }
+
+  // Se comprueba el estado FINAL. Los cuatro primeros puntos (PITR, protección, diaria, semanal)
+  // deben pasar; el quinto (retención de versiones) puede tardar en reflejarse justo después de
+  // la operación, así que se informa pero no cambia el código de salida.
+  const resultados = evaluarVerificacion(final);
+  escribir('\nVerificación del estado resultante:');
+  for (const r of resultados) escribir(`  ${r.pasa ? 'PASA ' : 'FALLA'}  ${r.punto}`);
+  if (!resultados[4].pasa) {
+    escribir(
+      '  Nota: la retención de versiones puede tardar en reflejarse tras activar el PITR; ' +
+      'confírmela más tarde con --verificar. No cambia el código de salida.'
+    );
+  }
+  escribir(
+    '\nEl primer respaldo aparece dentro de las 24 horas siguientes. Compruébelo con --verificar.'
+  );
+
+  // Una programación en conflicto falla su punto por esa causa, ya informada: sale con 2, no con 1.
+  const enConflicto = clavesEnConflicto(final);
+  const fallasInesperadas = resultados.slice(0, 4).filter((r) => !r.pasa && !enConflicto.includes(r.clave));
+  if (fallasInesperadas.length) {
+    escribir(
+      `\n${fallasInesperadas.length} punto(s) no quedaron como se esperaba tras aplicar: revise la salida.`
+    );
+    return 1;
   }
   if (conflictos.length) {
     escribir(
