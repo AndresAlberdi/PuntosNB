@@ -262,10 +262,14 @@ async function main() {
     const cliente = crearClienteGcp({ project: opciones.project });
     process.exit(await principal({ cliente, opciones }));
   } catch (error) {
-    const mensaje = error instanceof ErrorGcp || error instanceof ErrorUso
-      ? error.message
-      : 'Error inesperado.';
-    console.error(`\n${sanearTexto(mensaje)}`);
+    const esperado = error instanceof ErrorGcp || error instanceof ErrorUso;
+    console.error(`\n${sanearTexto(esperado ? error.message : 'Error inesperado.')}`);
+    if (!esperado) {
+      // SOLO el nombre del error (nunca el mensaje ni la traza, que podrían traer datos): basta
+      // para distinguir un error de código (TypeError…) de uno de la API.
+      const nombre = typeof error?.name === 'string' ? error.name : 'desconocido';
+      console.error(`Tipo de error: ${sanearTexto(nombre).slice(0, 60)}`);
+    }
     process.exit(1);
   }
 }
