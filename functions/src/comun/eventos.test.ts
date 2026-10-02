@@ -196,3 +196,24 @@ describe('registrarEvento', () => {
     expect(error).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('costo acotado de la redacción', () => {
+  // Las expresiones regulares de IPv6 son cuadráticas con cadenas largas de caracteres hexadecimales
+  // (64 000 caracteres tardaban ~5 s). El texto se acota antes de redactar.
+  it.each([
+    ['hexadecimal continuo', 'a'.repeat(200_000)],
+    ['correo largo sin arroba', 'a.'.repeat(100_000)],
+  ])('un texto enorme (%s) no bloquea el hilo', (_nombre, texto) => {
+    const inicio = Date.now();
+    const entrada = construirEntrada('seguridad.permiso_denegado', { detalle: texto });
+    expect(Date.now() - inicio).toBeLessThan(200);
+    expect((entrada.detalle as string).length).toBeLessThanOrEqual(300);
+  });
+
+  it('serializarError también acota un mensaje enorme', () => {
+    const inicio = Date.now();
+    const r = serializarError(new Error('a'.repeat(200_000)));
+    expect(Date.now() - inicio).toBeLessThan(200);
+    expect(r.mensaje.length).toBeLessThanOrEqual(300);
+  });
+});

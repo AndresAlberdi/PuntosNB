@@ -62,9 +62,20 @@ export function redactar(texto: string): string {
     .replace(/(?<![\w:])[0-9a-f:]*::[0-9a-f:]*(?![\w:])/gi, '<ip>');
 }
 
-/** Redacta y corta a 300 caracteres (en ese orden, para no dejar a medias un dato personal). */
+/**
+ * Tope del texto que se entrega a `redactar`. Las expresiones regulares de direcciones IPv6 son
+ * cuadráticas con cadenas largas de caracteres hexadecimales: medido, 64 000 caracteres tardan
+ * unos 5 segundos de CPU, que en una función bloquean su único hilo. Como el resultado final
+ * se corta a 300 caracteres, basta con acotar la entrada antes de redactar.
+ */
+const LARGO_MAXIMO_ENTRADA = 1000;
+
+/**
+ * Acota, redacta y corta a 300 caracteres. Se acota ANTES de redactar por el costo de las
+ * expresiones regulares (ver arriba) y se corta DESPUÉS, para no dejar a medias un dato personal.
+ */
 function limpiar(texto: string): string {
-  return redactar(texto).slice(0, LARGO_MAXIMO);
+  return redactar(texto.slice(0, LARGO_MAXIMO_ENTRADA)).slice(0, LARGO_MAXIMO);
 }
 
 /**
