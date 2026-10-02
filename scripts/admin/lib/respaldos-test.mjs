@@ -253,6 +253,47 @@ test('cliente: envía las cabeceras, reintenta 429/503 y no imprime el cuerpo de
   });
 });
 
+test('cliente: un 503 en GET se reintenta hasta agotar los intentos y luego lanza', async () => {
+  let llamadas = 0;
+  const esperas = [];
+  const cliente = crearClienteGcp({
+    project: 'puntosnb',
+    obtenerToken: () => 't',
+    fetchImpl: async () => { llamadas++; return respuesta(503, { error: { status: 'UNAVAILABLE' } }); },
+    esperar: async (ms) => { esperas.push(ms); },
+  });
+  await assert.rejects(cliente.solicitar('GET', 'https://x/y'), (e) => {
+    assert.ok(e instanceof ErrorGcp);
+    assert.equal(e.estado, 503);
+    assert.equal(e.codigo, 'UNAVAILABLE');
+    return true;
+  });
+  assert.equal(llamadas, 5);
+  assert.deepEqual(esperas, [1000, 2000, 4000, 8000]);
+});
+
+test('cliente: un 503 en POST o DELETE NO se reintenta; en PATCH sí', async () => {
+  for (const metodo of ['POST', 'DELETE']) {
+    let llamadas = 0;
+    const cliente = crearClienteGcp({
+      project: 'puntosnb',
+      obtenerToken: () => 't',
+      fetchImpl: async () => { llamadas++; return respuesta(503, {}); },
+      esperar: async () => { throw new Error('no debe esperar: no hay reintento'); },
+    });
+    await assert.rejects(cliente.solicitar(metodo, 'https://x/y', metodo === 'POST' ? {} : undefined), ErrorGcp);
+    assert.equal(llamadas, 1, `${metodo} no debe reintentarse`);
+  }
+  const respuestas = [respuesta(503, {}), respuesta(200, { ok: true })];
+  const patch = crearClienteGcp({
+    project: 'puntosnb',
+    obtenerToken: () => 't',
+    fetchImpl: async () => respuestas.shift(),
+    esperar: async () => {},
+  });
+  assert.deepEqual(await patch.solicitar('PATCH', 'https://x/y', {}), { ok: true });
+});
+
 test('cliente: no pide el token hasta la primera llamada', async () => {
   let pidio = false;
   crearClienteGcp({ project: 'puntosnb', obtenerToken: () => { pidio = true; return 't'; } });

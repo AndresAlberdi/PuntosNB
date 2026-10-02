@@ -131,6 +131,10 @@ export function obtenerTokenGcloud() {
 const ESPERA_REINTENTO_MS = 1000;
 const MAX_INTENTOS = 5;
 const ESTADOS_REINTENTABLES = [429, 503];
+// Solo se reintentan métodos idempotentes. Un POST que el servidor sí procesó y se repite crearía
+// un duplicado (y chocaría con el límite de una programación diaria por base); un DELETE repetido
+// puede borrar de más o fallar con un error engañoso.
+const METODOS_REINTENTABLES = ['GET', 'PATCH'];
 
 const esperarReal = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 
@@ -138,7 +142,7 @@ const esperarReal = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
  * Crea un cliente HTTP para las API de Google Cloud.
  *
  * Cada llamada lleva `Authorization` y `X-Goog-User-Project`. Ante 429 o 503 reintenta con espera
- * exponencial. Ante cualquier otro error lanza `ErrorGcp` con el código HTTP y el código
+ * exponencial, pero SOLO en GET y PATCH (idempotentes); POST y DELETE no se reintentan. Ante cualquier otro error lanza `ErrorGcp` con el código HTTP y el código
  * simbólico de Google (por ejemplo `PERMISSION_DENIED`), pero nunca el cuerpo.
  *
  * El token se pide la primera vez que hace falta, no al crear el cliente, para que un script que
@@ -189,7 +193,11 @@ export function crearClienteGcp({
         return texto ? JSON.parse(texto) : null;
       }
 
-      if (ESTADOS_REINTENTABLES.includes(respuesta.status) && intento < MAX_INTENTOS) {
+      if (
+        METODOS_REINTENTABLES.includes(metodo) &&
+        ESTADOS_REINTENTABLES.includes(respuesta.status) &&
+        intento < MAX_INTENTOS
+      ) {
         await esperar(ESPERA_REINTENTO_MS * 2 ** (intento - 1));
         continue;
       }
