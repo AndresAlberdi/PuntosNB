@@ -45,6 +45,8 @@
  *   node scripts/admin/configurar-respaldos.mjs --project hipatia-puntos --confirmar-produccion --dry-run
  *   node scripts/admin/configurar-respaldos.mjs --project puntosnb --revertir --dry-run
  */
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import {
   analizarArgumentos, crearClienteGcp, esperarOperacion, ErrorUso, ErrorGcp, sanearTexto,
 } from './lib/gcp.mjs';
@@ -55,27 +57,10 @@ import {
 
 const API = 'https://firestore.googleapis.com/v1';
 
-let opciones;
-try {
-  opciones = analizarArgumentos(process.argv.slice(2));
-} catch (error) {
-  if (error instanceof ErrorUso) {
-    console.error(`${error.message}\n`);
-    console.error(
-      'Uso: --project <puntosnb|hipatia-puntos> [--dry-run] [--verificar] [--revertir] ' +
-      '[--confirmar-produccion]'
-    );
-    process.exit(1);
-  }
-  throw error;
-}
-
-const { project, simular, revertir, verificar } = opciones;
-const urlBase = `${API}/projects/${project}/databases/(default)`;
-const cliente = crearClienteGcp({ project });
+const si = (valor) => (valor ? 'activo' : 'apagado');
 
 /** Lee de la API el estado que importa (solo lectura). */
-async function leerEstado() {
+async function leerEstado(cliente, urlBase) {
   const base = await cliente.solicitar('GET', urlBase);
   const lista = await cliente.solicitar('GET', `${urlBase}/backupSchedules`);
   return {
@@ -90,32 +75,30 @@ async function leerEstado() {
   };
 }
 
-const si = (valor) => (valor ? 'activo' : 'apagado');
-
-function imprimirEstado(estado, titulo) {
-  console.log(`${titulo}`);
-  console.log(`  Ubicación de la base      : ${estado.base.ubicacion}`);
-  console.log(`  PITR                      : ${si(estado.base.pitr)}`);
-  console.log(`  Protección contra borrado : ${si(estado.base.proteccion)}`);
-  console.log(`  Retención de versiones    : ${estado.base.versionRetentionPeriod ?? 'ausente'}`);
+function imprimirEstado(estado, titulo, escribir) {
+  escribir(`${titulo}`);
+  escribir(`  Ubicación de la base      : ${estado.base.ubicacion}`);
+  escribir(`  PITR                      : ${si(estado.base.pitr)}`);
+  escribir(`  Protección contra borrado : ${si(estado.base.proteccion)}`);
+  escribir(`  Retención de versiones    : ${estado.base.versionRetentionPeriod ?? 'ausente'}`);
   if (!estado.programaciones.length) {
-    console.log('  Programaciones de respaldo: ninguna');
+    escribir('  Programaciones de respaldo: ninguna');
   } else {
-    console.log('  Programaciones de respaldo:');
+    escribir('  Programaciones de respaldo:');
     for (const p of estado.programaciones) {
       const tipo = p.dailyRecurrence !== undefined
         ? 'diaria'
         : `semanal (${p.weeklyRecurrence?.day ?? '?'})`;
       const propia = PROGRAMACIONES.some((d) => esDeEsteScript(p, d)) ? ' [de este script]' : '';
-      console.log(`    - ${tipo}, retención ${p.retention ?? '?'}${propia}`);
+      escribir(`    - ${tipo}, retención ${p.retention ?? '?'}${propia}`);
     }
   }
 }
 
 /** Ejecuta los cambios del plan, en orden. Solo se llama fuera de --dry-run y --verificar. */
-async function ejecutar(cambios) {
+async function ejecutar(cliente, urlBase, cambios, escribir) {
   for (const cambio of cambios) {
-    console.log(`  Aplicando: ${cambio.descripcion}`);
+    escribir(`  Aplicando: ${cambio.descripcion}`);
     if (cambio.tipo === 'actualizarBase') {
       const mascara = Object.keys(cambio.campos).join(',');
       const operacion = await cliente.solicitar(
@@ -130,19 +113,32 @@ async function ejecutar(cambios) {
   }
 }
 
-async function principal() {
+/**
+ * Flujo principal. No lee `process.argv` ni llama a `process.exit`: recibe el cliente y las
+ * opciones, escribe por `escribir` y devuelve el código de salida. Así se puede probar con un
+ * cliente falso que lance ante cualquier escritura.
+ *
+ * @param {object} args
+ * @param {{ solicitar: Function }} args.cliente
+ * @param {{ project: string, simular?: boolean, revertir?: boolean, verificar?: boolean }} args.opciones
+ * @param {(texto: string) => void} [args.escribir]
+ * @returns {Promise<number>} código de salida
+ */
+export async function principal({ cliente, opciones, escribir = console.log }) {
+  const { project, simular, revertir, verificar } = opciones;
+  const urlBase = `${API}/projects/${project}/databases/(default)`;
   const modoTexto = verificar ? ' (verificación, solo lectura)' : simular ? ' (simulación)' : '';
-  console.log(`\nRespaldos de Firestore en ${project}${revertir ? ' · REVERTIR' : ''}${modoTexto}\n`);
+  escribir(`\nRespaldos de Firestore en ${project}${revertir ? ' · REVERTIR' : ''}${modoTexto}\n`);
 
-  const estado = await leerEstado();
-  imprimirEstado(estado, 'Estado actual:');
+  const estado = await leerEstado(cliente, urlBase);
+  imprimirEstado(estado, 'Estado actual:', escribir);
 
   if (verificar) {
     const resultados = evaluarVerificacion(estado);
-    console.log('\nVerificación:');
-    for (const r of resultados) console.log(`  ${r.pasa ? 'PASA ' : 'FALLA'}  ${r.punto}`);
+    escribir('\nVerificación:');
+    for (const r of resultados) escribir(`  ${r.pasa ? 'PASA ' : 'FALLA'}  ${r.punto}`);
     const fallas = resultados.filter((r) => !r.pasa).length;
-    console.log(
+    escribir(
       fallas
         ? `\n${fallas} punto(s) fallan. Corra sin --verificar (primero con --dry-run) para configurarlos.`
         : '\nTodos los puntos pasan.'
@@ -153,50 +149,74 @@ async function principal() {
   const { cambios, conflictos } = planificarCambios(estado, revertir ? 'revertir' : 'aplicar');
 
   if (conflictos.length) {
-    console.log('\nConflictos (no se resuelven solos):');
-    for (const c of conflictos) console.log(`  - ${c}`);
+    escribir('\nConflictos (no se resuelven solos):');
+    for (const c of conflictos) escribir(`  - ${c}`);
   }
 
   if (!cambios.length) {
-    console.log('\nNada que cambiar: el estado ya es el deseado.');
+    escribir('\nNada que cambiar: el estado ya es el deseado.');
     return conflictos.length ? 2 : 0;
   }
 
-  console.log(`\nCambios${simular ? ' que haría' : ' a aplicar'}:`);
-  for (const c of cambios) console.log(`  - ${c.descripcion}`);
+  escribir(`\nCambios${simular ? ' que haría' : ' a aplicar'}:`);
+  for (const c of cambios) escribir(`  - ${c.descripcion}`);
 
   if (simular) {
-    console.log('\nSimulación: no se escribió nada. Corra sin --dry-run para aplicarlo.');
+    escribir('\nSimulación: no se escribió nada. Corra sin --dry-run para aplicarlo.');
     return conflictos.length ? 2 : 0;
   }
 
   if (conflictos.length) {
-    console.log('\nHay conflictos: no se aplica nada hasta resolverlos.');
+    escribir('\nHay conflictos: no se aplica nada hasta resolverlos.');
     return 2;
   }
 
-  console.log('');
-  await ejecutar(cambios);
+  escribir('');
+  await ejecutar(cliente, urlBase, cambios, escribir);
 
-  const final = await leerEstado();
-  console.log('');
-  imprimirEstado(final, 'Estado resultante:');
+  const final = await leerEstado(cliente, urlBase);
+  escribir('');
+  imprimirEstado(final, 'Estado resultante:', escribir);
   if (!revertir) {
-    console.log(
+    escribir(
       '\nEl primer respaldo aparece dentro de las 24 horas siguientes. Compruébelo con --verificar.'
     );
   } else {
-    console.log('\nLos respaldos ya existentes se conservan hasta vencer su retención.');
+    escribir('\nLos respaldos ya existentes se conservan hasta vencer su retención.');
   }
   return 0;
 }
 
-try {
-  process.exit(await principal());
-} catch (error) {
-  const mensaje = error instanceof ErrorGcp || error instanceof ErrorUso
-    ? error.message
-    : 'Error inesperado.';
-  console.error(`\n${sanearTexto(mensaje)}`);
-  process.exit(1);
+/** Punto de entrada: analiza los argumentos, crea el cliente real y sale con el código. */
+async function main() {
+  let opciones;
+  try {
+    opciones = analizarArgumentos(process.argv.slice(2));
+  } catch (error) {
+    if (error instanceof ErrorUso) {
+      console.error(`${error.message}\n`);
+      console.error(
+        'Uso: --project <puntosnb|hipatia-puntos> [--dry-run] [--verificar] [--revertir] ' +
+        '[--confirmar-produccion]'
+      );
+      process.exit(1);
+    }
+    throw error;
+  }
+
+  try {
+    const cliente = crearClienteGcp({ project: opciones.project });
+    process.exit(await principal({ cliente, opciones }));
+  } catch (error) {
+    const mensaje = error instanceof ErrorGcp || error instanceof ErrorUso
+      ? error.message
+      : 'Error inesperado.';
+    console.error(`\n${sanearTexto(mensaje)}`);
+    process.exit(1);
+  }
 }
+
+// Solo corre como script; al importarlo desde las pruebas no hace nada.
+const esScript = process.argv[1] &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+if (esScript) await main();

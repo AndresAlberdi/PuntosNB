@@ -16,6 +16,7 @@ import {
   analizarArgumentos, crearClienteGcp, esperarOperacion, enmascarar,
   enmascararCuentaFacturacion, sanearTexto, ErrorUso, ErrorGcp,
 } from './gcp.mjs';
+import { principal } from '../configurar-respaldos.mjs';
 
 const DIARIA = { name: 'projects/p/databases/(default)/backupSchedules/d1', retention: '604800s', dailyRecurrence: {} };
 const SEMANAL = {
@@ -311,4 +312,131 @@ test('esperarOperacion: sondea hasta que termine y propaga el error de la operac
     esperarOperacion(conError, 'https://x', { name: 'op/2', done: false }, { esperar: async () => {} }),
     (e) => e instanceof ErrorGcp && !e.message.includes('datos')
   );
+});
+
+// ---------------------------------------------------------------------------------------------
+// Flujo principal con un cliente falso que simula la API de Firestore en memoria.
+// ---------------------------------------------------------------------------------------------
+
+const RAIZ_API = 'https://firestore.googleapis.com/v1';
+
+/**
+ * Cliente falso con una «base» en memoria. Registra cada llamada. Con `soloLectura`, LANZA ante
+ * cualquier método distinto de GET: demuestra que un modo no escribe.
+ */
+function crearApiFalsa({ pitr = false, proteccion = false, programaciones = [], soloLectura = false } = {}) {
+  const proyecto = 'puntosnb';
+  const urlBase = `${RAIZ_API}/projects/${proyecto}/databases/(default)`;
+  const estado = { pitr, proteccion, programaciones: structuredClone(programaciones) };
+  const llamadas = [];
+  let n = 0;
+  return {
+    estado,
+    llamadas,
+    solicitar: async (metodo, url, cuerpo) => {
+      llamadas.push(metodo);
+      if (soloLectura && metodo !== 'GET') {
+        throw new Error(`escritura inesperada en modo de solo lectura: ${metodo}`);
+      }
+      if (metodo === 'GET' && url === urlBase) {
+        return {
+          pointInTimeRecoveryEnablement: estado.pitr ? PITR_ACTIVO : PITR_INACTIVO,
+          deleteProtectionState: estado.proteccion ? PROTECCION_ACTIVA : PROTECCION_INACTIVA,
+          versionRetentionPeriod: estado.pitr ? '604800s' : '3600s',
+          earliestVersionTime: '2026-10-02T04:00:00Z',
+          locationId: 'nam5',
+        };
+      }
+      if (metodo === 'GET' && url === `${urlBase}/backupSchedules`) {
+        return { backupSchedules: structuredClone(estado.programaciones) };
+      }
+      if (metodo === 'PATCH' && url.startsWith(`${urlBase}?updateMask=`)) {
+        if ('pointInTimeRecoveryEnablement' in cuerpo) {
+          estado.pitr = cuerpo.pointInTimeRecoveryEnablement === PITR_ACTIVO;
+        }
+        if ('deleteProtectionState' in cuerpo) {
+          estado.proteccion = cuerpo.deleteProtectionState === PROTECCION_ACTIVA;
+        }
+        return { name: 'operations/1', done: true };
+      }
+      if (metodo === 'POST' && url === `${urlBase}/backupSchedules`) {
+        estado.programaciones.push({ name: `${urlBase}/backupSchedules/n${n++}`, ...cuerpo });
+        return {};
+      }
+      if (metodo === 'DELETE' && url.startsWith(`${RAIZ_API}/`)) {
+        const name = url.slice(RAIZ_API.length + 1);
+        estado.programaciones = estado.programaciones.filter((p) => p.name !== name);
+        return null;
+      }
+      throw new Error(`llamada no prevista: ${metodo} ${url}`);
+    },
+  };
+}
+
+const ACTIVADA = () => ({
+  pitr: true,
+  proteccion: true,
+  programaciones: [
+    { ...DIARIA, name: 'projects/puntosnb/databases/(default)/backupSchedules/d1' },
+    { ...SEMANAL, name: 'projects/puntosnb/databases/(default)/backupSchedules/s1' },
+  ],
+});
+
+/** Ejecuta `principal` capturando lo que escribe. */
+async function correr(api, opciones) {
+  const salida = [];
+  const codigo = await principal({
+    cliente: api,
+    opciones: { project: 'puntosnb', ...opciones },
+    escribir: (t) => salida.push(t),
+  });
+  return { codigo, texto: salida.join('\n') };
+}
+
+test('flujo: --dry-run (aplicar) solo usa GET y no lanza', async () => {
+  const api = crearApiFalsa({ soloLectura: true });
+  const { codigo, texto } = await correr(api, { simular: true });
+  assert.equal(codigo, 0);
+  assert.match(texto, /Simulación: no se escribió nada/);
+  assert.ok(api.llamadas.length > 0 && api.llamadas.every((m) => m === 'GET'));
+});
+
+test('flujo: --dry-run (revertir) solo usa GET y no lanza', async () => {
+  const api = crearApiFalsa({ ...ACTIVADA(), soloLectura: true });
+  const { codigo, texto } = await correr(api, { simular: true, revertir: true });
+  assert.equal(codigo, 0);
+  assert.match(texto, /Borrar la programación/);
+  assert.ok(api.llamadas.every((m) => m === 'GET'));
+});
+
+test('flujo: --verificar solo usa GET; sale con 1 si falla y con 0 si pasa', async () => {
+  const mal = crearApiFalsa({ soloLectura: true });
+  assert.equal((await correr(mal, { verificar: true })).codigo, 1);
+  assert.ok(mal.llamadas.every((m) => m === 'GET'));
+
+  const bien = crearApiFalsa({ ...ACTIVADA(), soloLectura: true });
+  assert.equal((await correr(bien, { verificar: true })).codigo, 0);
+  assert.ok(bien.llamadas.every((m) => m === 'GET'));
+});
+
+test('flujo: el modo de escritura sí llama a PATCH y POST, y deja la base configurada', async () => {
+  const api = crearApiFalsa();
+  const { codigo } = await correr(api, {});
+  assert.equal(codigo, 0);
+  assert.ok(api.llamadas.includes('PATCH'));
+  assert.equal(api.llamadas.filter((m) => m === 'POST').length, 2);
+  assert.ok(evaluarVerificacion({
+    base: { pitr: api.estado.pitr, proteccion: api.estado.proteccion, versionRetentionPeriod: '604800s' },
+    programaciones: api.estado.programaciones,
+  }).every((x) => x.pasa));
+});
+
+test('flujo: revertir de verdad llama a PATCH y DELETE', async () => {
+  const api = crearApiFalsa(ACTIVADA());
+  const { codigo } = await correr(api, { revertir: true });
+  assert.equal(codigo, 0);
+  assert.ok(api.llamadas.includes('PATCH'));
+  assert.equal(api.llamadas.filter((m) => m === 'DELETE').length, 2);
+  assert.equal(api.estado.pitr, false);
+  assert.deepEqual(api.estado.programaciones, []);
 });
