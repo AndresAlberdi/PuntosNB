@@ -22,6 +22,32 @@ function mismosClaims(actuales: Record<string, unknown> | undefined, nuevos: Cla
   return actuales?.rol === nuevos.rol && (actuales?.comercioId ?? undefined) === nuevos.comercioId;
 }
 
+export type ClasificacionCambio = 'privilegiado' | 'informativo' | 'ninguno';
+
+const esPrivilegiado = (rol: string | null): boolean =>
+  rol !== null && ROLES_PRIVILEGIADOS.some((privilegiado) => privilegiado === rol);
+
+/**
+ * Clasifica un cambio de claims para el registro de seguridad. Función pura.
+ *
+ * - `ninguno`: no cambia ni el rol ni el comercio.
+ * - `privilegiado` (WARNING): cambia el rol o el comercio y el rol nuevo o el anterior es
+ *   privilegiado. Incluye la pérdida de privilegio y el traspaso de un `admin_comercio` a otro
+ *   comercio, que también interesan a quien vigila las cuentas con acceso amplio.
+ * - `informativo` (INFO): cualquier otro cambio.
+ */
+export function clasificarCambioDeRol(cambio: {
+  rolPrevio: string | null;
+  comercioIdPrevio: string | null;
+  rol: string;
+  comercioId: string | null;
+}): ClasificacionCambio {
+  const cambiaRol = cambio.rolPrevio !== cambio.rol;
+  const cambiaComercio = cambio.comercioIdPrevio !== cambio.comercioId;
+  if (!cambiaRol && !cambiaComercio) return 'ninguno';
+  return esPrivilegiado(cambio.rol) || esPrivilegiado(cambio.rolPrevio) ? 'privilegiado' : 'informativo';
+}
+
 /**
  * Proyecta el rol y el comercio del documento `users/{uid}` a los custom claims.
  * Es idempotente: si el token ya los tiene, no escribe nada.
@@ -59,23 +85,31 @@ export async function sincronizarClaims(
     return { uid, rol, comercioId: comercioId ?? null, cambio: true, motivo: 'simulación' };
   }
 
-  const rolPrevio = (usuarioAuth.customClaims?.rol as string | undefined) ?? null;
+  const rolPrevio = typeof usuarioAuth.customClaims?.rol === 'string' ? usuarioAuth.customClaims.rol : null;
+  const comercioIdPrevio =
+    typeof usuarioAuth.customClaims?.comercioId === 'string' ? usuarioAuth.customClaims.comercioId : null;
   await auth.setCustomUserClaims(uid, nuevos);
   await snap.ref.update({ claimsUpdatedAt: FieldValue.serverTimestamp() });
-  if (ROLES_PRIVILEGIADOS.includes(rol) && rolPrevio !== rol) {
+
+  const clasificacion = clasificarCambioDeRol({
+    rolPrevio,
+    comercioIdPrevio,
+    rol,
+    comercioId: comercioId ?? null,
+  });
+  if (clasificacion !== 'ninguno') {
     registrarEvento(
-      'seguridad.rol_privilegiado_asignado',
+      clasificacion === 'privilegiado' ? 'seguridad.rol_privilegiado_asignado' : 'seguridad.rol_asignado',
       {
         uid,
         rolAnterior: rolPrevio,
         rolNuevo: rol,
         comercioId: comercioId ?? null,
+        comercioIdAnterior: comercioIdPrevio,
         actorUid: opciones.actorUid,
       },
-      'WARNING',
+      clasificacion === 'privilegiado' ? 'WARNING' : 'INFO',
     );
-  } else {
-    registrarEvento('seguridad.rol_asignado', { uid, rolNuevo: rol, comercioId: comercioId ?? null }, 'INFO');
   }
   return { uid, rol, comercioId: comercioId ?? null, cambio: true };
 }

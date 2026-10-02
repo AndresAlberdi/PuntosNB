@@ -39,6 +39,7 @@ export interface CamposEvento {
   rolAnterior?: string | null;
   rolNuevo?: string;
   comercioId?: string | null;
+  comercioIdAnterior?: string | null;
   motivo?: string;
   alcance?: 'cuenta' | 'ip';
   detalle?: string;
@@ -149,8 +150,8 @@ export function construirEntrada(
   // `detalle` es texto libre: siempre se redacta.
   const detalle = limpiarTexto(campos.detalle);
   if (detalle !== undefined) entrada.detalle = detalle;
-  // `null` es significativo: «sin rol anterior» / «sin comercio».
-  for (const clave of ['rolAnterior', 'comercioId'] as const) {
+  // `null` es significativo: «sin rol anterior» / «sin comercio» / «sin comercio anterior».
+  for (const clave of ['rolAnterior', 'comercioId', 'comercioIdAnterior'] as const) {
     const valor = campos[clave];
     if (valor === null) entrada[clave] = null;
     else {
