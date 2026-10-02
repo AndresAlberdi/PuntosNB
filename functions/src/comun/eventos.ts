@@ -79,11 +79,19 @@ export function redactar(texto: string): string {
 const LARGO_MAXIMO_ENTRADA = 1000;
 
 /**
- * Acota, redacta y corta a 300 caracteres. Se acota ANTES de redactar por el costo de las
- * expresiones regulares (ver arriba) y se corta DESPUÉS, para no dejar a medias un dato personal.
+ * Acota, redacta y corta a 300 caracteres. Se acota ANTES de redactar por el costo predecible
+ * de las expresiones regulares y se corta DESPUÉS, para no dejar a medias un dato personal.
+ *
+ * Si el texto supera el tope, se descarta además la palabra final incompleta: un correo,
+ * teléfono o IP cortado a medias no coincide con ninguna expresión y, como las sustituciones
+ * (`<correo>`, `<token>`) achican el texto, ese fragmento caería dentro de los 300 finales.
  */
 function limpiar(texto: string): string {
-  return redactar(texto.slice(0, LARGO_MAXIMO_ENTRADA)).slice(0, LARGO_MAXIMO);
+  const acotado =
+    texto.length > LARGO_MAXIMO_ENTRADA
+      ? texto.slice(0, LARGO_MAXIMO_ENTRADA).replace(/\S*$/, '')
+      : texto;
+  return redactar(acotado).slice(0, LARGO_MAXIMO);
 }
 
 /**

@@ -206,6 +206,21 @@ describe('construirEntrada', () => {
     expect(entrada.detalle).not.toContain('correo.com');
   });
 
+  it('no deja un correo cortado a medias en el límite de 1000 caracteres', () => {
+    // Tres tokens largos que, al redactarse, se achican a `<token>`: el fragmento del límite
+    // quedaría dentro de los 300 finales.
+    const tokens = `${`eyJ${'a'.repeat(297)} `.repeat(3)}`;
+    const previo = `${tokens}${'ok '.repeat(28)}`;
+    const texto = `${previo}ana.perez@correo.com y más`;
+    expect(texto.indexOf('@')).toBeLessThan(1000);
+    expect(texto.indexOf('.com')).toBeGreaterThan(1000);
+    const entrada = construirEntrada('seguridad.permiso_denegado', { detalle: texto });
+    const detalle = entrada.detalle as string;
+    expect(detalle).not.toContain('@');
+    expect(detalle).not.toContain('ana');
+    expect(detalle.trimEnd().endsWith('ok')).toBe(true);
+  });
+
   it('ignora un alcance no previsto', () => {
     const entrada = construirEntrada('seguridad.bloqueo_pin', { alcance: 'otro' } as never);
     expect(entrada).not.toHaveProperty('alcance');
