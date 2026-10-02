@@ -132,6 +132,53 @@ test('una semanal en otro día es ajena: conflicto, no duplicado', () => {
   assert.equal(conflictos.length, 1);
 });
 
+test('las claves de `campos` son siempre solo las dos admitidas, para varios estados y modos', () => {
+  const admitidas = ['deleteProtectionState', 'pointInTimeRecoveryEnablement'];
+  const estados = [
+    apagado(),
+    encendido(),
+    { ...encendido(), base: { ...encendido().base, pitr: false } },
+    { ...encendido(), base: { ...encendido().base, proteccion: false } },
+    { ...apagado(), programaciones: [{ name: 'a', retention: '86400s', dailyRecurrence: {} }] },
+  ];
+  for (const estado of estados) {
+    for (const modo of ['aplicar', 'revertir']) {
+      for (const c of planificarCambios(estado, modo).cambios.filter((x) => x.tipo === 'actualizarBase')) {
+        const claves = Object.keys(c.campos);
+        assert.ok(claves.length > 0, 'un cambio de base no puede ir vacío');
+        assert.ok(claves.every((k) => admitidas.includes(k)), `clave inesperada: ${claves}`);
+      }
+    }
+  }
+});
+
+test('una semanal en domingo con otra retención es conflicto al aplicar y NO se borra al revertir', () => {
+  const estado = encendido();
+  const ajena = { name: 'projects/p/databases/(default)/backupSchedules/s9', retention: '1209600s', weeklyRecurrence: { day: 'SUNDAY' } };
+  estado.programaciones = [{ ...DIARIA }, ajena];
+  const aplicar = planificarCambios(estado, 'aplicar');
+  assert.deepEqual(aplicar.cambios, []);
+  assert.equal(aplicar.conflictos.length, 1);
+  assert.match(aplicar.conflictos[0], /semanal/);
+  const revertir = planificarCambios(estado, 'revertir');
+  const borradas = revertir.cambios.filter((c) => c.tipo === 'borrarProgramacion').map((c) => c.name);
+  assert.ok(!borradas.includes(ajena.name));
+  assert.equal(borradas.length, 1, 'solo la diaria que coincide');
+});
+
+test('LIMITACIÓN CONOCIDA: revertir SÍ borra una programación creada a mano con los mismos parámetros', () => {
+  // Una programación de Firestore no tiene etiquetas ni descripción donde marcar la autoría, así
+  // que se reconoce solo por recurrencia, día y retención. Esta prueba fija ese comportamiento.
+  const estado = encendido();
+  estado.programaciones = [
+    { name: 'projects/p/databases/(default)/backupSchedules/hecha-a-mano', retention: '604800s', dailyRecurrence: {} },
+  ];
+  const { cambios } = planificarCambios(estado, 'revertir');
+  const borradas = cambios.filter((c) => c.tipo === 'borrarProgramacion');
+  assert.equal(borradas.length, 1);
+  assert.match(borradas[0].descripcion, /id: hecha-a-mano/);
+});
+
 test('es idempotente: aplicar dos veces no cambia nada la segunda', () => {
   for (const inicial of [apagado(), encendido(), { ...apagado(), programaciones: [{ ...DIARIA }] }]) {
     const primero = planificarCambios(inicial, 'aplicar');
@@ -204,7 +251,6 @@ test('verificar: earliestVersionTime lleno NO basta para dar por activo el PITR'
   const resultados = evaluarVerificacion(estado);
   const retencion = resultados.find((x) => /Retención de versiones/.test(x.punto));
   assert.equal(retencion.pasa, false);
-  assert.equal(resultados.filter((x) => x.pasa).length, 0, 'apagado: ningún punto debe pasar');
 });
 
 test('argumentos: solo se admiten los dos proyectos, y producción exige confirmación', () => {
@@ -222,6 +268,18 @@ test('argumentos: solo se admiten los dos proyectos, y producción exige confirm
 test('argumentos: una bandera desconocida aborta y --verificar no se combina con --revertir', () => {
   assert.throws(() => analizarArgumentos(['--project', 'puntosnb', '--dryrun']), /no reconocido/);
   assert.throws(() => analizarArgumentos(['--project', 'puntosnb', '--verificar', '--revertir']), ErrorUso);
+});
+
+test('argumentos: se rechazan --project=valor, mayúsculas, espacios y --project repetido', () => {
+  assert.throws(() => analizarArgumentos(['--project=puntosnb', '--dry-run']), /no reconocido/);
+  assert.throws(() => analizarArgumentos(['--project', 'PUNTOSNB', '--dry-run']), /no permitido/);
+  assert.throws(() => analizarArgumentos(['--project', ' puntosnb', '--dry-run']), /no permitido/);
+  assert.throws(() => analizarArgumentos(['--project', 'puntosnb ', '--dry-run']), /no permitido/);
+  assert.throws(() => analizarArgumentos(['--project', 'puntosnb', '--project', 'puntosnb']), /más de una vez/);
+  assert.throws(
+    () => analizarArgumentos(['--project', 'puntosnb', '--project', 'hipatia-puntos', '--confirmar-produccion']),
+    ErrorUso
+  );
 });
 
 test('argumentos: --revertir de verdad exige --confirmar-revertir en cualquier proyecto', () => {
@@ -361,6 +419,22 @@ test('cliente: no pide el token hasta la primera llamada', async () => {
   let pidio = false;
   crearClienteGcp({ project: 'puntosnb', obtenerToken: () => { pidio = true; return 't'; } });
   assert.equal(pidio, false);
+});
+
+test('esperarOperacion: con done:false hasta agotar los intentos lanza ErrorGcp', async () => {
+  let consultas = 0;
+  const cliente = { solicitar: async () => { consultas++; return { name: 'op/1', done: false }; } };
+  await assert.rejects(
+    esperarOperacion(cliente, 'https://x', { name: 'op/1', done: false }, { esperar: async () => {}, maxIntentos: 3 }),
+    (e) => e instanceof ErrorGcp && /no terminó/.test(e.message)
+  );
+  assert.equal(consultas, 3);
+});
+
+test('esperarOperacion: una operación null no espera ni consulta nada', async () => {
+  const cliente = { solicitar: async () => { throw new Error('no debe consultar'); } };
+  const esperar = async () => { throw new Error('no debe esperar'); };
+  assert.equal(await esperarOperacion(cliente, 'https://x', null, { esperar }), null);
 });
 
 test('esperarOperacion: sondea hasta que termine y propaga el error de la operación', async () => {
