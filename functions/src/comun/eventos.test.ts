@@ -107,6 +107,27 @@ describe('serializarError', () => {
     });
     expect(serializarError(undefined)).toEqual({ tipo: 'undefined', codigo: null, mensaje: '' });
   });
+
+  it('un valor nulo, numérico o booleano lanzado no deja el mensaje vacío', () => {
+    expect(serializarError(null)).toEqual({ tipo: 'null', codigo: null, mensaje: 'null' });
+    expect(serializarError(42)).toEqual({ tipo: 'number', codigo: null, mensaje: '42' });
+    expect(serializarError(false)).toEqual({ tipo: 'boolean', codigo: null, mensaje: 'false' });
+  });
+
+  it('un valor primitivo lanzado también se redacta', () => {
+    expect(serializarError(59171234567)).toEqual({ tipo: 'number', codigo: null, mensaje: '<telefono>' });
+  });
+
+  it('conserva un code numérico (errores gRPC de Firestore) como texto', () => {
+    const errorGrpc = Object.assign(new Error('10 ABORTED: demasiada contención'), { code: 10 });
+    expect(serializarError(errorGrpc)).toEqual({
+      tipo: 'Error',
+      codigo: '10',
+      mensaje: '10 ABORTED: demasiada contención',
+    });
+    const conInfo = Object.assign(new Error('x'), { errorInfo: { code: 7 } });
+    expect(serializarError(conInfo).codigo).toBe('7');
+  });
 });
 
 describe('construirEntrada', () => {

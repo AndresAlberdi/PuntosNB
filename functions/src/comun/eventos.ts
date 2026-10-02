@@ -97,6 +97,13 @@ function limpiar(texto: string): string {
   return redactar(acotado).slice(0, LARGO_MAXIMO);
 }
 
+/** Los errores de gRPC (Firestore) traen `code` numérico: se conserva como texto, no como `null`. */
+const codigoComoTexto = (codigo: unknown): string | null => {
+  if (typeof codigo === 'string') return limpiar(codigo);
+  if (typeof codigo === 'number') return String(codigo);
+  return null;
+};
+
 /**
  * Resume un error para el registro: tipo, código y mensaje redactado. Nunca `httpResponse`,
  * cabeceras ni cuerpo (los errores de Auth los traen y exponen datos del servicio).
@@ -105,12 +112,14 @@ export function serializarError(e: unknown): ErrorSerializado {
   if (e instanceof Error || (e !== null && typeof e === 'object')) {
     const obj = e as { name?: unknown; code?: unknown; message?: unknown; errorInfo?: { code?: unknown } };
     const tipo = typeof obj.name === 'string' && obj.name ? obj.name : 'Error';
-    const codigoCrudo = typeof obj.code === 'string' ? obj.code : obj.errorInfo?.code;
-    const codigo = typeof codigoCrudo === 'string' ? limpiar(codigoCrudo) : null;
+    const codigo = codigoComoTexto(obj.code) ?? codigoComoTexto(obj.errorInfo?.code);
     const mensaje = typeof obj.message === 'string' ? limpiar(obj.message) : '';
     return { tipo: limpiar(tipo), codigo, mensaje };
   }
-  return { tipo: typeof e, codigo: null, mensaje: typeof e === 'string' ? limpiar(e) : '' };
+  if (e === null) return { tipo: 'null', codigo: null, mensaje: 'null' };
+  if (typeof e === 'undefined') return { tipo: 'undefined', codigo: null, mensaje: '' };
+  // Cadena, número, booleano, bigint o símbolo lanzados directamente: el valor es el mensaje.
+  return { tipo: typeof e, codigo: null, mensaje: limpiar(String(e)) };
 }
 
 const limpiarTexto = (valor: unknown): string | undefined =>
