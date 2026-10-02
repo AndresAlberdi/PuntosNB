@@ -14,7 +14,7 @@ import { conflicto, errorInterno, noEncontrado } from '../comun/errores';
 import { actorDe, exigirRol } from '../comun/sesion';
 import { auditar } from '../comun/auditoria';
 import { revocarSesiones, sincronizarClaims } from '../comun/claims';
-import { ROLES } from '../comun/tipos';
+import { ROLES, ROLES_PRIVILEGIADOS } from '../comun/tipos';
 import { actualizarDerivados, refPrivado, refPublico } from '../comun/comercio';
 
 const AsignarRol = z.object({
@@ -153,12 +153,11 @@ export const asignarRol = onCall(opcionesCallable, async (req) => {
       rol: datos.rol,
       ...(datos.comercioId ? { comercioId: datos.comercioId } : { comercioId: FieldValue.delete() }),
     });
-    await sincronizarClaims(datos.uid);
+    await sincronizarClaims(datos.uid, { actorUid: actor.uid });
     await sincronizarPerfilPublicoInfluencer(datos.uid);
 
     // Si pierde privilegios, sus tokens actuales dejan de valer de inmediato.
-    const privilegiados = ['superadmin', 'contador', 'admin_comercio'];
-    if (rolAnterior && privilegiados.includes(rolAnterior) && rolAnterior !== datos.rol) {
+    if (rolAnterior && (ROLES_PRIVILEGIADOS as readonly string[]).includes(rolAnterior) && rolAnterior !== datos.rol) {
       await revocarSesiones(datos.uid);
     }
 

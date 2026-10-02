@@ -6,9 +6,9 @@
  * su token sin necesidad de cerrar sesión.
  */
 import { FieldValue } from 'firebase-admin/firestore';
-import { logger } from 'firebase-functions/v2';
+import { registrarEvento } from './eventos';
 import { auth, db } from './firebase';
-import { ROLES, type ClaimsHipatia, type Rol } from './tipos';
+import { ROLES, ROLES_PRIVILEGIADOS, type ClaimsHipatia, type Rol } from './tipos';
 
 export interface ResultadoSincronizacion {
   uid: string;
@@ -26,7 +26,10 @@ function mismosClaims(actuales: Record<string, unknown> | undefined, nuevos: Cla
  * Proyecta el rol y el comercio del documento `users/{uid}` a los custom claims.
  * Es idempotente: si el token ya los tiene, no escribe nada.
  */
-export async function sincronizarClaims(uid: string, opciones: { simular?: boolean } = {}): Promise<ResultadoSincronizacion> {
+export async function sincronizarClaims(
+  uid: string,
+  opciones: { simular?: boolean; actorUid?: string } = {},
+): Promise<ResultadoSincronizacion> {
   const snap = await db.collection('users').doc(uid).get();
   if (!snap.exists) {
     return { uid, rol: null, comercioId: null, cambio: false, motivo: 'sin documento en users' };
@@ -56,14 +59,29 @@ export async function sincronizarClaims(uid: string, opciones: { simular?: boole
     return { uid, rol, comercioId: comercioId ?? null, cambio: true, motivo: 'simulación' };
   }
 
+  const rolPrevio = (usuarioAuth.customClaims?.rol as string | undefined) ?? null;
   await auth.setCustomUserClaims(uid, nuevos);
   await snap.ref.update({ claimsUpdatedAt: FieldValue.serverTimestamp() });
-  logger.info('Claims sincronizados', { uid, rol, comercioId: comercioId ?? null });
+  if (ROLES_PRIVILEGIADOS.includes(rol) && rolPrevio !== rol) {
+    registrarEvento(
+      'seguridad.rol_privilegiado_asignado',
+      {
+        uid,
+        rolAnterior: rolPrevio,
+        rolNuevo: rol,
+        comercioId: comercioId ?? null,
+        actorUid: opciones.actorUid,
+      },
+      'WARNING',
+    );
+  } else {
+    registrarEvento('seguridad.rol_asignado', { uid, rolNuevo: rol, comercioId: comercioId ?? null }, 'INFO');
+  }
   return { uid, rol, comercioId: comercioId ?? null, cambio: true };
 }
 
 /** Revoca los tokens vigentes de una cuenta: se usa al bloquear o al bajar de rol. */
 export async function revocarSesiones(uid: string): Promise<void> {
   await auth.revokeRefreshTokens(uid);
-  logger.info('Sesiones revocadas', { uid });
+  registrarEvento('seguridad.sesiones_revocadas', { uid }, 'INFO');
 }
