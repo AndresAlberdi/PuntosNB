@@ -7,12 +7,13 @@
  *
  * Forma del «estado» que reciben las funciones (es lo que el script lee de la API):
  *   {
- *     base: { pitr: boolean, proteccion: boolean, earliestVersionTime: string | null },
+ *     base: { pitr: boolean, proteccion: boolean, earliestVersionTime: string | null, versionRetentionPeriod: string | null },
  *     programaciones: [{ name, retention, dailyRecurrence?, weeklyRecurrence? }]
  *   }
  */
 
 export const PITR_ACTIVO = 'POINT_IN_TIME_RECOVERY_ENABLED';
+export const RETENCION_VERSIONES_PITR = '604800s';
 export const PITR_INACTIVO = 'POINT_IN_TIME_RECOVERY_DISABLED';
 export const PROTECCION_ACTIVA = 'DELETE_PROTECTION_ENABLED';
 export const PROTECCION_INACTIVA = 'DELETE_PROTECTION_DISABLED';
@@ -165,9 +166,13 @@ export function evaluarVerificacion(estado) {
       pasa: programaciones.some((p) => esDeEsteScript(p, definicion)),
     });
   }
+  // Con PITR activo, Firestore fija la retención de versiones en 7 días; apagado, vale 1 hora
+  // (3600 s). Se comprueba ESO y no `earliestVersionTime`: ese campo viene lleno aunque el PITR
+  // esté apagado, porque la retención de 1 hora ya lo llena, y un punto que da PASA en el estado
+  // malo no verifica nada.
   resultados.push({
-    punto: 'earliestVersionTime presente',
-    pasa: Boolean(estado.base.earliestVersionTime),
+    punto: `Retención de versiones de 7 días (${RETENCION_VERSIONES_PITR})`,
+    pasa: estado.base.versionRetentionPeriod === RETENCION_VERSIONES_PITR,
   });
   return resultados;
 }

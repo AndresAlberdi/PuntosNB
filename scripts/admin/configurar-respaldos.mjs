@@ -83,6 +83,7 @@ async function leerEstado() {
       pitr: base?.pointInTimeRecoveryEnablement === PITR_ACTIVO,
       proteccion: base?.deleteProtectionState === PROTECCION_ACTIVA,
       earliestVersionTime: base?.earliestVersionTime ?? null,
+      versionRetentionPeriod: base?.versionRetentionPeriod ?? null,
       ubicacion: base?.locationId ?? 'desconocida',
     },
     programaciones: lista?.backupSchedules ?? [],
@@ -96,7 +97,7 @@ function imprimirEstado(estado, titulo) {
   console.log(`  Ubicación de la base      : ${estado.base.ubicacion}`);
   console.log(`  PITR                      : ${si(estado.base.pitr)}`);
   console.log(`  Protección contra borrado : ${si(estado.base.proteccion)}`);
-  console.log(`  earliestVersionTime       : ${estado.base.earliestVersionTime ?? 'ausente'}`);
+  console.log(`  Retención de versiones    : ${estado.base.versionRetentionPeriod ?? 'ausente'}`);
   if (!estado.programaciones.length) {
     console.log('  Programaciones de respaldo: ninguna');
   } else {

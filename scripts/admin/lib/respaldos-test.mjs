@@ -23,9 +23,12 @@ const SEMANAL = {
   weeklyRecurrence: { day: 'SUNDAY' },
 };
 
-const apagado = () => ({ base: { pitr: false, proteccion: false, earliestVersionTime: null }, programaciones: [] });
+const apagado = () => ({
+  base: { pitr: false, proteccion: false, earliestVersionTime: '2026-10-02T04:00:00Z', versionRetentionPeriod: '3600s' },
+  programaciones: [],
+});
 const encendido = () => ({
-  base: { pitr: true, proteccion: true, earliestVersionTime: '2026-10-02T00:00:00Z' },
+  base: { pitr: true, proteccion: true, earliestVersionTime: '2026-10-02T00:00:00Z', versionRetentionPeriod: '604800s' },
   programaciones: [{ ...DIARIA }, { ...SEMANAL }],
 });
 
@@ -37,7 +40,7 @@ function aplicarEnMemoria(estado, cambios) {
     if (c.tipo === 'actualizarBase') {
       if ('pointInTimeRecoveryEnablement' in c.campos) {
         nuevo.base.pitr = c.campos.pointInTimeRecoveryEnablement === PITR_ACTIVO;
-        nuevo.base.earliestVersionTime = nuevo.base.pitr ? '2026-10-02T00:00:00Z' : null;
+        nuevo.base.versionRetentionPeriod = nuevo.base.pitr ? '604800s' : '3600s';
       }
       if ('deleteProtectionState' in c.campos) {
         nuevo.base.proteccion = c.campos.deleteProtectionState === PROTECCION_ACTIVA;
@@ -171,11 +174,22 @@ test('verificar: el estado encendido pasa en los cinco puntos', () => {
   assert.ok(evaluarVerificacion(encendido()).every((x) => x.pasa));
 });
 
-test('verificar: sin earliestVersionTime falla solo ese punto', () => {
+test('verificar: con la retención de 1 hora falla solo el punto de retención', () => {
   const estado = encendido();
-  estado.base.earliestVersionTime = null;
+  estado.base.versionRetentionPeriod = '3600s';
   const fallan = evaluarVerificacion(estado).filter((x) => !x.pasa);
-  assert.deepEqual(fallan.map((x) => x.punto), ['earliestVersionTime presente']);
+  assert.equal(fallan.length, 1);
+  assert.match(fallan[0].punto, /Retención de versiones/);
+});
+
+test('verificar: earliestVersionTime lleno NO basta para dar por activo el PITR', () => {
+  // Es el defecto que tenía el chequeo anterior: el campo viene lleno con el PITR apagado.
+  const estado = apagado();
+  assert.ok(estado.base.earliestVersionTime, 'el estado apagado de la prueba trae earliestVersionTime');
+  const resultados = evaluarVerificacion(estado);
+  const retencion = resultados.find((x) => /Retención de versiones/.test(x.punto));
+  assert.equal(retencion.pasa, false);
+  assert.equal(resultados.filter((x) => x.pasa).length, 0, 'apagado: ningún punto debe pasar');
 });
 
 test('argumentos: solo se admiten los dos proyectos, y producción exige confirmación', () => {
