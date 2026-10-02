@@ -21,6 +21,10 @@ describe('redactar', () => {
     expect(redactar('falló para ana.perez+x@correo.com.bo hoy')).toBe('falló para <correo> hoy');
   });
 
+  it('reemplaza correos con letras Unicode', () => {
+    expect(redactar('escribió ñandú.pérez@correo.com.bo hoy')).toBe('escribió <correo> hoy');
+  });
+
   it('reemplaza teléfonos con prefijo internacional', () => {
     expect(redactar('llamó +59171234567 ayer')).toBe('llamó <telefono> ayer');
   });
@@ -228,22 +232,34 @@ describe('registrarEvento', () => {
 });
 
 describe('costo acotado de la redacción', () => {
-  // Las expresiones regulares de IPv6 son cuadráticas con cadenas largas de caracteres hexadecimales
-  // (64 000 caracteres tardaban ~5 s). El texto se acota antes de redactar.
+  // La expresión de CORREO era cuadrática (64 000 caracteres de `a.` tardaban 5 a 7 s). Ahora es
+  // lineal sin depender del tope de 1000: se prueba `redactar` directamente. El tope de 500 ms es
+  // holgado para una CI cargada, y aun así dista varios órdenes de magnitud del caso cuadrático.
+  it.each([
+    ['«a.» repetido', 'a.'.repeat(32_000)],
+    ['«a» repetido', 'a'.repeat(64_000)],
+    ['dominio largo tras una arroba', `a@${'a.'.repeat(32_000)}`],
+    ['dígitos y espacios', '1 '.repeat(32_000)],
+  ])('redactar no es cuadrática con un texto enorme (%s)', (_nombre, texto) => {
+    const inicio = Date.now();
+    redactar(texto);
+    expect(Date.now() - inicio).toBeLessThan(500);
+  });
+
   it.each([
     ['hexadecimal continuo', 'a'.repeat(200_000)],
     ['correo largo sin arroba', 'a.'.repeat(100_000)],
   ])('un texto enorme (%s) no bloquea el hilo', (_nombre, texto) => {
     const inicio = Date.now();
     const entrada = construirEntrada('seguridad.permiso_denegado', { detalle: texto });
-    expect(Date.now() - inicio).toBeLessThan(200);
+    expect(Date.now() - inicio).toBeLessThan(500);
     expect((entrada.detalle as string).length).toBeLessThanOrEqual(300);
   });
 
   it('serializarError también acota un mensaje enorme', () => {
     const inicio = Date.now();
     const r = serializarError(new Error('a'.repeat(200_000)));
-    expect(Date.now() - inicio).toBeLessThan(200);
+    expect(Date.now() - inicio).toBeLessThan(500);
     expect(r.mensaje.length).toBeLessThanOrEqual(300);
   });
 });

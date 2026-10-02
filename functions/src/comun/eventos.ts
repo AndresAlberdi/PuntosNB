@@ -48,12 +48,20 @@ export interface CamposEvento {
 const LARGO_MAXIMO = 300;
 
 /**
+ * Correo electrónico, con letras y números Unicode (la bandera `u` se aplica solo a esta
+ * expresión). El lookbehind inicial impide empezar a mitad de una corrida de caracteres de la
+ * parte local: sin él, esta expresión es cuadrática con cadenas como `a.a.a.…` (64 000
+ * caracteres tardaban 5 a 7 segundos de CPU); con él es lineal.
+ */
+const PATRON_CORREO = /(?<![\p{L}\p{N}._%+-])[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.\p{L}{2,}/gu;
+
+/**
  * Quita de un texto lo que no debe llegar a los registros: correos, teléfonos, direcciones IP
  * y tokens (JWT y `Bearer`).
  */
 export function redactar(texto: string): string {
   return texto
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<correo>')
+    .replace(PATRON_CORREO, '<correo>')
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, '<token>')
     .replace(/eyJ[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]*)*/g, '<token>')
     .replace(/\+\d{7,15}/g, '<telefono>')
@@ -63,10 +71,10 @@ export function redactar(texto: string): string {
 }
 
 /**
- * Tope del texto que se entrega a `redactar`. Las expresiones regulares de direcciones IPv6 son
- * cuadráticas con cadenas largas de caracteres hexadecimales: medido, 64 000 caracteres tardan
- * unos 5 segundos de CPU, que en una función bloquean su único hilo. Como el resultado final
- * se corta a 300 caracteres, basta con acotar la entrada antes de redactar.
+ * Tope del texto que se entrega a `redactar`. La redacción no debe depender de él para ser
+ * lineal (la expresión de correo ya lo es), pero acotar la entrada mantiene el costo predecible
+ * ante cualquier texto del cliente. Como el resultado final se corta a 300 caracteres, basta con
+ * acotarla antes de redactar.
  */
 const LARGO_MAXIMO_ENTRADA = 1000;
 
