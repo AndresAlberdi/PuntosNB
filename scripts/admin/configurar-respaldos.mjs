@@ -49,6 +49,13 @@
  *     parámetros también se borra. Por eso --dry-run imprime el identificador (último segmento
  *     del `name`) de cada programación que se borraría: confírmelo antes de revertir.
  *
+ * Lo que NO se ha comprobado contra una base real (nota de honestidad):
+ *   El formato de las programaciones que devuelve la API (`dailyRecurrence: {}`,
+ *   `day: "SUNDAY"`, `retention: "604800s"`) y el valor `604800s` de la retención de versiones
+ *   con el PITR activo se dedujeron de la documentación y NO se han observado en una base real.
+ *   Tras la primera corrida real hay que confirmarlos con `--verificar`; si el formato difiere,
+ *   el script no reconocerá sus programaciones y podría intentar crearlas de nuevo.
+ *
  * Seguridad: solo admite `puntosnb` y `hipatia-puntos`; esta última exige además
  * `--confirmar-produccion`. El token sale de `gcloud auth print-access-token` y no se imprime.
  *
