@@ -89,8 +89,9 @@ export async function sincronizarClaims(
   const comercioIdPrevio =
     typeof usuarioAuth.customClaims?.comercioId === 'string' ? usuarioAuth.customClaims.comercioId : null;
   await auth.setCustomUserClaims(uid, nuevos);
-  await snap.ref.update({ claimsUpdatedAt: FieldValue.serverTimestamp() });
 
+  // El evento se emite ANTES de la escritura siguiente, que puede fallar: si `update` falla, el
+  // privilegio ya está aplicado en el token y debe quedar constancia de quién lo recibió.
   const clasificacion = clasificarCambioDeRol({
     rolPrevio,
     comercioIdPrevio,
@@ -111,6 +112,8 @@ export async function sincronizarClaims(
       clasificacion === 'privilegiado' ? 'WARNING' : 'INFO',
     );
   }
+
+  await snap.ref.update({ claimsUpdatedAt: FieldValue.serverTimestamp() });
   return { uid, rol, comercioId: comercioId ?? null, cambio: true };
 }
 

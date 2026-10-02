@@ -54,6 +54,35 @@ describe('clasificarCambioDeRol', () => {
 });
 
 describe('sincronizarClaims: el evento se emite antes de la escritura que puede fallar', () => {
+  it('deja el evento aunque `update` falle, y con el rol y el comercio anteriores', async () => {
+    doble.claims = { rol: 'cliente' };
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {
+      doble.orden.push('evento');
+    });
+    doble.setCustomUserClaims.mockImplementation(async () => {
+      doble.orden.push('claims');
+    });
+    doble.documento.ref.update.mockImplementation(async () => {
+      doble.orden.push('update');
+      throw new Error('falló la escritura');
+    });
+
+    await expect(sincronizarClaims('u1', { actorUid: 'admin1' })).rejects.toThrow('falló la escritura');
+
+    expect(doble.orden).toEqual(['claims', 'evento', 'update']);
+    expect(warn).toHaveBeenCalledWith(
+      'seguridad.rol_privilegiado_asignado',
+      expect.objectContaining({
+        uid: 'u1',
+        actorUid: 'admin1',
+        rolAnterior: 'cliente',
+        rolNuevo: 'superadmin',
+        comercioId: null,
+        comercioIdAnterior: null,
+      }),
+    );
+  });
+
   it('la pérdida de privilegio y un cambio informativo llevan rolAnterior y comercioIdAnterior', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
