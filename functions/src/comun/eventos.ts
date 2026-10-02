@@ -67,7 +67,9 @@ export function redactar(texto: string): string {
     .replace(/\+\d{7,15}/g, '<telefono>')
     .replace(/(?:::ffff:)?\b\d{1,3}(?:\.\d{1,3}){3}\b/gi, '<ip>')
     .replace(/(?<![\w:])(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}(?![\w:])/gi, '<ip>')
-    .replace(/(?<![\w:])[0-9a-f:]*::[0-9a-f:]*(?![\w:])/gi, '<ip>');
+    .replace(/(?<![\w:])[0-9a-f:]*::[0-9a-f:]*(?![\w:])/gi, '<ip>')
+    // Teléfonos con separadores; va DESPUÉS de las IP para no romperlas.
+    .replace(/\+?\d[\d\s().-]{6,18}\d/g, '<telefono>');
 }
 
 /**

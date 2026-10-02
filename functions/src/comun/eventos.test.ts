@@ -29,6 +29,24 @@ describe('redactar', () => {
     expect(redactar('llamó +59171234567 ayer')).toBe('llamó <telefono> ayer');
   });
 
+  it.each([
+    '+591 71234567',
+    '+591-712-34567',
+    '(+591) 71234567',
+    '+1 (555) 123-4567',
+    '71234567',
+  ])('reemplaza el teléfono «%s»', (telefono) => {
+    const resultado = redactar(`llamó al ${telefono} ayer`);
+    expect(resultado).toContain('<telefono>');
+    expect(resultado).not.toMatch(/\d{3}/);
+    expect(resultado.startsWith('llamó al')).toBe(true);
+    expect(resultado.endsWith('ayer')).toBe(true);
+  });
+
+  it('el teléfono no rompe las direcciones IP ya redactadas', () => {
+    expect(redactar('desde 200.87.10.4 llamó +591 71234567')).toBe('desde <ip> llamó <telefono>');
+  });
+
   it('reemplaza JWT y Bearer', () => {
     expect(redactar(`token ${JWT} fin`)).toBe('token <token> fin');
     expect(redactar('Authorization: Bearer abc.def-ghi_123')).toBe('Authorization: <token>');
