@@ -98,6 +98,19 @@ const limpiarTexto = (valor: unknown): string | undefined =>
   typeof valor === 'string' ? limpiar(valor) : undefined;
 
 /**
+ * Los identificadores (uid, comercioId) y los valores de catálogo (rol, motivo) NO se redactan:
+ * `redactar` busca tokens por patrón y corrompería un uid legítimo que contenga, por ejemplo,
+ * `eyJ` (se registraría como `Kq3<token>`), con lo que las alertas por `jsonPayload.uid` no
+ * verían esa cuenta. Si el valor tiene la forma de un identificador se conserva tal cual; si no,
+ * es probablemente texto del cliente y pasa por `limpiar`.
+ */
+const PATRON_IDENTIFICADOR = /^[A-Za-z0-9_-]{1,128}$/;
+const limpiarIdentificador = (valor: unknown): string | undefined => {
+  if (typeof valor !== 'string') return undefined;
+  return PATRON_IDENTIFICADOR.test(valor) ? valor : limpiar(valor);
+};
+
+/**
  * Arma la entrada del registro. Función pura con LISTA BLANCA de claves: lo que no esté
  * previsto aquí se descarta, y todo texto se redacta y se corta.
  */
@@ -111,16 +124,19 @@ export function construirEntrada(
     funcion: process.env.FUNCTION_TARGET ?? null,
   };
 
-  for (const clave of ['uid', 'actorUid', 'rol', 'rolNuevo', 'motivo', 'detalle'] as const) {
-    const valor = limpiarTexto(campos[clave]);
+  for (const clave of ['uid', 'actorUid', 'rol', 'rolNuevo', 'motivo'] as const) {
+    const valor = limpiarIdentificador(campos[clave]);
     if (valor !== undefined) entrada[clave] = valor;
   }
+  // `detalle` es texto libre: siempre se redacta.
+  const detalle = limpiarTexto(campos.detalle);
+  if (detalle !== undefined) entrada.detalle = detalle;
   // `null` es significativo: «sin rol anterior» / «sin comercio».
   for (const clave of ['rolAnterior', 'comercioId'] as const) {
     const valor = campos[clave];
     if (valor === null) entrada[clave] = null;
     else {
-      const texto = limpiarTexto(valor);
+      const texto = limpiarIdentificador(valor);
       if (texto !== undefined) entrada[clave] = texto;
     }
   }

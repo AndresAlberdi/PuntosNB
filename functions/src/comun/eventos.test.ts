@@ -160,6 +160,36 @@ describe('construirEntrada', () => {
     expect(entrada.detalle).toBe('<correo> <telefono> <ip> <token> <token>');
   });
 
+  it('conserva íntegros los identificadores aunque contengan «eyJ» o parezcan un token', () => {
+    const entrada = construirEntrada('seguridad.permiso_denegado', {
+      uid: 'Kq3eyJ8sdfXa91LmNopQrS2tUvW1',
+      actorUid: 'eyJabc-DEF_123',
+      comercioId: 'abc_def-123',
+      rol: 'admin_comercio',
+      rolNuevo: 'superadmin',
+      rolAnterior: 'cliente',
+      motivo: 'pin_incorrecto',
+    });
+    expect(entrada).toMatchObject({
+      uid: 'Kq3eyJ8sdfXa91LmNopQrS2tUvW1',
+      actorUid: 'eyJabc-DEF_123',
+      comercioId: 'abc_def-123',
+      rol: 'admin_comercio',
+      rolNuevo: 'superadmin',
+      rolAnterior: 'cliente',
+      motivo: 'pin_incorrecto',
+    });
+  });
+
+  it('un identificador con forma rara (texto del cliente) sí se redacta', () => {
+    const entrada = construirEntrada('seguridad.permiso_denegado', {
+      uid: 'ana@correo.com',
+      comercioId: `x ${JWT}`,
+    });
+    expect(entrada.uid).toBe('<correo>');
+    expect(entrada.comercioId).toBe('x <token>');
+  });
+
   it('corta detalle a 300 caracteres', () => {
     const entrada = construirEntrada('seguridad.permiso_denegado', { detalle: 'a'.repeat(1000) });
     expect(entrada.detalle).toHaveLength(300);
