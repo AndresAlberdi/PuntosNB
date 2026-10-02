@@ -66,6 +66,12 @@ export function esDeEsteScript(programacion, definicion) {
   );
 }
 
+/** Último segmento del `name` de una programación (su identificador), para mostrarlo sin la ruta. */
+export function ultimoSegmento(name) {
+  const partes = String(name ?? '').split('/').filter(Boolean);
+  return partes.length ? partes[partes.length - 1] : 'sin nombre';
+}
+
 /**
  * Decide qué hay que cambiar para llegar al estado deseado, sin ejecutar nada.
  *
@@ -76,8 +82,10 @@ export function esDeEsteScript(programacion, definicion) {
  *     retención o día, NO se toca ni se crea otra (Firestore admite una sola diaria y una sola
  *     semanal): se informa como conflicto para que lo resuelva una persona.
  * Modo `revertir`:
- *   - Se borran TODAS las programaciones que coinciden exactamente con las de este script (las
- *     ajenas no se tocan), y se desactivan PITR y la protección si estaban activas.
+ *   - Se borran TODAS las programaciones que coinciden en recurrencia, día y retención con las
+ *     de este script, sin importar quién las creó (una programación de Firestore no tiene
+ *     etiquetas ni descripción donde marcar la autoría). Las que no coinciden no se tocan. Se
+ *     desactivan PITR y la protección si estaban activas.
  *
  * @param {object} estado ver el encabezado del archivo
  * @param {'aplicar'|'revertir'} modo
@@ -113,7 +121,8 @@ export function planificarCambios(estado, modo) {
         cambios.push({
           tipo: 'borrarProgramacion',
           name: p.name,
-          descripcion: `Borrar la programación ${definicion.etiqueta}`,
+          descripcion:
+            `Borrar la programación ${definicion.etiqueta} (id: ${ultimoSegmento(p.name)})`,
         });
       }
       continue;
@@ -140,7 +149,9 @@ export function planificarCambios(estado, modo) {
         cambios.push({
           tipo: 'borrarProgramacion',
           name: sobrante.name,
-          descripcion: `Borrar una copia duplicada de la programación ${definicion.etiqueta}`,
+          descripcion:
+            `Borrar una copia duplicada de la programación ${definicion.etiqueta} ` +
+            `(id: ${ultimoSegmento(sobrante.name)})`,
         });
       }
     }

@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  planificarCambios, evaluarVerificacion, esDeEsteScript, segundos, PROGRAMACIONES,
+  planificarCambios, evaluarVerificacion, esDeEsteScript, segundos, PROGRAMACIONES, ultimoSegmento,
   PITR_ACTIVO, PITR_INACTIVO, PROTECCION_ACTIVA, PROTECCION_INACTIVA,
 } from './respaldos.mjs';
 import {
@@ -208,6 +208,54 @@ test('argumentos: solo se admiten los dos proyectos, y producción exige confirm
 test('argumentos: una bandera desconocida aborta y --verificar no se combina con --revertir', () => {
   assert.throws(() => analizarArgumentos(['--project', 'puntosnb', '--dryrun']), /no reconocido/);
   assert.throws(() => analizarArgumentos(['--project', 'puntosnb', '--verificar', '--revertir']), ErrorUso);
+});
+
+test('argumentos: --revertir de verdad exige --confirmar-revertir en cualquier proyecto', () => {
+  assert.throws(() => analizarArgumentos(['--project', 'puntosnb', '--revertir']), /--confirmar-revertir/);
+  assert.throws(
+    () => analizarArgumentos(['--project', 'hipatia-puntos', '--confirmar-produccion', '--revertir']),
+    /--confirmar-revertir/
+  );
+  const simulado = analizarArgumentos(['--project', 'puntosnb', '--revertir', '--dry-run']);
+  assert.equal(simulado.revertir, true);
+  assert.equal(simulado.confirmarRevertir, false);
+  const real = analizarArgumentos(['--project', 'puntosnb', '--revertir', '--confirmar-revertir']);
+  assert.equal(real.revertir, true);
+  assert.equal(real.confirmarRevertir, true);
+  // La bandera nueva es admitida; una parecida sigue abortando.
+  assert.throws(() => analizarArgumentos(['--project', 'puntosnb', '--confirmar-revertirr']), /no reconocido/);
+});
+
+test('revertir: la descripción de cada borrado lleva SOLO el último segmento del name', () => {
+  const { cambios } = planificarCambios(encendido(), 'revertir');
+  const borrados = cambios.filter((c) => c.tipo === 'borrarProgramacion');
+  assert.equal(borrados.length, 2);
+  assert.match(borrados[0].descripcion, /\(id: d1\)/);
+  assert.match(borrados[1].descripcion, /\(id: s1\)/);
+  for (const c of borrados) assert.ok(!c.descripcion.includes('databases'), 'no debe traer la ruta completa');
+});
+
+test('ultimoSegmento devuelve el identificador y tolera nombres vacíos', () => {
+  assert.equal(ultimoSegmento('projects/p/databases/(default)/backupSchedules/abc'), 'abc');
+  assert.equal(ultimoSegmento('solo'), 'solo');
+  assert.equal(ultimoSegmento(undefined), 'sin nombre');
+});
+
+test('flujo: revertir sin confirmación lanza antes de llamar a la API; con --dry-run no la necesita', async () => {
+  const api = crearApiFalsa({ ...ACTIVADA(), soloLectura: true });
+  await assert.rejects(correr(api, { revertir: true }), ErrorUso);
+  assert.deepEqual(api.llamadas, []);
+});
+
+test('flujo: --dry-run de revertir advierte del PITR e imprime el id de cada borrado', async () => {
+  const api = crearApiFalsa({ ...ACTIVADA(), soloLectura: true });
+  const { texto } = await correr(api, { simular: true, revertir: true });
+  assert.match(texto, /ADVERTENCIA: revertir apaga el PITR/);
+  assert.match(texto, /últimos 7 días/);
+  assert.match(texto, /se conservan hasta vencer/);
+  assert.match(texto, /sin importar quién las creó/);
+  assert.match(texto, /\(id: d1\)/);
+  assert.match(texto, /\(id: s1\)/);
 });
 
 test('enmascarado: identificadores, cuentas de facturación y tokens', () => {
@@ -433,7 +481,7 @@ test('flujo: el modo de escritura sí llama a PATCH y POST, y deja la base confi
 
 test('flujo: revertir de verdad llama a PATCH y DELETE', async () => {
   const api = crearApiFalsa(ACTIVADA());
-  const { codigo } = await correr(api, { revertir: true });
+  const { codigo } = await correr(api, { revertir: true, confirmarRevertir: true });
   assert.equal(codigo, 0);
   assert.ok(api.llamadas.includes('PATCH'));
   assert.equal(api.llamadas.filter((m) => m === 'DELETE').length, 2);

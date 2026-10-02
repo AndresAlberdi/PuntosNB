@@ -23,7 +23,7 @@
  *     `puntosnb`.
  *
  * Es idempotente: lee el estado y solo cambia lo que difiere. Correrlo dos veces no cambia nada
- * la segunda vez. Reconoce sus programaciones por recurrencia y retención, así que no crea
+ * la segunda vez. Reconoce sus programaciones por recurrencia, día y retención, así que no crea
  * duplicados.
  *
  * Modos:
@@ -31,9 +31,23 @@
  *   --dry-run      imprime el estado actual y los cambios que haría; no escribe nada.
  *   --verificar    SOLO LECTURA. Imprime PASA/FALLA por cada punto y sale con código distinto
  *                  de cero si alguno falla.
- *   --revertir     borra SOLO las programaciones de este script, desactiva PITR y quita la
- *                  protección contra borrado. Los respaldos ya hechos se conservan hasta
- *                  vencer. Admite --dry-run.
+ *   --revertir     DESTRUCTIVO (ver la advertencia siguiente). Borra las programaciones que
+ *                  coinciden en recurrencia, día y retención con las que crea este script,
+ *                  sin importar quién las creó; desactiva el PITR y quita la protección
+ *                  contra borrado. Admite --dry-run. Para hacerlo de verdad, en CUALQUIER
+ *                  proyecto, exige además --confirmar-revertir; sin ella aborta antes de
+ *                  pedir el token.
+ *
+ * ADVERTENCIA sobre --revertir:
+ *   - Apagar el PITR hace que la retención de versiones vuelva a 1 hora: se pierde el historial
+ *     de los últimos 7 días y esas versiones dejan de ser recuperables al instante.
+ *   - Los respaldos ya existentes se conservan hasta vencer su retención, pero sin programación
+ *     no se generan otros nuevos.
+ *   - NO se puede garantizar que solo se borren programaciones creadas por este script: una
+ *     programación de Firestore no tiene etiquetas ni descripción donde marcar la autoría, así
+ *     que se reconocen por recurrencia, día y retención. Una creada a mano con los mismos
+ *     parámetros también se borra. Por eso --dry-run imprime el identificador (último segmento
+ *     del `name`) de cada programación que se borraría: confírmelo antes de revertir.
  *
  * Seguridad: solo admite `puntosnb` y `hipatia-puntos`; esta última exige además
  * `--confirmar-produccion`. El token sale de `gcloud auth print-access-token` y no se imprime.
@@ -44,6 +58,7 @@
  *   node scripts/admin/configurar-respaldos.mjs --project puntosnb --verificar
  *   node scripts/admin/configurar-respaldos.mjs --project hipatia-puntos --confirmar-produccion --dry-run
  *   node scripts/admin/configurar-respaldos.mjs --project puntosnb --revertir --dry-run
+ *   node scripts/admin/configurar-respaldos.mjs --project puntosnb --revertir --confirmar-revertir
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -89,7 +104,7 @@ function imprimirEstado(estado, titulo, escribir) {
       const tipo = p.dailyRecurrence !== undefined
         ? 'diaria'
         : `semanal (${p.weeklyRecurrence?.day ?? '?'})`;
-      const propia = PROGRAMACIONES.some((d) => esDeEsteScript(p, d)) ? ' [de este script]' : '';
+      const propia = PROGRAMACIONES.some((d) => esDeEsteScript(p, d)) ? ' [coincide con las de este script]' : '';
       escribir(`    - ${tipo}, retención ${p.retention ?? '?'}${propia}`);
     }
   }
@@ -125,7 +140,11 @@ async function ejecutar(cliente, urlBase, cambios, escribir) {
  * @returns {Promise<number>} código de salida
  */
 export async function principal({ cliente, opciones, escribir = console.log }) {
-  const { project, simular, revertir, verificar } = opciones;
+  const { project, simular, revertir, verificar, confirmarRevertir } = opciones;
+  // Defensa adicional: analizarArgumentos ya lo exige, pero principal no debe depender de ello.
+  if (revertir && !simular && !confirmarRevertir) {
+    throw new ErrorUso('--revertir de verdad exige --confirmar-revertir.');
+  }
   const urlBase = `${API}/projects/${project}/databases/(default)`;
   const modoTexto = verificar ? ' (verificación, solo lectura)' : simular ? ' (simulación)' : '';
   escribir(`\nRespaldos de Firestore en ${project}${revertir ? ' · REVERTIR' : ''}${modoTexto}\n`);
@@ -156,6 +175,16 @@ export async function principal({ cliente, opciones, escribir = console.log }) {
   if (!cambios.length) {
     escribir('\nNada que cambiar: el estado ya es el deseado.');
     return conflictos.length ? 2 : 0;
+  }
+
+  if (revertir) {
+    escribir(
+      '\nADVERTENCIA: revertir apaga el PITR. La retención de versiones vuelve a 1 hora y se ' +
+      'pierde el historial de los últimos 7 días.\nLos respaldos ya existentes se conservan ' +
+      'hasta vencer su retención.\nSe borran las programaciones que coinciden en recurrencia, ' +
+      'día y retención con las que crea este script, sin importar quién las creó; confirme ' +
+      'abajo el identificador de cada una.'
+    );
   }
 
   escribir(`\nCambios${simular ? ' que haría' : ' a aplicar'}:`);
@@ -197,7 +226,7 @@ async function main() {
       console.error(`${error.message}\n`);
       console.error(
         'Uso: --project <puntosnb|hipatia-puntos> [--dry-run] [--verificar] [--revertir] ' +
-        '[--confirmar-produccion]'
+        '[--confirmar-produccion] [--confirmar-revertir]'
       );
       process.exit(1);
     }

@@ -40,7 +40,8 @@ export class ErrorGcp extends Error {
   }
 }
 
-const BANDERAS_SIN_VALOR = ['--dry-run', '--revertir', '--verificar', '--confirmar-produccion'];
+const BANDERAS_SIN_VALOR = ['--dry-run', '--revertir', '--verificar', '--confirmar-produccion',
+  '--confirmar-revertir'];
 
 /**
  * Analiza los argumentos de línea de comandos.
@@ -50,7 +51,7 @@ const BANDERAS_SIN_VALOR = ['--dry-run', '--revertir', '--verificar', '--confirm
  *
  * @param {string[]} argv argumentos sin `node` ni la ruta del script
  * @returns {{ project: string, simular: boolean, revertir: boolean, verificar: boolean,
- *             confirmarProduccion: boolean }}
+ *             confirmarProduccion: boolean, confirmarRevertir: boolean }}
  */
 export function analizarArgumentos(argv) {
   let project;
@@ -78,12 +79,23 @@ export function analizarArgumentos(argv) {
     throw new ErrorUso('--verificar y --revertir no se combinan: --verificar es solo lectura.');
   }
 
+  // Revertir es destructivo (apaga el PITR y borra programaciones): solo se hace de verdad con
+  // una confirmación explícita, en cualquier proyecto. La simulación no la necesita.
+  if (banderas.has('--revertir') && !banderas.has('--dry-run') && !banderas.has('--confirmar-revertir')) {
+    throw new ErrorUso(
+      '--revertir es destructivo: apaga el PITR (se pierde el historial de los últimos 7 días) y ' +
+      'borra programaciones de respaldo. Para hacerlo de verdad agregue --confirmar-revertir; ' +
+      'para ver qué haría, use --dry-run.'
+    );
+  }
+
   return {
     project,
     simular: banderas.has('--dry-run'),
     revertir: banderas.has('--revertir'),
     verificar: banderas.has('--verificar'),
     confirmarProduccion: banderas.has('--confirmar-produccion'),
+    confirmarRevertir: banderas.has('--confirmar-revertir'),
   };
 }
 
