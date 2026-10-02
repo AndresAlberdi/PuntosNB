@@ -110,6 +110,19 @@ test('aplicar con una diaria ajena (otra retención): informa conflicto y no cre
   assert.match(conflictos[0], /diaria/);
 });
 
+test('conflicto con la base desprotegida: aun así planifica PITR, protección y la otra programación', () => {
+  const estado = apagado();
+  estado.programaciones = [{ name: 'ajena', retention: '86400s', dailyRecurrence: {} }];
+  const { cambios, conflictos } = planificarCambios(estado, 'aplicar');
+  assert.equal(conflictos.length, 1);
+  assert.match(conflictos[0], /diaria/);
+  assert.deepEqual(cambios.map((c) => c.tipo), ['actualizarBase', 'crearProgramacion']);
+  assert.deepEqual(Object.keys(cambios[0].campos).sort(), ['deleteProtectionState', 'pointInTimeRecoveryEnablement']);
+  assert.equal(cambios[1].clave, 'semanal');
+  // La diaria ajena no se toca ni se reemplaza.
+  assert.ok(!cambios.some((c) => c.tipo === 'borrarProgramacion' || c.clave === 'diaria'));
+});
+
 test('una semanal en otro día es ajena: conflicto, no duplicado', () => {
   const estado = encendido();
   estado.programaciones = [{ ...DIARIA }, { name: 'lunes', retention: '4838400s', weeklyRecurrence: { day: 'MONDAY' } }];
@@ -477,6 +490,30 @@ test('flujo: el modo de escritura sí llama a PATCH y POST, y deja la base confi
     base: { pitr: api.estado.pitr, proteccion: api.estado.proteccion, versionRetentionPeriod: '604800s' },
     programaciones: api.estado.programaciones,
   }).every((x) => x.pasa));
+});
+
+test('flujo: con un conflicto, --dry-run muestra los cambios y no escribe; sale con 2', async () => {
+  const ajena = { name: 'projects/puntosnb/databases/(default)/backupSchedules/x', retention: '86400s', dailyRecurrence: {} };
+  const api = crearApiFalsa({ programaciones: [ajena], soloLectura: true });
+  const { codigo, texto } = await correr(api, { simular: true });
+  assert.equal(codigo, 2);
+  assert.match(texto, /Conflictos/);
+  assert.match(texto, /pointInTimeRecoveryEnablement/);
+  assert.match(texto, /Crear la programación semanal/);
+  assert.ok(api.llamadas.every((m) => m === 'GET'));
+});
+
+test('flujo: con un conflicto, la base queda protegida, se crea la otra programación y sale con 2', async () => {
+  const ajena = { name: 'projects/puntosnb/databases/(default)/backupSchedules/x', retention: '86400s', dailyRecurrence: {} };
+  const api = crearApiFalsa({ programaciones: [ajena] });
+  const { codigo, texto } = await correr(api, {});
+  assert.equal(codigo, 2);
+  assert.equal(api.estado.pitr, true);
+  assert.equal(api.estado.proteccion, true);
+  assert.deepEqual(api.llamadas.filter((m) => m === 'POST'), ['POST']);
+  assert.ok(api.estado.programaciones.some((p) => p.weeklyRecurrence?.day === 'SUNDAY'));
+  assert.ok(api.estado.programaciones.some((p) => p.name.endsWith('/x')), 'la ajena sigue intacta');
+  assert.match(texto, /1 conflicto\(s\) sin resolver/);
 });
 
 test('flujo: revertir de verdad llama a PATCH y DELETE', async () => {

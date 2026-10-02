@@ -80,7 +80,8 @@ export function ultimoSegmento(name) {
  *   - Cada programación: se crea si no existe; si hay copias idénticas de más, se borran las
  *     sobrantes y se conserva la primera. Si ya existe una de la misma clase pero con otra
  *     retención o día, NO se toca ni se crea otra (Firestore admite una sola diaria y una sola
- *     semanal): se informa como conflicto para que lo resuelva una persona.
+ *     semanal): se informa como conflicto para que lo resuelva una persona. Un conflicto NO
+ *     impide el resto: el cambio de la base y las demás programaciones se planifican igual.
  * Modo `revertir`:
  *   - Se borran TODAS las programaciones que coinciden en recurrencia, día y retención con las
  *     de este script, sin importar quién las creó (una programación de Firestore no tiene

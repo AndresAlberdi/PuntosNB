@@ -168,7 +168,7 @@ export async function principal({ cliente, opciones, escribir = console.log }) {
   const { cambios, conflictos } = planificarCambios(estado, revertir ? 'revertir' : 'aplicar');
 
   if (conflictos.length) {
-    escribir('\nConflictos (no se resuelven solos):');
+    escribir('\nConflictos (no se resuelven solos; el resto de los cambios sí se aplica):');
     for (const c of conflictos) escribir(`  - ${c}`);
   }
 
@@ -195,11 +195,6 @@ export async function principal({ cliente, opciones, escribir = console.log }) {
     return conflictos.length ? 2 : 0;
   }
 
-  if (conflictos.length) {
-    escribir('\nHay conflictos: no se aplica nada hasta resolverlos.');
-    return 2;
-  }
-
   escribir('');
   await ejecutar(cliente, urlBase, cambios, escribir);
 
@@ -212,6 +207,13 @@ export async function principal({ cliente, opciones, escribir = console.log }) {
     );
   } else {
     escribir('\nLos respaldos ya existentes se conservan hasta vencer su retención.');
+  }
+  if (conflictos.length) {
+    escribir(
+      `\n${conflictos.length} conflicto(s) sin resolver (ver arriba): hay que resolverlos a mano. ` +
+      'La base quedó protegida de todos modos.'
+    );
+    return 2;
   }
   return 0;
 }
