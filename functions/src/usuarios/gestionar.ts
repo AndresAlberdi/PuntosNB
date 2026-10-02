@@ -338,7 +338,7 @@ export const sincronizarClaimsUsuario = onCall(opcionesCallable, async (req) => 
   exigirRol(actor, 'superadmin');
   const { uid } = validar(z.object({ uid: z.string().trim().min(1).max(128) }), req.data);
   try {
-    return await sincronizarClaims(uid);
+    return await sincronizarClaims(uid, { actorUid: actor.uid });
   } catch (error) {
     throw errorInterno(error);
   }
