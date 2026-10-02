@@ -7,3 +7,6 @@ export interface ClaimsHipatia {
   rol: Rol;
   comercioId?: string;
 }
+
+/** Roles cuya asignación o pérdida es un evento de seguridad. */
+export const ROLES_PRIVILEGIADOS: readonly Rol[] = ['superadmin', 'contador', 'admin_comercio'];

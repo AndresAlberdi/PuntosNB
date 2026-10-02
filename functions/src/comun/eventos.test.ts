@@ -1,0 +1,198 @@
+/** Pruebas puras de los eventos de seguridad: no necesitan emuladores. */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { logger } from 'firebase-functions/v2';
+import {
+  EVENTOS,
+  construirEntrada,
+  redactar,
+  registrarEvento,
+  serializarError,
+  type CamposEvento,
+} from './eventos';
+
+const JWT = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjMifQ.firma_de_prueba-123';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('redactar', () => {
+  it('reemplaza correos', () => {
+    expect(redactar('falló para ana.perez+x@correo.com.bo hoy')).toBe('falló para <correo> hoy');
+  });
+
+  it('reemplaza teléfonos con prefijo internacional', () => {
+    expect(redactar('llamó +59171234567 ayer')).toBe('llamó <telefono> ayer');
+  });
+
+  it('reemplaza JWT y Bearer', () => {
+    expect(redactar(`token ${JWT} fin`)).toBe('token <token> fin');
+    expect(redactar('Authorization: Bearer abc.def-ghi_123')).toBe('Authorization: <token>');
+  });
+
+  it('reemplaza direcciones IPv4 e IPv6', () => {
+    expect(redactar('desde 200.87.10.4 y 2800:cb0:1234:5678:9abc:def0:1234:5678')).toBe('desde <ip> y <ip>');
+    expect(redactar('cliente ::ffff:10.0.0.1 y ::1')).toBe('cliente <ip> y <ip>');
+  });
+
+  it('no altera un texto sin datos personales', () => {
+    expect(redactar('rol cliente intentó una operación de superadmin')).toBe(
+      'rol cliente intentó una operación de superadmin',
+    );
+  });
+});
+
+describe('serializarError', () => {
+  it('conserva el mensaje de un Error común (JSON.stringify lo pierde)', () => {
+    const resultado = serializarError(new TypeError('falló la consulta'));
+    expect(JSON.stringify(new Error('x'))).toBe('{}');
+    expect(resultado).toEqual({ tipo: 'TypeError', codigo: null, mensaje: 'falló la consulta' });
+  });
+
+  it('no incluye httpResponse, cabeceras ni cuerpo aunque el error los traiga', () => {
+    const errorAuth = Object.assign(new Error('There is no user record for ana@correo.com'), {
+      name: 'FirebaseAuthError',
+      code: 'auth/user-not-found',
+      httpResponse: {
+        headers: { authorization: `Bearer ${JWT}`, 'x-forwarded-for': '200.87.10.4' },
+        data: { error: { message: 'USER_NOT_FOUND' } },
+      },
+    });
+    const resultado = serializarError(errorAuth);
+    expect(resultado).toEqual({
+      tipo: 'FirebaseAuthError',
+      codigo: 'auth/user-not-found',
+      mensaje: 'There is no user record for <correo>',
+    });
+    const texto = JSON.stringify(resultado);
+    for (const prohibido of ['httpResponse', 'headers', 'authorization', 'USER_NOT_FOUND', '200.87', 'eyJ']) {
+      expect(texto).not.toContain(prohibido);
+    }
+  });
+
+  it('lee el código de errorInfo y corta el mensaje a 300 caracteres', () => {
+    const error = Object.assign(new Error('x'.repeat(500)), { errorInfo: { code: 'auth/id-token-expired' } });
+    const resultado = serializarError(error);
+    expect(resultado.codigo).toBe('auth/id-token-expired');
+    expect(resultado.mensaje).toHaveLength(300);
+  });
+
+  it('tolera valores que no son Error', () => {
+    expect(serializarError('texto a +59171234567')).toEqual({
+      tipo: 'string',
+      codigo: null,
+      mensaje: 'texto a <telefono>',
+    });
+    expect(serializarError(undefined)).toEqual({ tipo: 'undefined', codigo: null, mensaje: '' });
+  });
+});
+
+describe('construirEntrada', () => {
+  it('siempre lleva el evento y la versión 1', () => {
+    for (const evento of EVENTOS) {
+      const entrada = construirEntrada(evento, {});
+      expect(entrada.evento).toBe(evento);
+      expect(entrada.v).toBe(1);
+      expect(entrada).toHaveProperty('funcion');
+    }
+  });
+
+  it('toma el nombre de la función de FUNCTION_TARGET', () => {
+    vi.stubEnv('FUNCTION_TARGET', 'loginVendedor');
+    expect(construirEntrada('seguridad.bloqueo_pin', {}).funcion).toBe('loginVendedor');
+    vi.unstubAllEnvs();
+  });
+
+  it('conserva los campos permitidos', () => {
+    const entrada = construirEntrada('seguridad.rol_privilegiado_asignado', {
+      uid: 'u1',
+      actorUid: 'u2',
+      rolAnterior: null,
+      rolNuevo: 'superadmin',
+      comercioId: 'c1',
+      alcance: 'cuenta',
+    });
+    expect(entrada).toMatchObject({
+      uid: 'u1',
+      actorUid: 'u2',
+      rolAnterior: null,
+      rolNuevo: 'superadmin',
+      comercioId: 'c1',
+      alcance: 'cuenta',
+    });
+  });
+
+  it('descarta claves fuera de la lista blanca', () => {
+    const intruso = {
+      uid: 'u1',
+      email: 'ana@correo.com',
+      telefono: '+59171234567',
+      ip: '200.87.10.4',
+      ipHash: 'abc123',
+      token: JWT,
+      authorization: `Bearer ${JWT}`,
+    } as unknown as CamposEvento;
+    const entrada = construirEntrada('seguridad.permiso_denegado', intruso);
+    expect(Object.keys(entrada).sort()).toEqual(['evento', 'funcion', 'uid', 'v']);
+    const texto = JSON.stringify(entrada);
+    for (const prohibido of ['ana@correo.com', '59171234567', '200.87.10.4', 'abc123', 'eyJ']) {
+      expect(texto).not.toContain(prohibido);
+    }
+  });
+
+  it('no deja pasar correo, teléfono, IP ni token metidos en detalle o en campos permitidos', () => {
+    const entrada = construirEntrada('seguridad.permiso_denegado', {
+      detalle: `ana@correo.com +59171234567 200.87.10.4 ${JWT} Bearer secreto123`,
+      motivo: 'intento de ana@correo.com desde 200.87.10.4',
+      error: {
+        tipo: 'Error',
+        codigo: null,
+        mensaje: `token ${JWT}`,
+        httpResponse: { headers: { cookie: 'sid=1' } },
+      } as never,
+    });
+    const texto = JSON.stringify(entrada);
+    for (const prohibido of [
+      'ana@correo.com', '59171234567', '200.87.10.4', 'eyJ', 'secreto123', 'httpResponse', 'cookie',
+    ]) {
+      expect(texto).not.toContain(prohibido);
+    }
+    expect(entrada.detalle).toBe('<correo> <telefono> <ip> <token> <token>');
+  });
+
+  it('corta detalle a 300 caracteres', () => {
+    const entrada = construirEntrada('seguridad.permiso_denegado', { detalle: 'a'.repeat(1000) });
+    expect(entrada.detalle).toHaveLength(300);
+  });
+
+  it('redacta antes de cortar, para no dejar un correo a medias', () => {
+    const detalle = `${'a'.repeat(290)} ana.perez@correo.com`;
+    const entrada = construirEntrada('seguridad.permiso_denegado', { detalle });
+    expect(entrada.detalle).not.toContain('@');
+    expect(entrada.detalle).not.toContain('correo.com');
+  });
+
+  it('ignora un alcance no previsto', () => {
+    const entrada = construirEntrada('seguridad.bloqueo_pin', { alcance: 'otro' } as never);
+    expect(entrada).not.toHaveProperty('alcance');
+  });
+});
+
+describe('registrarEvento', () => {
+  it('usa la severidad indicada y pasa (evento, entrada) al logger', () => {
+    const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+
+    registrarEvento('seguridad.sesiones_revocadas', { uid: 'u1' }, 'INFO');
+    registrarEvento('seguridad.bloqueo_pin', { alcance: 'ip' }, 'WARNING');
+    registrarEvento('error.interno', { error: serializarError(new Error('boom')) }, 'ERROR');
+
+    expect(info).toHaveBeenCalledWith('seguridad.sesiones_revocadas', expect.objectContaining({ evento: 'seguridad.sesiones_revocadas', uid: 'u1', v: 1 }));
+    expect(warn).toHaveBeenCalledWith('seguridad.bloqueo_pin', expect.objectContaining({ alcance: 'ip' }));
+    expect(error).toHaveBeenCalledWith('error.interno', expect.objectContaining({ error: { tipo: 'Error', codigo: null, mensaje: 'boom' } }));
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+});
