@@ -14,6 +14,7 @@ const JWT = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjMifQ.firma_de_prueba-123';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('redactar', () => {
@@ -136,14 +137,19 @@ describe('construirEntrada', () => {
       const entrada = construirEntrada(evento, {});
       expect(entrada.evento).toBe(evento);
       expect(entrada.v).toBe(1);
-      expect(entrada).toHaveProperty('funcion');
+      expect(entrada.funcion).toBe(process.env.FUNCTION_TARGET ?? null);
     }
   });
 
   it('toma el nombre de la función de FUNCTION_TARGET', () => {
     vi.stubEnv('FUNCTION_TARGET', 'loginVendedor');
     expect(construirEntrada('seguridad.bloqueo_pin', {}).funcion).toBe('loginVendedor');
-    vi.unstubAllEnvs();
+  });
+
+  it('funcion es null cuando FUNCTION_TARGET no está definido', () => {
+    vi.stubEnv('FUNCTION_TARGET', undefined);
+    expect(process.env.FUNCTION_TARGET).toBeUndefined();
+    expect(construirEntrada('seguridad.bloqueo_pin', {}).funcion).toBeNull();
   });
 
   it('conserva los campos permitidos', () => {
@@ -263,6 +269,16 @@ describe('construirEntrada', () => {
   it('ignora un alcance no previsto', () => {
     const entrada = construirEntrada('seguridad.bloqueo_pin', { alcance: 'otro' } as never);
     expect(entrada).not.toHaveProperty('alcance');
+  });
+
+  it('ignora un alcance inválido sin perder las demás claves válidas', () => {
+    const entrada = construirEntrada('seguridad.bloqueo_pin', {
+      uid: 'u1',
+      motivo: 'pin_incorrecto',
+      alcance: 'otro',
+    } as never);
+    expect(entrada).not.toHaveProperty('alcance');
+    expect(entrada).toMatchObject({ uid: 'u1', motivo: 'pin_incorrecto' });
   });
 });
 
