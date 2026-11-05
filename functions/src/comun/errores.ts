@@ -5,13 +5,20 @@
  * los detalles quedan en los registros del servidor.
  */
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logger } from 'firebase-functions/v2';
+import { registrarEvento, serializarError, type CamposEvento } from './eventos';
 
 export const sinSesion = (): HttpsError =>
   new HttpsError('unauthenticated', 'Tu sesión expiró. Vuelve a iniciar sesión.');
 
-export const sinPermiso = (detalleInterno?: string): HttpsError => {
-  if (detalleInterno) logger.warn('Permiso denegado', { detalleInterno });
+export const sinPermiso = (
+  detalleInterno?: string,
+  contexto: Pick<CamposEvento, 'uid' | 'rol' | 'comercioId'> = {},
+): HttpsError => {
+  registrarEvento(
+    'seguridad.permiso_denegado',
+    { ...contexto, detalle: detalleInterno },
+    'WARNING',
+  );
   return new HttpsError('permission-denied', 'No tienes permiso para realizar esta operación.');
 };
 
@@ -28,6 +35,6 @@ export const demasiadosIntentos = (mensaje: string): HttpsError =>
   new HttpsError('resource-exhausted', mensaje);
 
 export const errorInterno = (detalleInterno: unknown): HttpsError => {
-  logger.error('Error interno', { detalleInterno });
+  registrarEvento('error.interno', { error: serializarError(detalleInterno) }, 'ERROR');
   return new HttpsError('internal', 'No se pudo completar la operación. Inténtalo de nuevo.');
 };

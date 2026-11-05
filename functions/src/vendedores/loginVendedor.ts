@@ -7,7 +7,7 @@
  * vendedor tiene identidad verificable y `request.auth` en las reglas.
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { logger } from 'firebase-functions/v2';
+import { registrarEvento } from '../comun/eventos';
 import { z } from 'zod';
 import { auth, db } from '../comun/firebase';
 import { opcionesLogin } from '../comun/config';
@@ -28,6 +28,8 @@ const Entrada = z.object({
 /** Mensaje único para usuario inexistente, PIN incorrecto y cuenta sin PIN: no se enumera nada. */
 const CREDENCIAL_INVALIDA = 'Usuario o PIN incorrectos.';
 
+type MotivoFallo = 'usuario_inexistente' | 'sin_pin' | 'pin_incorrecto';
+
 export const loginVendedor = onCall(opcionesLogin, async (req) => {
   const { usuario, pin } = validar(Entrada, req.data);
   const ip = req.rawRequest?.ip ?? null;
@@ -41,9 +43,11 @@ export const loginVendedor = onCall(opcionesLogin, async (req) => {
       );
     }
 
-    const registrarFallo = async (motivo: string, uid?: string): Promise<never> => {
-      const { bloqueado: _ignorado, ...nuevoIp } = siguienteEstadoTrasFallo(estadoIp);
+    const registrarFallo = async (motivo: MotivoFallo, uid?: string): Promise<never> => {
+      const { bloqueado: bloqueadoIp, ...nuevoIp } = siguienteEstadoTrasFallo(estadoIp);
       await refIp.set(nuevoIp, { merge: true });
+      // Sin la IP ni su hash: el evento solo dice que el bloqueo por conexión se activó.
+      if (bloqueadoIp) registrarEvento('seguridad.bloqueo_pin', { alcance: 'ip' }, 'WARNING');
 
       if (uid) {
         const refSecreto = db.collection('vendedores_secretos').doc(uid);
@@ -51,6 +55,7 @@ export const loginVendedor = onCall(opcionesLogin, async (req) => {
         const { bloqueado, ...nuevoUsuario } = siguienteEstadoTrasFallo(estadoUsuario);
         await refSecreto.set(nuevoUsuario, { merge: true });
         if (bloqueado) {
+          registrarEvento('seguridad.bloqueo_pin', { alcance: 'cuenta', uid }, 'WARNING');
           // Si alguien está probando PIN contra esta cuenta, se cortan también sus sesiones vivas.
           await auth.revokeRefreshTokens(uid).catch(() => undefined);
           await auditar({
@@ -63,7 +68,7 @@ export const loginVendedor = onCall(opcionesLogin, async (req) => {
       }
 
       // El motivo real queda en el registro del servidor; al cliente va siempre el mismo mensaje.
-      logger.warn('Intento de ingreso de vendedor fallido', { motivo });
+      registrarEvento('seguridad.ingreso_vendedor_fallido', { motivo }, 'WARNING');
       throw new HttpsError('permission-denied', CREDENCIAL_INVALIDA);
     };
 
@@ -74,7 +79,7 @@ export const loginVendedor = onCall(opcionesLogin, async (req) => {
       .limit(1)
       .get();
 
-    if (consulta.empty) return await registrarFallo('usuario inexistente');
+    if (consulta.empty) return await registrarFallo('usuario_inexistente');
 
     const docUsuario = consulta.docs[0]!;
     const datos = docUsuario.data();
@@ -95,8 +100,8 @@ export const loginVendedor = onCall(opcionesLogin, async (req) => {
         `Esta cuenta está bloqueada por intentos fallidos. Espera ${minutosRestantes(secreto)} minutos.`,
       );
     }
-    if (!secreto?.hash) return await registrarFallo('vendedor sin PIN configurado', uid);
-    if (!(await verificarPin(pin, secreto))) return await registrarFallo('PIN incorrecto', uid);
+    if (!secreto?.hash) return await registrarFallo('sin_pin', uid);
+    if (!(await verificarPin(pin, secreto))) return await registrarFallo('pin_incorrecto', uid);
 
     await Promise.all([
       db.collection('vendedores_secretos').doc(uid).set(estadoLimpio(), { merge: true }),

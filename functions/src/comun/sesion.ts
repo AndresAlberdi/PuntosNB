@@ -20,7 +20,7 @@ export function actorDe(req: CallableRequest<unknown>): Actor {
 
   const rol = req.auth.token.rol as Rol | undefined;
   if (!rol || !ROLES.includes(rol)) {
-    throw sinPermiso(`token sin rol válido (uid ${req.auth.uid})`);
+    throw sinPermiso(`token sin rol válido (uid ${req.auth.uid})`, { uid: req.auth.uid });
   }
 
   const comercioId = typeof req.auth.token.comercioId === 'string' ? req.auth.token.comercioId : null;
@@ -37,7 +37,11 @@ export function actorDe(req: CallableRequest<unknown>): Actor {
 /** Exige que el actor tenga alguno de los roles indicados. */
 export function exigirRol(actor: Actor, ...roles: Rol[]): void {
   if (!roles.includes(actor.rol)) {
-    throw sinPermiso(`rol ${actor.rol} intentó una operación de ${roles.join('/')}`);
+    throw sinPermiso(`rol ${actor.rol} intentó una operación de ${roles.join('/')}`, {
+      uid: actor.uid,
+      rol: actor.rol,
+      comercioId: actor.comercioId,
+    });
   }
 }
 
@@ -45,6 +49,10 @@ export function exigirRol(actor: Actor, ...roles: Rol[]): void {
 export function exigirComercio(actor: Actor, comercioId: string): void {
   if (actor.rol === 'superadmin') return;
   if (!actor.comercioId || actor.comercioId !== comercioId) {
-    throw sinPermiso(`${actor.uid} (${actor.comercioId ?? 'sin comercio'}) intentó operar sobre ${comercioId}`);
+    throw sinPermiso(`${actor.uid} (${actor.comercioId ?? 'sin comercio'}) intentó operar sobre ${comercioId}`, {
+      uid: actor.uid,
+      rol: actor.rol,
+      comercioId: actor.comercioId,
+    });
   }
 }

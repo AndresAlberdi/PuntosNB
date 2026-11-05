@@ -33,7 +33,7 @@ export const anularCobroPrepago = onCall(opcionesCallable, async (req) => {
       };
 
       if (actor.rol === 'contador' && cobro.contadorId !== actor.uid) {
-        throw sinPermiso('el cobro lo registró otro contador');
+        throw sinPermiso('el cobro lo registró otro contador', { uid: actor.uid, rol: actor.rol, comercioId: actor.comercioId });
       }
       if (cobro.estado === 'VERIFICADO') {
         throw conflicto('Ese cobro ya fue conciliado por el superadministrador y no se puede anular.');

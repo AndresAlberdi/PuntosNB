@@ -37,7 +37,11 @@ function exigirParteDeLaCampana(actor: Actor, comercioId: string, influencerId: 
   if (actor.rol === 'superadmin') return 'comercio';
   if (actor.rol === 'admin_comercio' && actor.comercioId === comercioId) return 'comercio';
   if (actor.rol === 'influencer' && actor.uid === influencerId) return 'influencer';
-  throw sinPermiso(`${actor.uid} (${actor.rol}) intentó operar la campaña ${comercioId}_${influencerId}`);
+  throw sinPermiso(`${actor.uid} (${actor.rol}) intentó operar la campaña ${comercioId}_${influencerId}`, {
+    uid: actor.uid,
+    rol: actor.rol,
+    comercioId: actor.comercioId,
+  });
 }
 
 export const gestionarAsignacionInfluencer = onCall(opcionesCallable, async (req) => {
@@ -69,8 +73,8 @@ export const gestionarAsignacionInfluencer = onCall(opcionesCallable, async (req
         case 'invitar':
         case 'proponer': {
           if (snap.exists) throw conflicto('Ya existe una colaboración con este influencer.');
-          if (datos.accion === 'invitar' && parte !== 'comercio') throw sinPermiso('solo el comercio invita');
-          if (datos.accion === 'proponer' && parte !== 'influencer') throw sinPermiso('solo el influencer propone');
+          if (datos.accion === 'invitar' && parte !== 'comercio') throw sinPermiso('solo el comercio invita', { uid: actor.uid, rol: actor.rol, comercioId: actor.comercioId });
+          if (datos.accion === 'proponer' && parte !== 'influencer') throw sinPermiso('solo el influencer propone', { uid: actor.uid, rol: actor.rol, comercioId: actor.comercioId });
 
           const perfil = await tx.get(db.collection('users').doc(datos.influencerId));
           if (!perfil.exists || perfil.data()?.rol !== 'influencer') throw noEncontrado('Ese influencer no existe.');
@@ -111,7 +115,7 @@ export const gestionarAsignacionInfluencer = onCall(opcionesCallable, async (req
 
         case 'recargarBolsa': {
           if (!snap.exists) throw noEncontrado('Esa colaboración no existe.');
-          if (parte !== 'comercio') throw sinPermiso('solo el comercio recarga la bolsa');
+          if (parte !== 'comercio') throw sinPermiso('solo el comercio recarga la bolsa', { uid: actor.uid, rol: actor.rol, comercioId: actor.comercioId });
           const agregado = datos.puntosParaClientes ?? 0;
           if (agregado <= 0) throw conflicto('Indica cuántos puntos quieres agregar a la bolsa.');
           const nueva = (actual?.puntosParaClientes ?? 0) + agregado;
@@ -122,7 +126,7 @@ export const gestionarAsignacionInfluencer = onCall(opcionesCallable, async (req
 
         case 'editarRatio': {
           if (!snap.exists) throw noEncontrado('Esa colaboración no existe.');
-          if (parte !== 'comercio') throw sinPermiso('solo el comercio edita el reparto');
+          if (parte !== 'comercio') throw sinPermiso('solo el comercio edita el reparto', { uid: actor.uid, rol: actor.rol, comercioId: actor.comercioId });
           tx.update(ref, {
             ratio: { cliente: datos.ratioCliente ?? 10, influencer: datos.ratioInfluencer ?? 0 },
             updatedAt: Date.now(),
@@ -218,7 +222,7 @@ export const gestionarCodigoInfluencer = onCall(opcionesCallable, async (req) =>
     const snap = await ref.get();
     if (!snap.exists) throw noEncontrado('Ese código no existe.');
     if (actor.rol !== 'superadmin' && snap.data()?.influencerId !== actor.uid) {
-      throw sinPermiso('el código pertenece a otro influencer');
+      throw sinPermiso('el código pertenece a otro influencer', { uid: actor.uid, rol: actor.rol, comercioId: actor.comercioId });
     }
 
     if (datos.accion === 'eliminar') {
